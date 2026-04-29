@@ -17,7 +17,7 @@ import io.github.cylear.hoshimi.localify.hookUtils.FileHotUpdater
 import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
 import io.github.cylear.hoshimi.localify.hookUtils.MainKeyEventDispatcher
 import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
-import io.github.cylear.hoshimi.localify.mainUtils.ShizukuApi
+
 import io.github.cylear.hoshimi.localify.mainUtils.json
 import io.github.cylear.hoshimi.localify.models.ConfirmStateModel
 import io.github.cylear.hoshimi.localify.models.IdolyprideConfig
@@ -45,11 +45,6 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
-
-    fun gotoPatchActivity() {
-        val intent = Intent(this, PatchActivity::class.java)
-        startActivity(intent)
     }
 
     override fun saveConfig() {
@@ -134,7 +129,7 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         )
         programConfigViewModel = ViewModelProvider(this, programConfigFactory)[ProgramConfigViewModel::class.java]
 
-        ShizukuApi.init()
+
 
         setContent {
             HoshimiLocalifyTheme(dynamicColor = false, darkTheme = false) {

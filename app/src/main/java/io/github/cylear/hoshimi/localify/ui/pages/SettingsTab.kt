@@ -73,16 +73,6 @@ fun SettingsTabs(modifier: Modifier = Modifier,
                 Row(modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     FloatingActionButton(
-                        onClick = { context?.gotoPatchActivity() },
-                        // modifier = Modifier.align(Alignment.End),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        shape = CircleShape
-                    ) {
-                        Icon(modifier = Modifier.size(24.dp),
-                            imageVector = Icons.Outlined.AutoFixHigh,
-                            contentDescription = "GotoPatch")
-                    }
-                    FloatingActionButton(
                         onClick = { context?.onClickStartGame() },
                         //modifier = Modifier.align(Alignment.End),
                         containerColor = MaterialTheme.colorScheme.primary,

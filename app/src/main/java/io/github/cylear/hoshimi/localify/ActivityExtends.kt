@@ -27,7 +27,7 @@ fun <T> T.getConfigContent(): String where T : Activity {
     return if (configFile.exists()) {
         configFile.readText()
     } else {
-        Toast.makeText(this, "检测到第一次启动，初始化配置文件...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "First launch detected, initialising configuration file...", Toast.LENGTH_SHORT).show()
         configFile.writeText("{}")
         "{}"
     }
@@ -63,7 +63,7 @@ fun <T> T.loadConfig() where T : Activity, T : IHasConfigItems {
     config = try {
         json.decodeFromString<IdolyprideConfig>(configStr)
     } catch (e: SerializationException) {
-        Toast.makeText(this, "配置文件异常: $e", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Configuration file error: $e", Toast.LENGTH_SHORT).show()
         IdolyprideConfig()
     }
     saveConfig()
