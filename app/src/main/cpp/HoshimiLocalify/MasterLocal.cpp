@@ -1,6 +1,7 @@
 #include "MasterLocal.h"
 #include "Local.h"
 #include "Il2cppUtils.hpp"
+#include "Misc.hpp"
 #include "config/Config.hpp"
 #include <filesystem>
 #include <fstream>
@@ -591,66 +592,80 @@ namespace HoshimiLocal::MasterLocal {
 
                 try {
                     auto j = nlohmann::json::parse(fileContent);
-                    if (!j.contains("rules") || !j["rules"].contains("primaryKeys")) {
-                        continue;
-                    }
                     ItemRule currRule;
-                    if (!GetItemRule(j, currRule)) {
-                        Log::ErrorFmt("GetItemRule failed: %s", path.string().c_str());
-                        continue;
+                    TableLocalData tableLocalData;
+
+                    if (j.contains("rule") && j["rule"].is_array() && j.contains("data") && j["data"].is_object()) {
+                        // 새로운 최적화된 형식 (Flat Map) 처리
+                        for (auto& ruleItem : j["rule"]) {
+                            if (!ruleItem.is_string()) continue;
+                            std::string ruleStr = ruleItem;
+                            auto parts = Misc::StringFormat::split(ruleStr, '|');
+                            if (parts.size() < 2) continue;
+
+                            // 마지막 항목은 LocalKey, 나머지는 PrimaryKeys
+                            std::string localKey = parts.back();
+                            parts.pop_back();
+
+                            // PK 등록 (중복 방지)
+                            for (const auto& pk : parts) {
+                                if (std::find(currRule.mainPrimaryKey.begin(), currRule.mainPrimaryKey.end(), pk) == currRule.mainPrimaryKey.end()) {
+                                    currRule.mainPrimaryKey.push_back(pk);
+                                }
+                                tableLocalData.mainKeyType[pk] = JsonValueType::JVT_String; // 기본적으로 문자열로 취급
+                            }
+
+                            // LocalKey 등록
+                            if (localKey.find('.') != std::string::npos) {
+                                auto subParts = Misc::StringFormat::split(localKey, '.');
+                                if (subParts.size() >= 2) {
+                                    std::string parent = subParts[0];
+                                    std::string child = subParts[1];
+                                    currRule.subLocalKey[parent].push_back(child);
+                                    tableLocalData.mainKeyType[parent] = JsonValueType::JVT_ArrayObject;
+                                    tableLocalData.subKeyType[parent][child] = JsonValueType::JVT_String;
+                                }
+                            } else {
+                                currRule.mainLocalKey.push_back(localKey);
+                                tableLocalData.mainKeyType[localKey] = JsonValueType::JVT_String;
+                            }
+                        }
+
+                        // 번역 데이터 직접 매핑
+                        for (auto& [k, v] : j["data"].items()) {
+                            if (v.is_string()) {
+                                tableLocalData.transData.emplace(k, v);
+                                Local::translatedText.emplace(v);
+                            }
+                        }
+                        tableLocalData.itemRule = std::move(currRule);
                     }
-
-                    /*
-                    if (tableName == "ProduceStepEventDetail") {
-                        for (auto& i : currRule.mainLocalKey) {
-                            Log::DebugFmt("currRule.mainLocalKey: %s", i.c_str());
+                    else if (j.contains("rules") && j["rules"].contains("primaryKeys")) {
+                        // 기존 방식 처리
+                        if (!GetItemRule(j, currRule)) {
+                            Log::ErrorFmt("GetItemRule failed: %s", path.string().c_str());
+                            continue;
                         }
-                        for (auto& i : currRule.mainPrimaryKey) {
-                            Log::DebugFmt("currRule.mainPrimaryKey: %s", i.c_str());
+                        tableLocalData.itemRule = std::move(currRule);
+                        if (!GetTableLocalData(j, tableLocalData)) {
+                            Log::ErrorFmt("GetTableLocalData failed: %s", path.string().c_str());
+                            continue;
                         }
-                        for (auto& i : currRule.subLocalKey) {
-                            for (auto& m : i.second) {
-                                Log::DebugFmt("currRule.subLocalKey: %s - %s", i.first.c_str(), m.c_str());
-                            }
-                        }
-                        for (auto& i : currRule.subPrimaryKey) {
-                            for (auto& m : i.second) {
-                                Log::DebugFmt("currRule.subPrimaryKey: %s - %s", i.first.c_str(), m.c_str());
-                            }
-                        }
-                    }*/
-
-                    TableLocalData tableLocalData{ .itemRule = currRule };
-                    if (GetTableLocalData(j, tableLocalData)) {
+                        // 기존 방식의 데이터 추출
                         for (auto& i : tableLocalData.transData) {
-                            // Log::DebugFmt("%s: %s -> %s", tableName.c_str(), i.first.c_str(), i.second.c_str());
                             Local::translatedText.emplace(i.second);
                         }
                         for (auto& i : tableLocalData.transStrListData) {
                             for (auto& str : i.second) {
-                                // Log::DebugFmt("%s[]: %s -> %s", tableName.c_str(), i.first.c_str(), str.c_str());
                                 Local::translatedText.emplace(str);
                             }
                         }
-
-                        /*
-                        if (tableName == "ProduceStepEventDetail") {
-                            for (auto& i : tableLocalData.mainKeyType) {
-                                Log::DebugFmt("mainKeyType: %s -> %d", i.first.c_str(), i.second);
-                            }
-                            for (auto& i : tableLocalData.subKeyType) {
-                                for (auto& m : i.second) {
-                                    Log::DebugFmt("subKeyType: %s - %s -> %d", i.first.c_str(), m.first.c_str(), m.second);
-                                }
-                            }
-                        }*/
-                        // JVT_ArrayString in HelpCategory, ProduceStory, Tutorial
-
-                        masterLocalData.emplace(tableName, std::move(tableLocalData));
                     }
                     else {
-                        Log::ErrorFmt("GetTableLocalData failed: %s", path.string().c_str());
+                        continue;
                     }
+
+                    masterLocalData.emplace(tableName, std::move(tableLocalData));
                 } catch (std::exception& e) {
                     Log::ErrorFmt("MasterLocal::LoadData: parse error in '%s': %s",
                                   path.string().c_str(), e.what());
@@ -728,14 +743,14 @@ namespace HoshimiLocal::MasterLocal {
 
         // 处理 sub
         for (const auto& [subParentKey, subLocalKeys] : localData.itemRule.subLocalKey) {
-            const auto subBaseSearchKey = baseDataKey + subParentKey + '|';  // p_card-00-acc-0_002|0|produceDescriptions|
+            const auto subBaseSearchKey = baseDataKey + subParentKey;
 
             const auto subParentType = localData.GetMainKeyType(subParentKey);
             switch (subParentType) {
                 case JsonValueType::JVT_Object: {
                     auto subParentField = fc.CreateSubFieldController(subParentKey);
                     for (const auto& subLocalKey : subLocalKeys) {
-                        const auto currSearchKey = subBaseSearchKey + subLocalKey;  // p_card-00-acc-0_002|0|produceDescriptions|text
+                        const auto currSearchKey = subBaseSearchKey + "." + subLocalKey;
                         auto localKeyType = localData.GetSubKeyType(subParentKey, subLocalKey);
                         if (localKeyType == JsonValueType::JVT_String) {
                             auto setData = GetTransString(currSearchKey, localData);
@@ -761,10 +776,10 @@ namespace HoshimiLocal::MasterLocal {
                         if (!currItem) continue;
                         auto currFc = FieldController::CreateSubFieldController(currItem);
 
-                        std::string currSearchBaseKey = subBaseSearchKey;  // p_card-00-acc-0_002|0|produceDescriptions|
+                        std::string currSearchBaseKey = subBaseSearchKey;
                         currSearchBaseKey.push_back('[');
                         currSearchBaseKey.append(std::to_string(idx));
-                        currSearchBaseKey.append("]|");  // p_card-00-acc-0_002|0|produceDescriptions|[0]|
+                        currSearchBaseKey.append("].");
 
                         for (const auto& subLocalKey : subLocalKeys) {
                             std::string currSearchKey = currSearchBaseKey + subLocalKey;  // p_card-00-acc-0_002|0|produceDescriptions|[0]|text
