@@ -328,6 +328,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         builder.setTitle("Warning")
         builder.setCancelable(false)
         builder.setMessage(when (getCurrentLanguage(activity)) {
+            "ko" -> "플러그인 버전이 일치하지 않습니다.\n빌드된 버전: $buildVersionName\n요청된 버전: $readVersion\n\nLSPatch 통합 모드를 사용하여 게임을 다시 패치하지 않고 플러그인 본체만 업데이트했을 수 있습니다. $readVersion 버전의 플러그인으로 게임을 다시 패치하거나 로컬 모드를 사용해주세요."
             "zh" -> "检测到插件版本不一致\n内置版本: $buildVersionName\n请求版本: $readVersion\n\n这可能是使用了 LSPatch 的集成模式，仅更新了插件本体，未重新修补游戏导致的。请使用 $readVersion 版本的插件重新修补或使用本地模式。"
             else -> "Detected plugin version mismatch\nBuilt-in version: $buildVersionName\nRequested version: $readVersion\n\nThis may be caused by using the LSPatch integration mode, where only the plugin itself was updated without re-patching the game. Please re-patch the game using the $readVersion version of the plugin or use the local mode."
         })
