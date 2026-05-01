@@ -1,26 +1,18 @@
-# HoshimiLocalify
+# Hoshimi Localify
 
-- An xposed plugin for Idolypride (Hoshimi Localify)
-- This repository is irrelevant to Idolm@ster and BandaiNamco
+- An xposed plugin for Idolypride
 - Use this plugin at your own risk
+- This repository is irrelevant to Idolm@ster and BandaiNamco
 
 # Usage
 
 - With Rooted Device: [LSPatch](https://github.com/LSPosed/LSPatch)
 
-
-# TODO
-
-- [x] 
-
-...and more
-
-
 # Special Thanks
 
-- [HoshimiToolkit](https://github.com/MalitsPlus/HoshimiToolkit)
-- [UmaPyogin-Android](https://github.com/akemimadoka/UmaPyogin-Android)
-- [UnityResolve.hpp](https://github.com/issuimo/UnityResolve.hpp)
-- [gakuen-imas-localify](https://github.com/cylear/gakuen-imas-localify)
-- You
+#### Chinosk6
+- [gakuen-imas-localify](https://github.com/chinosk6/gakuen-imas-localify) (Original Code)
+#### Vilebbit
+- [HoshimiToolkit](https://github.com/Vilebbit/HoshimiToolkit)
+- [SolisClient](https://github.com/Vilebbit/SolisClient)
 
