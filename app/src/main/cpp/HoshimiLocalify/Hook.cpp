@@ -408,6 +408,77 @@ namespace HoshimiLocal::HookMain {
             Log::InfoFmt("[Font] Korean font registered in TMP_Settings.fallbackFontAssets!");
         }
     }
+ 
+    std::string ResolveJosa(std::string text) {
+        if (text.empty()) return text;
+
+        auto get_batchim = [](uint32_t code) -> int {
+            if (code < 0xAC00 || code > 0xD7A3) return -1;
+            return (code - 0xAC00) % 28;
+        };
+
+        size_t pos = 0;
+        while ((pos = text.find("[", pos)) != std::string::npos) {
+            size_t endPos = text.find("]", pos);
+            if (endPos == std::string::npos) break;
+
+            std::string tag = text.substr(pos, endPos - pos + 1);
+            std::string replaceWith = "";
+            
+            // 앞 글자 유니코드 추출 (UTF-8 백트래킹)
+            uint32_t lastChar = 0;
+            if (pos > 0) {
+                size_t prev = pos - 1;
+                if ((text[prev] & 0x80) == 0) { // ASCII
+                    lastChar = text[prev];
+                } else { // Multi-byte
+                    while (prev > 0 && (text[prev] & 0xC0) == 0x80) prev--;
+                    // Simple UTF-8 to UTF-32 (3-byte Hangeul focus)
+                    unsigned char c1 = text[prev];
+                    if ((c1 & 0xF0) == 0xE0 && prev + 2 < pos) {
+                        lastChar = ((c1 & 0x0F) << 12) | ((text[prev+1] & 0x3F) << 6) | (text[prev+2] & 0x3F);
+                    }
+                }
+            }
+
+            int batchim = get_batchim(lastChar);
+            bool hasBatchim = batchim > 0;
+
+            if (tag == "[은/는]") replaceWith = hasBatchim ? "\xEC\x9D\x80" : "\xEB\x8A\x94"; // 은 : 는
+            else if (tag == "[이/가]") replaceWith = hasBatchim ? "\xEC\x9D\xB4" : "\xEA\xB0\x80"; // 이 : 가
+            else if (tag == "[을/를]") replaceWith = hasBatchim ? "\xEC\x9D\x84" : "\xEB\xA5\xBC"; // 을 : 를
+            else if (tag == "[와/과]") replaceWith = hasBatchim ? "\xEA\xB3\xBC" : "\xEC\x99\x80"; // 과 : 와
+            else if (tag == "[아/야]") replaceWith = hasBatchim ? "\xEC\x95\x84" : "\xEC\x95\xBC"; // 아 : 야
+            else if (tag == "[으/로]") {
+                // ㄹ 받침(8)인 경우 '로' 선택
+                if (batchim == 8) replaceWith = "\xEB\xA1\x9C"; // 로
+                else replaceWith = hasBatchim ? "\xEC\x9C\xBC\xEB\xA1\x9C" : "\xEB\xA1\x9C"; // 으로 : 로
+            }
+
+            if (!replaceWith.empty()) {
+                text.replace(pos, tag.length(), replaceWith);
+                pos += replaceWith.length();
+            } else {
+                pos = endPos + 1;
+            }
+        }
+        return text;
+    }
+
+    std::string FixLigature(std::string text) {
+        if (text.empty()) return text;
+        size_t pos = 0;
+        // 1. 스토리창 범인: U+2E3A (Two-Em Dash, \xE2\xB8\xBA) 를 Em Dash(—) 하나로 치환
+        while ((pos = text.find("\xE2\xB8\xBA", pos)) != std::string::npos) {
+            text.replace(pos, 3, "\xE2\x80\x94");
+            pos += 3;
+        }
+
+        // 2. 한국어 조사 처리 추가
+        text = ResolveJosa(text);
+
+        return text;
+    }
 
     std::unordered_set<void*> updatedFontPtrs{};
     void UpdateFont(void* TMP_Textself) {
@@ -480,8 +551,11 @@ namespace HoshimiLocal::HookMain {
 
         const std::string origText = Substring->Invoke<Il2cppString*>(text, start, length)->ToString();
         std::string transText;
-        if (Local::GetGenericText(origText, &transText)) {
-            const auto newText = UnityResolve::UnityType::String::New(transText);
+        bool hasTrans = Local::GetGenericText(origText, &transText);
+        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+        if (hasTrans || finalStr != origText) {
+            const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             return TMP_Text_PopulateTextBackingArray_Orig(self, newText, 0, newText->length);
         }
@@ -501,8 +575,11 @@ namespace HoshimiLocal::HookMain {
         }
         const std::string origText = value->ToString();
         std::string transText;
-        if (Local::GetGenericText(origText, &transText)) {
-            const auto newText = UnityResolve::UnityType::String::New(transText);
+        bool hasTrans = Local::GetGenericText(origText, &transText);
+        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+        if (hasTrans || finalStr != origText) {
+            const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             return TMP_Text_set_text_Orig(self, newText, mtd);
         }
@@ -521,8 +598,11 @@ namespace HoshimiLocal::HookMain {
         }
         const std::string origText = sourceText->ToString();
         std::string transText;
-        if (Local::GetGenericText(origText, &transText)) {
-            const auto newText = UnityResolve::UnityType::String::New(transText);
+        bool hasTrans = Local::GetGenericText(origText, &transText);
+        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+        if (hasTrans || finalStr != origText) {
+            const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             return TMP_Text_SetText_1_Orig(self, newText, mtd);
         }
@@ -541,8 +621,11 @@ namespace HoshimiLocal::HookMain {
 		}
 		const std::string origText = sourceText->ToString();
 		std::string transText;
-		if (Local::GetGenericText(origText, &transText)) {
-			const auto newText = UnityResolve::UnityType::String::New(transText);
+        bool hasTrans = Local::GetGenericText(origText, &transText);
+        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+		if (hasTrans || finalStr != origText) {
+			const auto newText = UnityResolve::UnityType::String::New(finalStr);
 			UpdateFont(self);
 			return TMP_Text_SetText_2_Orig(self, newText, syncTextInputBox, mtd);
 		}
@@ -566,12 +649,15 @@ namespace HoshimiLocal::HookMain {
         if (currText) {
             //Log::InfoFmt("TextMeshProUGUI_Awake: %s", currText->ToString().c_str());
             std::string transText;
-            if (Local::GetGenericText(currText->ToString(), &transText)) {
+            bool hasTrans = Local::GetGenericText(currText->ToString(), &transText);
+            std::string finalStr = FixLigature(hasTrans ? transText : currText->ToString());
+
+            if (hasTrans || finalStr != currText->ToString()) {
                 if (Config::textTest) {
-                    set_Text_method->Invoke<void>(self, UnityResolve::UnityType::String::New("[TA]" + transText));
+                    set_Text_method->Invoke<void>(self, UnityResolve::UnityType::String::New("[TA]" + finalStr));
                 }
                 else {
-                    set_Text_method->Invoke<void>(self, UnityResolve::UnityType::String::New(transText));
+                    set_Text_method->Invoke<void>(self, UnityResolve::UnityType::String::New(finalStr));
                 }
             }
         }
@@ -614,8 +700,11 @@ namespace HoshimiLocal::HookMain {
         }
         const std::string origText = value->ToString();
         std::string transText;
-        if (Local::GetGenericText(origText, &transText)) {
-            const auto newText = UnityResolve::UnityType::String::New(transText);
+        bool hasTrans = Local::GetGenericText(origText, &transText);
+        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+        if (hasTrans || finalStr != origText) {
+            const auto newText = UnityResolve::UnityType::String::New(finalStr);
             return UIText_set_text_Orig(self, newText);
         }
         if (Config::textTest) {
@@ -642,9 +731,12 @@ namespace HoshimiLocal::HookMain {
                         static_cast<size_t>(count));
                     const std::string origText = Misc::ToUTF8(u16);
                     std::string transText;
-                    if (Local::GetGenericText(origText, &transText)) {
+                    bool hasTrans = Local::GetGenericText(origText, &transText);
+                    std::string finalStr = FixLigature(hasTrans ? transText : origText);
+
+                    if (hasTrans || finalStr != origText) {
                         UpdateFont(self);
-                        TMP_Text_set_text_Orig(self, Il2cppString::New(transText), nullptr);
+                        TMP_Text_set_text_Orig(self, Il2cppString::New(finalStr), nullptr);
                         return;
                     }
                     if (Config::textTest) {

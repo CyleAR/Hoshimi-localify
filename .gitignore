@@ -20,7 +20,8 @@ local.properties
 /app/release
 /notes
 /platform-tools
+/scratch
 skills.md
-dump
+/dump
 debug_log.txt
 build_*.txt
