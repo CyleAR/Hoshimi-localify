@@ -330,8 +330,9 @@ namespace Il2cppUtils {
         class CSListEditor {
         public:
             CSListEditor(void* list) {
-                list_klass = get_class_from_instance(list);
                 lst = list;
+                list_klass = get_class_from_instance(list);
+                if (!list_klass) return;
 
                 lst_get_Count_method = il2cpp_class_get_method_from_name(list_klass, "get_Count", 0);
                 lst_get_Item_method = il2cpp_class_get_method_from_name(list_klass, "get_Item", 1);
@@ -339,31 +340,34 @@ namespace Il2cppUtils {
                 lst_Add_method = il2cpp_class_get_method_from_name(list_klass, "Add", 1);
                 lst_Contains_method = il2cpp_class_get_method_from_name(list_klass, "Contains", 1);
 
-                lst_get_Count = reinterpret_cast<lst_get_Count_t>(lst_get_Count_method->methodPointer);
-                lst_get_Item = reinterpret_cast<lst_get_Item_t>(lst_get_Item_method->methodPointer);
-                lst_set_Item = reinterpret_cast<lst_set_Item_t>(lst_set_Item_method->methodPointer);
-                lst_Add = reinterpret_cast<lst_Add_t>(lst_Add_method->methodPointer);
-                lst_Contains = reinterpret_cast<lst_Contains_t>(lst_Contains_method->methodPointer);
+                if (lst_get_Count_method) lst_get_Count = reinterpret_cast<lst_get_Count_t>(lst_get_Count_method->methodPointer);
+                if (lst_get_Item_method) lst_get_Item = reinterpret_cast<lst_get_Item_t>(lst_get_Item_method->methodPointer);
+                if (lst_set_Item_method) lst_set_Item = reinterpret_cast<lst_set_Item_t>(lst_set_Item_method->methodPointer);
+                if (lst_Add_method) lst_Add = reinterpret_cast<lst_Add_t>(lst_Add_method->methodPointer);
+                if (lst_Contains_method) lst_Contains = reinterpret_cast<lst_Contains_t>(lst_Contains_method->methodPointer);
             }
 
             void Add(T value) {
-                lst_Add(lst, value, lst_Add_method);
+                if (lst_Add) lst_Add(lst, value, lst_Add_method);
             }
 
             bool Contains(T value) {
-                return lst_Contains(lst, value, lst_Contains_method);
+                if (lst_Contains) return lst_Contains(lst, value, lst_Contains_method);
+                return false;
             }
 
             T get_Item(int index) {
-                return lst_get_Item(lst, index, lst_get_Item_method);
+                if (lst_get_Item) return lst_get_Item(lst, index, lst_get_Item_method);
+                return T{};
             }
 
             void set_Item(int index, T value) {
-                return lst_set_Item(lst, index, value, lst_set_Item_method);
+                if (lst_set_Item) lst_set_Item(lst, index, value, lst_set_Item_method);
             }
 
             int get_Count() {
-                return lst_get_Count(lst, lst_get_Count_method);
+                if (lst_get_Count) return lst_get_Count(lst, lst_get_Count_method);
+                return 0;
             }
 
             T operator[] (int key) {

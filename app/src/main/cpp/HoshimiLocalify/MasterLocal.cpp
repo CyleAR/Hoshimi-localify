@@ -622,7 +622,9 @@ namespace HoshimiLocal::MasterLocal {
                                     std::string parent = subParts[0];
                                     std::string child = subParts[1];
                                     currRule.subLocalKey[parent].push_back(child);
-                                    tableLocalData.mainKeyType[parent] = JsonValueType::JVT_ArrayObject;
+                                    if (tableLocalData.mainKeyType.find(parent) == tableLocalData.mainKeyType.end()) {
+                                        tableLocalData.mainKeyType[parent] = JsonValueType::JVT_Object;
+                                    }
                                     tableLocalData.subKeyType[parent][child] = JsonValueType::JVT_String;
                                 }
                             } else {
@@ -635,6 +637,17 @@ namespace HoshimiLocal::MasterLocal {
                         for (auto& [k, v] : j["data"].items()) {
                             if (v.is_string()) {
                                 tableLocalData.transData.emplace(k, v);
+                                if (k.find('[') != std::string::npos) {
+                                    auto pipePos = k.find('|');
+                                    auto dotPos = k.find('.');
+                                    if (pipePos != std::string::npos && dotPos != std::string::npos && dotPos > pipePos) {
+                                        auto bracketPos = k.find('[', pipePos);
+                                        if (bracketPos != std::string::npos && bracketPos < dotPos) {
+                                            std::string parent = k.substr(pipePos + 1, bracketPos - pipePos - 1);
+                                            tableLocalData.mainKeyType[parent] = JsonValueType::JVT_ArrayObject;
+                                        }
+                                    }
+                                }
                                 Local::translatedText.emplace(v);
                             }
                         }
@@ -695,6 +708,8 @@ namespace HoshimiLocal::MasterLocal {
     void LocalizeMasterItem(FieldController& fc, const std::string& tableName) {
         auto it = masterLocalData.find(tableName);
         if (it == masterLocalData.end()) return;
+
+        Log::DebugFmt("Localizing master table: %s", tableName.c_str());
         const auto& localData = it->second;
 
         // 首先拼 BasePrimaryKey
@@ -769,8 +784,19 @@ namespace HoshimiLocal::MasterLocal {
                 case JsonValueType::JVT_ArrayObject: {
                     auto subArrField = fc.ReadObjectListField(subParentKey);
                     if (!subArrField) continue;
+                    
                     Il2cppUtils::Tools::CSListEditor<void*> subListEdit(subArrField);
+                    if (!subListEdit.list_klass) {
+                        Log::ErrorFmt("Failed to create CSListEditor for %s in %s", subParentKey.c_str(), tableName.c_str());
+                        continue;
+                    }
+
                     auto count = subListEdit.get_Count();
+                    if (count < 0 || count > 10000) { // 비정상적인 카운트 방지
+                        Log::ErrorFmt("Invalid count %d for %s in %s", count, subParentKey.c_str(), tableName.c_str());
+                        continue;
+                    }
+
                     for (int idx = 0; idx < count; idx++) {
                         auto currItem = subListEdit.get_Item(idx);
                         if (!currItem) continue;

@@ -1841,15 +1841,21 @@ namespace HoshimiLocal::HookMain {
 
         ADD_HOOK(TMP_Text_set_text, Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
                                                                   "TMP_Text", "set_text"));
-        ADD_HOOK(TMP_Text_SetText_1, Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
+        auto addrSetText1 = Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
                                                                   "TMP_Text", "SetText",
-                                                                  {"System.String"}));
+                                                                  {"System.String"});
+        ADD_HOOK(TMP_Text_SetText_1, addrSetText1);
+
         ADD_HOOK(TMP_Text_PopulateTextBackingArray, Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
                                                                   "TMP_Text", "PopulateTextBackingArray",
                                                                   {"System.String", "System.Int32", "System.Int32"}));
-        ADD_HOOK(TMP_Text_SetText_2, Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
+
+        auto addrSetText2 = Il2cppUtils::GetMethodPointer("Unity.TextMeshPro.dll", "TMPro",
             "TMP_Text", "SetText",
-            { "System.String", "System.Boolean" }));
+            { "System.String", "System.Boolean" });
+        if (addrSetText2 && addrSetText2 != addrSetText1) {
+            ADD_HOOK(TMP_Text_SetText_2, addrSetText2);
+        }
 
         ADD_HOOK(TextField_set_value, Il2cppUtils::GetMethodPointer("UnityEngine.UIElementsModule.dll", "UnityEngine.UIElements",
                                                                   "TextField", "set_value"));
