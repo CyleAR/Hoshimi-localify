@@ -709,7 +709,11 @@ namespace HoshimiLocal::MasterLocal {
         auto it = masterLocalData.find(tableName);
         if (it == masterLocalData.end()) return;
 
-        Log::DebugFmt("Localizing master table: %s", tableName.c_str());
+        static std::unordered_set<std::string> loggedTables;
+        if (!loggedTables.contains(tableName)) {
+            Log::DebugFmt("Localizing master table: %s", tableName.c_str());
+            loggedTables.insert(tableName);
+        }
         const auto& localData = it->second;
 
         // 首先拼 BasePrimaryKey

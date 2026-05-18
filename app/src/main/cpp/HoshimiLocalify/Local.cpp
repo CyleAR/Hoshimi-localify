@@ -449,6 +449,21 @@ namespace HoshimiLocal::Local {
         return content;
     }
 
+    std::string ReplaceParentheses(const std::string& input) {
+        std::string result;
+        result.reserve(static_cast<size_t>(static_cast<double>(input.size()) * 1.1));
+        for (char c : input) {
+            if (c == '(') {
+                result.append("（");
+            } else if (c == ')') {
+                result.append("）");
+            } else {
+                result.push_back(c);
+            }
+        }
+        return result;
+    }
+
     //adv 파일 읽어서 한글패치
     bool GetResourceText(const std::string& name, std::string* ret) {
         static std::filesystem::path basePath = GetBasePath();
@@ -458,7 +473,7 @@ namespace HoshimiLocal::Local {
             // Log::DebugFmt("GetResourceText: %s", targetFilePath.c_str());
             if (exists(targetFilePath)) {
                 auto readStr = readFileToString(targetFilePath.string());
-                *ret = readStr;
+                *ret = ReplaceParentheses(readStr);
                 return true;
             }
         }
