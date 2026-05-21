@@ -7,6 +7,7 @@ namespace HoshimiLocal::Config {
     extern bool enabled;
     extern bool lazyInit;
     extern bool replaceFont;
+    extern bool replaceImages;
     extern bool forceExportResource;
     extern int gameOrientation;
     extern bool textTest;

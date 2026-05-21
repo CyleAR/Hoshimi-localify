@@ -878,6 +878,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, Image_set_sprite, (void* self, void* value, void* method)) {
+        if (!Config::replaceImages) return Image_set_sprite_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
@@ -901,6 +902,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, Image_set_overrideSprite, (void* self, void* value, void* method)) {
+        if (!Config::replaceImages) return Image_set_overrideSprite_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
@@ -924,6 +926,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, RawImage_set_texture, (void* self, void* value, void* method)) {
+        if (!Config::replaceImages) return RawImage_set_texture_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {

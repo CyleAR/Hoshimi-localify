@@ -11,6 +11,7 @@ namespace HoshimiLocal::Config {
     bool enabled = true;
     bool lazyInit = true;
     bool replaceFont = true;
+    bool replaceImages = true;
     bool forceExportResource = true;
     bool textTest = false;
     bool useMasterTrans = true;
@@ -66,6 +67,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enabled);
             GetConfigItem(lazyInit);
             GetConfigItem(replaceFont);
+            GetConfigItem(replaceImages);
             GetConfigItem(forceExportResource);
             GetConfigItem(gameOrientation);
             GetConfigItem(textTest);
@@ -122,6 +124,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enabled);
             SetConfigItem(lazyInit);
             SetConfigItem(replaceFont);
+            SetConfigItem(replaceImages);
             SetConfigItem(forceExportResource);
             SetConfigItem(gameOrientation);
             SetConfigItem(textTest);

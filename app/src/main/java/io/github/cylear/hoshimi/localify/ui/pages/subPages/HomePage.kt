@@ -240,6 +240,10 @@ fun HomePage(modifier: Modifier = Modifier,
                             v -> context?.onReplaceFontChanged(v)
                     }
 
+                    IPSwitch(modifier, stringResource(R.string.replace_images), checked = config.value.replaceImages) {
+                            v -> context?.onReplaceImagesChanged(v)
+                    }
+
                 }
             }
             Spacer(Modifier.height(6.dp))

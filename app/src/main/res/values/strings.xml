@@ -3,6 +3,7 @@
     <string name="hoshimi_localify">Hoshimi Localify</string>
     <string name="enable_plugin">Enable Plugin (Not Hot Reloadable)</string>
     <string name="replace_font">Replace Font</string>
+    <string name="replace_images">Replace Images</string>
     <string name="lazy_init">Fast Initialization (Lazy loading)</string>
     <string name="enable_free_camera">Enable Free Camera</string>
     <string name="start_game">Start Game / Hot Reload Config</string>

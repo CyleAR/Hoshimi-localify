@@ -21,6 +21,7 @@ interface ConfigListener {
     fun onTextTestChanged(value: Boolean)
     fun onUseMasterTransChanged(value: Boolean)
     fun onReplaceFontChanged(value: Boolean)
+    fun onReplaceImagesChanged(value: Boolean)
     fun onLazyInitChanged(value: Boolean)
     fun onEnableFreeCameraChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -125,6 +126,12 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onReplaceFontChanged(value: Boolean) {
         config.replaceFont = value
+        saveConfig()
+        pushKeyEvent(KeyEvent(1145, 30))
+    }
+
+    override fun onReplaceImagesChanged(value: Boolean) {
+        config.replaceImages = value
         saveConfig()
         pushKeyEvent(KeyEvent(1145, 30))
     }

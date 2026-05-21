@@ -8,6 +8,7 @@ data class IdolyprideConfig (
     var enabled: Boolean = true,
     var lazyInit: Boolean = true,
     var replaceFont: Boolean = true,
+    var replaceImages: Boolean = true,
     var textTest: Boolean = false,
     var useMasterTrans: Boolean = true,
     var dumpText: Boolean = false,
