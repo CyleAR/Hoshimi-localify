@@ -31,9 +31,9 @@ object FilesChecker {
         val pluginVersion = getPluginVersion()
         Log.d("HoshimiLocal", "installedVer: $installedVersion, pluginVer: $pluginVersion")
 
-        if (pluginVersion != installedVersion) {
-            updateFiles()
-        } else {
+        // Only update if no files are installed (e.g. first launch or after clean)
+        // to prevent overwriting hot-updated files from ZIP/API.
+        if (installedVersion == "0.0" || installedVersion == "") {
             updateFiles()
         }
     }
@@ -163,6 +163,13 @@ object FilesChecker {
         }
         if (i18nFile.exists()) {
             i18nFile.writeText("{}")
+        }
+        
+        // Delete version.txt so the plugin knows the assets have been wiped
+        // and needs to extract them again next time checkBuiltInAssets is true.
+        val versionFile = File(pluginBasePath, "version.txt")
+        if (versionFile.exists()) {
+            versionFile.delete()
         }
     }
 }
