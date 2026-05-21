@@ -4,8 +4,12 @@
 #include <string>
 #include <filesystem>
 #include <unordered_set>
+#include <shared_mutex>
+#include <mutex>
 
 namespace HoshimiLocal::Local {
+    extern std::shared_mutex localDataMutex;
+    extern std::mutex dumpDataMutex;
     extern std::unordered_set<std::string> translatedText;
 
     std::filesystem::path GetBasePath();

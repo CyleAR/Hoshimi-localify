@@ -21,6 +21,8 @@
 
 
 namespace HoshimiLocal::Local {
+    std::shared_mutex localDataMutex;
+    std::mutex dumpDataMutex;
     std::unordered_map<std::string, std::string> i18nData{};
     std::unordered_map<std::string, std::string> i18nDumpData{};
     std::unordered_map<std::string, std::string> genericText{};
@@ -370,6 +372,8 @@ namespace HoshimiLocal::Local {
     }
 
     void LoadData() {
+        std::unique_lock<std::shared_mutex> lock(localDataMutex);
+        std::lock_guard<std::mutex> dumpLock(dumpDataMutex);
         static auto localizationFile = GetBasePath() / "local-files" / "localization.json";
         static auto genericFile = GetBasePath() / "local-files" / "generic.json";
         static auto genericSplitFile = GetBasePath() / "local-files" / "generic.split.json";
@@ -413,6 +417,7 @@ namespace HoshimiLocal::Local {
     }
 
     bool GetI18n(const std::string& key, std::string* ret) {
+        std::shared_lock<std::shared_mutex> lock(localDataMutex);
         if (const auto iter = i18nData.find(key); iter != i18nData.end()) {
             *ret = iter->second;
             return true;
@@ -423,9 +428,14 @@ namespace HoshimiLocal::Local {
     bool inDump = false;
     void DumpI18nItem(const std::string& key, const std::string& value) {
         if (!Config::dumpText) return;
-        if (i18nDumpData.contains(key)) return;
-        i18nDumpData[key] = value;
-        Log::DebugFmt("DumpI18nItem: %s - %s", key.c_str(), value.c_str());
+        if (Misc::ContainsHangul(key) || Misc::ContainsHangul(value)) return;
+        
+        {
+            std::lock_guard<std::mutex> lock(dumpDataMutex);
+            if (i18nDumpData.contains(key)) return;
+            i18nDumpData[key] = value;
+            Log::DebugFmt("DumpI18nItem: %s - %s", key.c_str(), value.c_str());
+        }
 
         static auto dumpBasePath = GetBasePath() / "dump-files";
 
@@ -433,6 +443,7 @@ namespace HoshimiLocal::Local {
         inDump = true;
         std::thread([](){
             std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::lock_guard<std::mutex> lock(dumpDataMutex);
             DumpMapDataToJson(dumpBasePath, "localization.json", i18nDumpData);
             inDump = false;
         }).detach();
@@ -526,29 +537,37 @@ namespace HoshimiLocal::Local {
 
     bool inDumpGeneric = false;
     void DumpGenericText(const std::string& origText, DumpStrStat stat = DumpStrStat::DEFAULT) {
-        if (translatedText.contains(origText)) return;
+        if (!Config::dumpText) return;
+        if (Misc::ContainsHangul(origText)) return;
+        
+        {
+            std::lock_guard<std::mutex> lock(dumpDataMutex);
+            if (translatedText.contains(origText)) return;
 
-        std::array<std::reference_wrapper<std::vector<std::string>>, 4> targets = {
-                genericTextDumpData,
-                genericOrigTextDumpData,
-                genericSplittedDumpData,
-                genericFmtTextDumpData
-        };
+            std::array<std::reference_wrapper<std::vector<std::string>>, 4> targets = {
+                    genericTextDumpData,
+                    genericOrigTextDumpData,
+                    genericSplittedDumpData,
+                    genericFmtTextDumpData
+            };
 
-        auto& appendTarget = targets[static_cast<int>(stat)].get();
+            auto& appendTarget = targets[static_cast<int>(stat)].get();
 
-        if (std::find(appendTarget.begin(), appendTarget.end(), origText) != appendTarget.end()) {
-            return;
+            if (std::find(appendTarget.begin(), appendTarget.end(), origText) != appendTarget.end()) {
+                return;
+            }
+            if (IsPureStringValue(origText)) return;
+
+            appendTarget.push_back(origText);
         }
-        if (IsPureStringValue(origText)) return;
 
-        appendTarget.push_back(origText);
         static auto dumpBasePath = GetBasePath() / "dump-files";
 
         if (inDumpGeneric) return;
         inDumpGeneric = true;
         std::thread([](){
             std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::lock_guard<std::mutex> lock(dumpDataMutex);
             DumpVectorDataToJson(dumpBasePath, GetDumpGenericFileName(DumpStrStat::DEFAULT), genericTextDumpData);
             DumpVectorDataToJson(dumpBasePath, GetDumpGenericFileName(DumpStrStat::SPLITTABLE_ORIG), genericOrigTextDumpData);
             DumpVectorDataToJson(dumpBasePath, GetDumpGenericFileName(DumpStrStat::SPLITTED), genericSplittedDumpData, splitTextPrefix);
@@ -562,6 +581,7 @@ namespace HoshimiLocal::Local {
     }
 
     bool GetGenericText(const std::string& origText, std::string* newStr) {
+        std::shared_lock<std::shared_mutex> lock(localDataMutex);
         // 完全匹配
         if (const auto iter = genericText.find(origText); iter != genericText.end()) {
             *newStr = iter->second;

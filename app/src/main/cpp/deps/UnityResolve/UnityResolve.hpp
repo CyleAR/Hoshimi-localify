@@ -1458,11 +1458,13 @@ public:
 				if (IsBadReadPtr(m_firstChar, m_stringLength)) return {};
 #endif
 				if (!this) return {};
+				if (reinterpret_cast<uintptr_t>(this) < 0x10000) return {};
+				if (length < 0 || length > 1000000) return {};
 				try {
 					// using convert_typeX = std::codecvt_utf8<wchar_t>;
 					// std::wstring_convert<convert_typeX> converterX;
 					// return converterX.to_bytes(m_firstChar);
-                    return HoshimiLocal::Misc::ToUTF8(chars);
+                    return HoshimiLocal::Misc::ToUTF8(std::u16string_view(chars, static_cast<size_t>(length)));
 				}
 				catch (std::exception& e) {
 					std::cout << "String Invoke Error\n";
@@ -1477,11 +1479,13 @@ public:
 				if (IsBadReadPtr(m_firstChar, m_stringLength)) return {};
 #endif
                 if (!this) return {};
+				if (reinterpret_cast<uintptr_t>(this) < 0x10000) return {};
+				if (length < 0 || length > 1000000) return {};
                 try {
                     // using convert_typeX = std::codecvt_utf8<wchar_t>;
                     // std::wstring_convert<convert_typeX> converterX;
                     // return converterX.to_bytes(m_firstChar);
-                    return {chars};
+                    return {chars, static_cast<size_t>(length)};
                 }
                 catch (std::exception& e) {
                     std::cout << "String Invoke Error\n";

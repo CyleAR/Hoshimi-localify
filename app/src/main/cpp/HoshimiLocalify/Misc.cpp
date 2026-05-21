@@ -21,6 +21,21 @@ namespace HoshimiLocal::Misc {
         return utf16conv.to_bytes(str.data(), str.data() + str.size());
     }
 
+    bool ContainsHangul(const std::u16string_view& str) {
+        for (char16_t c : str) {
+            if ((c >= 0xAC00 && c <= 0xD7A3) || 
+                (c >= 0x1100 && c <= 0x11FF) || 
+                (c >= 0x3130 && c <= 0x318F)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool ContainsHangul(const std::string_view& str) {
+        return ContainsHangul(ToUTF16(str));
+    }
+
     JNIEnv* GetJNIEnv() {
         if (!g_javaVM) return nullptr;
         JNIEnv* env = nullptr;
