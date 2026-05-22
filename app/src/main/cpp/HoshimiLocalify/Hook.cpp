@@ -830,9 +830,33 @@ namespace HoshimiLocal::HookMain {
     std::unordered_map<std::string, void*> texture_cache;
 
     std::unordered_set<std::string> sprite_negative_cache;
+    thread_local bool applying_image_replacement = false;
+
+    bool IsUnityObjectAlive(void* obj) {
+        if (!obj) return false;
+        return IsNativeObjectAlive(obj);
+    }
+
+    void MarkReplacementAssetPersistent(void* obj) {
+        if (!obj || !IsUnityObjectAlive(obj)) return;
+        static auto set_hide_flags = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "set_hideFlags", {"UnityEngine.HideFlags"});
+        if (set_hide_flags) {
+            constexpr int DontUnloadUnusedAsset = 32;
+            set_hide_flags->Invoke<void>(obj, DontUnloadUnusedAsset);
+        }
+    }
+
+    void* GetAliveCachedAsset(std::unordered_map<std::string, void*>& cache, const std::string& name) {
+        auto it = cache.find(name);
+        if (it == cache.end()) return nullptr;
+        if (IsUnityObjectAlive(it->second)) return it->second;
+        cache.erase(it);
+        return nullptr;
+    }
 
     std::string GetObjectName(void* obj) {
         if (!obj) return "";
+        if (!IsUnityObjectAlive(obj)) return "";
         static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "get_name");
         if (!get_name) return "";
         auto nameStr = get_name->Invoke<Il2cppString*>(obj);
@@ -856,6 +880,7 @@ namespace HoshimiLocal::HookMain {
 
         auto tex = texture2d_klass->New<void*>();
         texture2d_ctor->Invoke<void>(tex, 2, 2);
+        MarkReplacementAssetPersistent(tex);
 
         static auto image_conversion_class = Il2cppUtils::GetClass("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion");
         static auto load_image_ptr = reinterpret_cast<bool (*)(void*, void*, bool, void*)>(Il2cppUtils::GetMethodPointer("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion", "LoadImage", {"UnityEngine.Texture2D", "System.Byte[]", "System.Boolean"}));
@@ -891,7 +916,9 @@ namespace HoshimiLocal::HookMain {
 
             if (sprite_create) {
                 void* args[3] = { tex, &rect, &pivot };
-                return UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
+                auto sprite = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
+                MarkReplacementAssetPersistent(sprite);
+                return sprite;
             } else {
                 // Log::InfoFmt("Failed to find Sprite.Create MethodInfo");
             }
@@ -911,6 +938,7 @@ namespace HoshimiLocal::HookMain {
 
         auto tex = texture2d_klass->New<void*>();
         texture2d_ctor->Invoke<void>(tex, 2, 2);
+        MarkReplacementAssetPersistent(tex);
 
         static auto image_conversion_class = Il2cppUtils::GetClass("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion");
         static auto load_image_ptr = reinterpret_cast<bool (*)(void*, void*, bool, void*)>(Il2cppUtils::GetMethodPointer("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion", "LoadImage", {"UnityEngine.Texture2D", "System.Byte[]", "System.Boolean"}));
@@ -924,6 +952,11 @@ namespace HoshimiLocal::HookMain {
             }
         }
         return tex;
+    }
+
+    void SetImagePreserveAspect(void* self) {
+        static auto set_preserve_aspect = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_preserveAspect", {"System.Boolean"});
+        if (set_preserve_aspect) set_preserve_aspect->Invoke<void>(self, true);
     }
 
     DEFINE_HOOK(void, Graphic_OnEnable, (void* self)) {
@@ -942,11 +975,12 @@ namespace HoshimiLocal::HookMain {
             std::string name = GetObjectName(sprite);
             if (name.empty() || sprite_negative_cache.contains(name)) return;
             
-            if (sprite_cache.contains(name)) {
+            if (auto cachedSprite = GetAliveCachedAsset(sprite_cache, name)) {
                 static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
-                set_sprite->Invoke<void>(self, sprite_cache[name]);
-                static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "SetNativeSize");
-                if (set_native_size) set_native_size->Invoke<void>(self);
+                applying_image_replacement = true;
+                set_sprite->Invoke<void>(self, cachedSprite);
+                applying_image_replacement = false;
+                SetImagePreserveAspect(self);
                 return;
             }
 
@@ -957,9 +991,10 @@ namespace HoshimiLocal::HookMain {
                     sprite_cache[name] = newSprite;
                     // Log::InfoFmt("Replaced Static Sprite: %s", name.c_str());
                     static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
+                    applying_image_replacement = true;
                     set_sprite->Invoke<void>(self, newSprite);
-                    static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "SetNativeSize");
-                    if (set_native_size) set_native_size->Invoke<void>(self);
+                    applying_image_replacement = false;
+                    SetImagePreserveAspect(self);
                 } else {
                     // Log::InfoFmt("Failed to CreateSpriteFromBytes for: %s", name.c_str());
                 }
@@ -975,11 +1010,11 @@ namespace HoshimiLocal::HookMain {
             std::string name = GetObjectName(texture);
             if (name.empty() || sprite_negative_cache.contains(name)) return;
             
-            if (texture_cache.contains(name)) {
+            if (auto cachedTexture = GetAliveCachedAsset(texture_cache, name)) {
                 static auto set_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "set_texture");
-                set_texture->Invoke<void>(self, texture_cache[name]);
-                static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "SetNativeSize");
-                if (set_native_size) set_native_size->Invoke<void>(self);
+                applying_image_replacement = true;
+                set_texture->Invoke<void>(self, cachedTexture);
+                applying_image_replacement = false;
                 return;
             }
 
@@ -990,9 +1025,9 @@ namespace HoshimiLocal::HookMain {
                     texture_cache[name] = newTex;
                     // Log::InfoFmt("Replaced Static Texture: %s", name.c_str());
                     static auto set_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "set_texture");
+                    applying_image_replacement = true;
                     set_texture->Invoke<void>(self, newTex);
-                    static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "SetNativeSize");
-                    if (set_native_size) set_native_size->Invoke<void>(self);
+                    applying_image_replacement = false;
                 }
             } else {
                 // Log::InfoFmt("Static Texture checked: %s", name.c_str());
@@ -1002,13 +1037,16 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, Image_set_sprite, (void* self, void* value, void* method)) {
+        if (applying_image_replacement) return Image_set_sprite_Orig(self, value, method);
         if (!Config::replaceImages) return Image_set_sprite_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                Log::InfoFmt("Image_set_sprite: %s", name.c_str());
+                // Log::InfoFmt("Image_set_sprite: %s", name.c_str());
                 if (sprite_cache.contains(name)) {
-                    return Image_set_sprite_Orig(self, sprite_cache[name], method);
+                    Image_set_sprite_Orig(self, sprite_cache[name], method);
+                    SetImagePreserveAspect(self);
+                    return;
                 }
 
                 std::vector<uint8_t> bytes;
@@ -1016,8 +1054,10 @@ namespace HoshimiLocal::HookMain {
                     void* newSprite = CreateSpriteFromBytes(bytes);
                     if (newSprite) {
                         sprite_cache[name] = newSprite;
-                        Log::InfoFmt("Replaced Sprite: %s", name.c_str());
-                        return Image_set_sprite_Orig(self, newSprite, method);
+                        // Log::InfoFmt("Replaced Sprite: %s", name.c_str());
+                        Image_set_sprite_Orig(self, newSprite, method);
+                        SetImagePreserveAspect(self);
+                        return;
                     }
                 }
             }
@@ -1026,13 +1066,16 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, Image_set_overrideSprite, (void* self, void* value, void* method)) {
+        if (applying_image_replacement) return Image_set_overrideSprite_Orig(self, value, method);
         if (!Config::replaceImages) return Image_set_overrideSprite_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                Log::InfoFmt("Image_set_overrideSprite: %s", name.c_str());
+                // Log::InfoFmt("Image_set_overrideSprite: %s", name.c_str());
                 if (sprite_cache.contains(name)) {
-                    return Image_set_overrideSprite_Orig(self, sprite_cache[name], method);
+                    Image_set_overrideSprite_Orig(self, sprite_cache[name], method);
+                    SetImagePreserveAspect(self);
+                    return;
                 }
 
                 std::vector<uint8_t> bytes;
@@ -1040,8 +1083,10 @@ namespace HoshimiLocal::HookMain {
                     void* newSprite = CreateSpriteFromBytes(bytes);
                     if (newSprite) {
                         sprite_cache[name] = newSprite;
-                        Log::InfoFmt("Replaced OverrideSprite: %s", name.c_str());
-                        return Image_set_overrideSprite_Orig(self, newSprite, method);
+                        // Log::InfoFmt("Replaced OverrideSprite: %s", name.c_str());
+                        Image_set_overrideSprite_Orig(self, newSprite, method);
+                        SetImagePreserveAspect(self);
+                        return;
                     }
                 }
             }
@@ -1050,11 +1095,12 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, RawImage_set_texture, (void* self, void* value, void* method)) {
+        if (applying_image_replacement) return RawImage_set_texture_Orig(self, value, method);
         if (!Config::replaceImages) return RawImage_set_texture_Orig(self, value, method);
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                Log::InfoFmt("RawImage_set_texture: %s", name.c_str());
+                // Log::InfoFmt("RawImage_set_texture: %s", name.c_str());
                 if (texture_cache.contains(name)) {
                     return RawImage_set_texture_Orig(self, texture_cache[name], method);
                 }
@@ -1097,7 +1143,7 @@ namespace HoshimiLocal::HookMain {
 
                     if (success) {
                         texture_cache[name] = tex;
-                        Log::InfoFmt("Replaced Texture: %s", name.c_str());
+                        // Log::InfoFmt("Replaced Texture: %s", name.c_str());
                         return RawImage_set_texture_Orig(self, tex, method);
                     }
                 }
@@ -2043,18 +2089,6 @@ namespace HoshimiLocal::HookMain {
                                                "OctoResourceLoader", "LoadFromCacheOrDownload",
                                                {"System.String", "System.Action<System.String,Octo.LoadError>", "Octo.OnDownloadProgress"}));
 
-
-        ADD_HOOK(Image_set_sprite,
-                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
-                                               "Image", "set_sprite", {"UnityEngine.Sprite"}));
-
-        ADD_HOOK(Image_set_overrideSprite,
-                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
-                                               "Image", "set_overrideSprite", {"UnityEngine.Sprite"}));
-
-        ADD_HOOK(RawImage_set_texture,
-                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
-                                               "RawImage", "set_texture", {"UnityEngine.Texture"}));
 
         ADD_HOOK(Graphic_OnEnable,
                  Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",

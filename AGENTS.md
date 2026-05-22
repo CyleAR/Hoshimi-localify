@@ -32,3 +32,7 @@ The APK will be located at: `app\build\outputs\apk\debug\app-debug.apk`
 ```powershell
 .\platform-tools\adb.exe -s 127.0.0.1:16384 install -r "app\build\outputs\apk\debug\app-debug.apk"
 ```
+or
+```powershell
+.\platform-tools\adb.exe -s emulator-5556 install -r "app\build\outputs\apk\debug\app-debug.apk"
+```
