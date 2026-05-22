@@ -829,15 +829,79 @@ namespace HoshimiLocal::HookMain {
     std::unordered_map<std::string, void*> sprite_cache;
     std::unordered_map<std::string, void*> texture_cache;
 
+    std::unordered_set<std::string> sprite_negative_cache;
+
     std::string GetObjectName(void* obj) {
         if (!obj) return "";
         static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "get_name");
         if (!get_name) return "";
         auto nameStr = get_name->Invoke<Il2cppString*>(obj);
-        return nameStr ? nameStr->ToString() : "";
+        if (!nameStr) return "";
+        std::string name = nameStr->ToString();
+        const std::string cloneSuffix = "(Clone)";
+        if (name.length() >= cloneSuffix.length() && 
+            name.compare(name.length() - cloneSuffix.length(), cloneSuffix.length(), cloneSuffix) == 0) {
+            name = name.substr(0, name.length() - cloneSuffix.length());
+        }
+        return name;
     }
 
     void* CreateSpriteFromBytes(const std::vector<uint8_t>& bytes) {
+        static auto byte_klass = Il2cppUtils::GetClass("mscorlib.dll", "System", "Byte");
+        auto il2cpp_bytes = UnityResolve::UnityType::Array<uint8_t>::New(byte_klass, bytes.size());
+        std::memcpy(reinterpret_cast<void*>(il2cpp_bytes->GetData()), bytes.data(), bytes.size());
+
+        static auto texture2d_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Texture2D");
+        static auto texture2d_ctor = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture2D", ".ctor", {"System.Int32", "System.Int32"});
+
+        auto tex = texture2d_klass->New<void*>();
+        texture2d_ctor->Invoke<void>(tex, 2, 2);
+
+        static auto image_conversion_class = Il2cppUtils::GetClass("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion");
+        static auto load_image_ptr = reinterpret_cast<bool (*)(void*, void*, bool, void*)>(Il2cppUtils::GetMethodPointer("UnityEngine.ImageConversionModule.dll", "UnityEngine", "ImageConversion", "LoadImage", {"UnityEngine.Texture2D", "System.Byte[]", "System.Boolean"}));
+        bool load_success = false;
+        if (load_image_ptr) {
+            load_success = load_image_ptr(tex, il2cpp_bytes, false, nullptr);
+        } else {
+            static auto load_image = image_conversion_class ? image_conversion_class->Get<UnityResolve::Method>("LoadImage", {"UnityEngine.Texture2D", "System.Byte[]"}) : nullptr;
+            if (load_image) {
+                load_success = load_image->Invoke<bool>(nullptr, tex, il2cpp_bytes);
+            }
+        }
+        // Log::InfoFmt("LoadImage success: %d", load_success);
+
+        static auto sprite_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Sprite");
+        static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {"UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2"});
+
+        if (sprite_create) {
+            int w = 0, h = 0;
+            if (bytes.size() > 24 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+                w = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+                h = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+            } else {
+                static auto get_width = texture2d_klass->Get<UnityResolve::Method>("get_width");
+                static auto get_height = texture2d_klass->Get<UnityResolve::Method>("get_height");
+                if (get_width) w = get_width->Invoke<int>(tex);
+                if (get_height) h = get_height->Invoke<int>(tex);
+            }
+            // Log::InfoFmt("CreateSpriteFromBytes parsed w=%d, h=%d", w, h);
+
+            struct Rect { float x, y, width, height; } rect { 0, 0, (float)w, (float)h };
+            struct Vector2 { float x, y; } pivot { 0.5f, 0.5f };
+
+            if (sprite_create) {
+                void* args[3] = { tex, &rect, &pivot };
+                return UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
+            } else {
+                // Log::InfoFmt("Failed to find Sprite.Create MethodInfo");
+            }
+        } else {
+            // Log::InfoFmt("Failed to resolve Sprite.Create method!");
+        }
+        return nullptr;
+    }
+
+    void* CreateTextureFromBytes(const std::vector<uint8_t>& bytes) {
         static auto byte_klass = Il2cppUtils::GetClass("mscorlib.dll", "System", "Byte");
         auto il2cpp_bytes = UnityResolve::UnityType::Array<uint8_t>::New(byte_klass, bytes.size());
         std::memcpy(reinterpret_cast<void*>(il2cpp_bytes->GetData()), bytes.data(), bytes.size());
@@ -859,22 +923,82 @@ namespace HoshimiLocal::HookMain {
                 load_image->Invoke<bool>(nullptr, tex, il2cpp_bytes);
             }
         }
+        return tex;
+    }
 
-        static auto sprite_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Sprite");
-        static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {"UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2"});
+    DEFINE_HOOK(void, Graphic_OnEnable, (void* self)) {
+        Graphic_OnEnable_Orig(self);
+        if (!Config::replaceImages) return;
 
-        if (sprite_create) {
-            static auto get_width = texture2d_klass->Get<UnityResolve::Method>("get_width");
-            static auto get_height = texture2d_klass->Get<UnityResolve::Method>("get_height");
-            int w = get_width->Invoke<int>(tex);
-            int h = get_height->Invoke<int>(tex);
+        auto klass = Il2cppUtils::get_class_from_instance(self);
+        if (!klass) return;
+        std::string className = klass->name;
 
-            struct Rect { float x, y, width, height; } rect { 0, 0, (float)w, (float)h };
-            struct Vector2 { float x, y; } pivot { 0.5f, 0.5f };
+        if (className == "Image") {
+            static auto get_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "get_sprite");
+            if (!get_sprite) return;
+            auto sprite = get_sprite->Invoke<void*>(self);
+            if (!sprite) return;
+            std::string name = GetObjectName(sprite);
+            if (name.empty() || sprite_negative_cache.contains(name)) return;
+            
+            if (sprite_cache.contains(name)) {
+                static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
+                set_sprite->Invoke<void>(self, sprite_cache[name]);
+                static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "SetNativeSize");
+                if (set_native_size) set_native_size->Invoke<void>(self);
+                return;
+            }
 
-            return sprite_create->Invoke<void*>(nullptr, tex, rect, pivot);
+            std::vector<uint8_t> bytes;
+            if (Local::GetResourceBytes(name + ".png", &bytes) || Local::GetResourceBytes(name, &bytes)) {
+                void* newSprite = CreateSpriteFromBytes(bytes);
+                if (newSprite) {
+                    sprite_cache[name] = newSprite;
+                    // Log::InfoFmt("Replaced Static Sprite: %s", name.c_str());
+                    static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
+                    set_sprite->Invoke<void>(self, newSprite);
+                    static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "SetNativeSize");
+                    if (set_native_size) set_native_size->Invoke<void>(self);
+                } else {
+                    // Log::InfoFmt("Failed to CreateSpriteFromBytes for: %s", name.c_str());
+                }
+            } else {
+                // Log::InfoFmt("Static Sprite checked: %s", name.c_str());
+                sprite_negative_cache.insert(name);
+            }
+        } else if (className == "RawImage") {
+            static auto get_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "get_texture");
+            if (!get_texture) return;
+            auto texture = get_texture->Invoke<void*>(self);
+            if (!texture) return;
+            std::string name = GetObjectName(texture);
+            if (name.empty() || sprite_negative_cache.contains(name)) return;
+            
+            if (texture_cache.contains(name)) {
+                static auto set_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "set_texture");
+                set_texture->Invoke<void>(self, texture_cache[name]);
+                static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "SetNativeSize");
+                if (set_native_size) set_native_size->Invoke<void>(self);
+                return;
+            }
+
+            std::vector<uint8_t> bytes;
+            if (Local::GetResourceBytes(name + ".png", &bytes) || Local::GetResourceBytes(name, &bytes)) {
+                auto newTex = CreateTextureFromBytes(bytes);
+                if (newTex) {
+                    texture_cache[name] = newTex;
+                    // Log::InfoFmt("Replaced Static Texture: %s", name.c_str());
+                    static auto set_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "set_texture");
+                    set_texture->Invoke<void>(self, newTex);
+                    static auto set_native_size = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "SetNativeSize");
+                    if (set_native_size) set_native_size->Invoke<void>(self);
+                }
+            } else {
+                // Log::InfoFmt("Static Texture checked: %s", name.c_str());
+                sprite_negative_cache.insert(name);
+            }
         }
-        return nullptr;
     }
 
     DEFINE_HOOK(void, Image_set_sprite, (void* self, void* value, void* method)) {
@@ -882,7 +1006,7 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                // Log::DebugFmt("Image_set_sprite: %s", name.c_str());
+                Log::InfoFmt("Image_set_sprite: %s", name.c_str());
                 if (sprite_cache.contains(name)) {
                     return Image_set_sprite_Orig(self, sprite_cache[name], method);
                 }
@@ -906,7 +1030,7 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                // Log::DebugFmt("Image_set_overrideSprite: %s", name.c_str());
+                Log::InfoFmt("Image_set_overrideSprite: %s", name.c_str());
                 if (sprite_cache.contains(name)) {
                     return Image_set_overrideSprite_Orig(self, sprite_cache[name], method);
                 }
@@ -930,7 +1054,7 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                //Log::DebugFmt("RawImage_set_texture: %s", name.c_str());
+                Log::InfoFmt("RawImage_set_texture: %s", name.c_str());
                 if (texture_cache.contains(name)) {
                     return RawImage_set_texture_Orig(self, texture_cache[name], method);
                 }
@@ -1932,7 +2056,9 @@ namespace HoshimiLocal::HookMain {
                  Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
                                                "RawImage", "set_texture", {"UnityEngine.Texture"}));
 
-
+        ADD_HOOK(Graphic_OnEnable,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
+                                               "Graphic", "OnEnable", {}));
         ADD_HOOK(AssetBundle_LoadAsset,
                  Il2cppUtils::GetMethodPointer("UnityEngine.AssetBundleModule.dll", "UnityEngine",
                                                "AssetBundle", "LoadAsset", {"System.String"}));
