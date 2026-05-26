@@ -737,10 +737,6 @@ namespace HoshimiLocal::HookMain {
                                                       "TMPro", "TMP_Text", "set_font");
         static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
                                                       "UnityEngine", "Object", "get_name");
-        static auto get_material = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
-                                                          "TMPro", "TMP_FontAsset", "get_material");
-        static auto set_fontSharedMaterial = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
-                                                                    "TMPro", "TMP_Text", "set_fontSharedMaterial");
         static auto SetAllDirty = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
                                                          "TMPro", "TMP_Text", "SetAllDirty");
         static auto SetVerticesDirty = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
@@ -766,11 +762,6 @@ namespace HoshimiLocal::HookMain {
         if (fontAsset == koFont) return;
         if (set_font) {
             set_font->Invoke<void>(TMP_Textself, koFont);
-
-            if (get_material && set_fontSharedMaterial) {
-                auto material = get_material->Invoke<void*>(koFont);
-                if (material) set_fontSharedMaterial->Invoke<void>(TMP_Textself, material);
-            }
 
             if (SetAllDirty) SetAllDirty->Invoke<void>(TMP_Textself);
             else {
