@@ -24,7 +24,6 @@ namespace HoshimiLocal::Local {
     std::shared_mutex localDataMutex;
     std::mutex dumpDataMutex;
     std::unordered_map<std::string, std::string> i18nData{};
-    std::unordered_map<std::string, std::string> i18nDumpData{};
     std::unordered_map<std::string, std::string> genericText{};
     std::unordered_map<std::string, std::string> genericSplitText{};
     std::unordered_map<std::string, std::string> genericFmtText{};
@@ -410,10 +409,6 @@ namespace HoshimiLocal::Local {
         }
         ProcessGenericTextLabels();
         Log::InfoFmt("%ld generic text items loaded.", genericText.size());
-
-        static auto dumpBasePath = GetBasePath() / "dump-files";
-        static auto dumpFilePath = dumpBasePath / "localization.json";
-        LoadJsonDataToMap(dumpFilePath, i18nDumpData);
     }
 
     bool GetI18n(const std::string& key, std::string* ret) {
@@ -423,30 +418,6 @@ namespace HoshimiLocal::Local {
             return true;
         }
         return false;
-    }
-
-    bool inDump = false;
-    void DumpI18nItem(const std::string& key, const std::string& value) {
-        if (!Config::dumpText) return;
-        if (Misc::ContainsHangul(key) || Misc::ContainsHangul(value)) return;
-        
-        {
-            std::lock_guard<std::mutex> lock(dumpDataMutex);
-            if (i18nDumpData.contains(key)) return;
-            i18nDumpData[key] = value;
-            Log::DebugFmt("DumpI18nItem: %s - %s", key.c_str(), value.c_str());
-        }
-
-        static auto dumpBasePath = GetBasePath() / "dump-files";
-
-        if (inDump) return;
-        inDump = true;
-        std::thread([](){
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            std::lock_guard<std::mutex> lock(dumpDataMutex);
-            DumpMapDataToJson(dumpBasePath, "localization.json", i18nDumpData);
-            inDump = false;
-        }).detach();
     }
 
     std::string readFileToString(const std::string& filename) {

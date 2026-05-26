@@ -17,6 +17,9 @@
 #include <thread>
 #include <map>
 #include <set>
+#include <sstream>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 std::unordered_set<void*> hookedStubs{};
 extern std::filesystem::path hoshimiLocalPath;
@@ -295,8 +298,39 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, I18nHelper_SetUpI18n, (void* self, Il2cppString* lang, Il2cppString* localizationText, int keyComparison)) {
-        // Log::InfoFmt("SetUpI18n lang: %s, key: %d text: %s", lang->ToString().c_str(), keyComparison, localizationText->ToString().c_str());
-        // TODO 此处为 dump 原文 csv
+        std::string locTextStr = localizationText->ToString();
+        Log::InfoFmt("SetUpI18n lang: %s, parsing %zu bytes of csv...", lang->ToString().c_str(), locTextStr.length());
+        
+        nlohmann::ordered_json fullDumpJson;
+        
+        std::stringstream ss(locTextStr);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            if (line.empty() || line.substr(0, 2) == "//") {
+                continue;
+            }
+            size_t commaPos = line.find(',');
+            if (commaPos != std::string::npos) {
+                std::string key = line.substr(0, commaPos);
+                std::string value = line.substr(commaPos + 1);
+                fullDumpJson[key] = value;
+            }
+        }
+        
+        try {
+            auto fullDumpPath = Local::GetBasePath() / "dump-files" / "localization.json";
+            std::ofstream out(fullDumpPath);
+            out << fullDumpJson.dump(4, 32, false);
+            out.close();
+            Log::InfoFmt("SetUpI18n full dump saved to %s", fullDumpPath.string().c_str());
+        } catch (std::exception& e) {
+            Log::ErrorFmt("Failed to save full dump: %s", e.what());
+        }
+        
+        Log::InfoFmt("SetUpI18n CSV parsed and dumped.");
         I18nHelper_SetUpI18n_Orig(self, lang, localizationText, keyComparison);
     }
 
@@ -307,7 +341,6 @@ namespace HoshimiLocal::HookMain {
             I18nHelper_SetValue_Orig(self, key, UnityResolve::UnityType::String::New(local));
             return;
         }
-        Local::DumpI18nItem(key->ToString(), value->ToString());
         if (Config::textTest) {
             I18nHelper_SetValue_Orig(self, key, Il2cppString::New("[I18]" + value->ToString()));
         }
