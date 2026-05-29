@@ -2637,19 +2637,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_ActorCostume_get_SdHair, (void* self, void* mtd)) {
         auto ret = Solis_ActorCostume_get_SdHair_Orig(self, mtd);
         if (!Config::unlockAllLiveCostume || !self) return ret;
-        if (ret) return ret;
-
-        static auto ActorCostume_get_Costume = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Data",
-                                                                      "ActorCostume", "get_Costume");
-        static auto Costume_get_DefaultHair = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
-                                                                     "Costume", "get_DefaultHair");
-        if (!ActorCostume_get_Costume || !Costume_get_DefaultHair) return ret;
-
-        auto costume = ActorCostume_get_Costume->Invoke<void*>(self);
-        if (!costume) return ret;
-
-        auto defaultHair = Costume_get_DefaultHair->Invoke<void*>(costume);
-        return defaultHair ? defaultHair : ret;
+        return nullptr;
     }
 
     DEFINE_HOOK(void*, Solis_ActorCostume_GetCurrentIntersectedPoseTypes, (void* self, void* mtd)) {
