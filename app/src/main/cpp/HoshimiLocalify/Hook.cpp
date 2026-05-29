@@ -475,7 +475,7 @@ namespace HoshimiLocal::HookMain {
             }
 
             int batchim = get_batchim(lastChar);
-            bool hasBatchim = batchim > 0;
+            bool hasBatchim = (pos == 0) ? true : (batchim > 0);
 
             if (tag == "[은/는]") replaceWith = hasBatchim ? "\xEC\x9D\x80" : "\xEB\x8A\x94"; // 은 : 는
             else if (tag == "[이/가]") replaceWith = hasBatchim ? "\xEC\x9D\xB4" : "\xEA\xB0\x80"; // 이 : 가
