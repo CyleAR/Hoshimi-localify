@@ -1368,6 +1368,1286 @@ namespace HoshimiLocal::HookMain {
         return origList;
     }
 
+    enum class SolisMasterIdType {
+        CostumeId,
+        HairId,
+        MusicId
+    };
+
+    std::vector<std::string> GetSolisMasterIdAll(SolisMasterIdType getType = SolisMasterIdType::CostumeId,
+                                                 const std::string& characterId = "") {
+        std::vector<std::string> ret{};
+
+        const char* masterGetterName = getType == SolisMasterIdType::CostumeId ? "get_CostumeMaster" :
+                                       getType == SolisMasterIdType::HairId ? "get_HairMaster" : "get_MusicMaster";
+        const char* masterClassName = getType == SolisMasterIdType::CostumeId ? "CostumeMaster" :
+                                      getType == SolisMasterIdType::HairId ? "HairMaster" : "MusicMaster";
+        const char* protoClassName = getType == SolisMasterIdType::CostumeId ? "Costume" :
+                                     getType == SolisMasterIdType::HairId ? "Hair" : "Music";
+
+        static auto get_CostumeMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                               "MasterManager", "get_CostumeMaster");
+        static auto get_MusicMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                             "MasterManager", "get_MusicMaster");
+        static auto get_HairMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                            "MasterManager", "get_HairMaster");
+        static auto CostumeMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                               "CostumeMaster", "GetAllWithSortByKey",
+                                                                               {"Solis.Common.Master.CostumeSortType"});
+        static auto MusicMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                             "MusicMaster", "GetAllWithSortByKey",
+                                                                             {"Solis.Common.Master.MusicSortType"});
+        static auto HairMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                            "HairMaster", "GetAllWithSortByKey",
+                                                                            {"Solis.Common.Master.HairSortType"});
+        static auto Costume_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                            "Costume", "get_Id");
+        static auto Costume_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                     "Costume", "get_CharacterId");
+        static auto Music_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                          "Music", "get_Id");
+        static auto Music_get_Is3DAvailable = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                     "Music", "get_Is3DAvailable");
+        static auto Hair_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                         "Hair", "get_Id");
+        static auto Hair_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                  "Hair", "get_CharacterId");
+
+        auto getMaster = getType == SolisMasterIdType::CostumeId ? get_CostumeMaster :
+                         getType == SolisMasterIdType::HairId ? get_HairMaster : get_MusicMaster;
+        auto getAllWithSortByKey = getType == SolisMasterIdType::CostumeId ? CostumeMaster_GetAllWithSortByKey :
+                                   getType == SolisMasterIdType::HairId ? HairMaster_GetAllWithSortByKey : MusicMaster_GetAllWithSortByKey;
+        auto getId = getType == SolisMasterIdType::CostumeId ? Costume_get_Id :
+                     getType == SolisMasterIdType::HairId ? Hair_get_Id : Music_get_Id;
+        if (!getMaster || !getAllWithSortByKey || !getId) {
+            Log::ErrorFmt("GetSolisMasterIdAll failed: %s/%s/%s missing", masterGetterName, masterClassName, protoClassName);
+            return ret;
+        }
+
+        auto master = getMaster->Invoke<void*>(nullptr);
+        if (!master) {
+            Log::ErrorFmt("%s failed: %p", masterGetterName, master);
+            return ret;
+        }
+
+        auto masterList = getAllWithSortByKey->Invoke<void*>(master, 0x0);
+        if (!masterList) {
+            Log::ErrorFmt("%s.GetAllWithSortByKey failed: %p", masterClassName, masterList);
+            return ret;
+        }
+
+        Il2cppUtils::Tools::CSListEditor<void*> listEditor(masterList);
+        for (auto item : listEditor) {
+            if (!item) continue;
+
+            if (getType == SolisMasterIdType::CostumeId) {
+                if (!characterId.empty() && Costume_get_CharacterId) {
+                    auto itemCharacterId = Costume_get_CharacterId->Invoke<Il2cppString*>(item);
+                    if (!itemCharacterId || itemCharacterId->ToString() != characterId) continue;
+                }
+            }
+            else if (getType == SolisMasterIdType::HairId) {
+                if (!characterId.empty() && Hair_get_CharacterId) {
+                    auto itemCharacterId = Hair_get_CharacterId->Invoke<Il2cppString*>(item);
+                    if (!itemCharacterId || itemCharacterId->ToString() != characterId) continue;
+                }
+            }
+            else {
+                if (Music_get_Is3DAvailable && !Music_get_Is3DAvailable->Invoke<bool>(item)) continue;
+            }
+
+            auto id = getId->Invoke<Il2cppString*>(item);
+            if (!id) continue;
+            auto idStr = id->ToString();
+            if (!idStr.empty() && std::find(ret.begin(), ret.end(), idStr) == ret.end()) {
+                ret.emplace_back(idStr);
+            }
+        }
+
+        return ret;
+    }
+
+    bool IsSolisMasterIdExists(const std::string& id, SolisMasterIdType getType) {
+        if (id.empty()) return false;
+        static std::unordered_set<std::string> costumeIds{};
+        static std::unordered_set<std::string> hairIds{};
+        static std::unordered_set<std::string> musicIds{};
+
+        auto& ids = getType == SolisMasterIdType::CostumeId ? costumeIds :
+                    getType == SolisMasterIdType::HairId ? hairIds : musicIds;
+        if (ids.empty()) {
+            auto allIds = GetSolisMasterIdAll(getType);
+            ids.insert(allIds.begin(), allIds.end());
+        }
+        return ids.contains(id);
+    }
+
+    void* AddSolisIdsToUserDataCollectionFromMaster(void* origList, std::vector<std::string>& allIds,
+                                                    const char* userClassName, UnityResolve::Method* get_Id,
+                                                    UnityResolve::Method* set_Id, UnityResolve::Method* Clone) {
+        if (!origList) return origList;
+
+        std::unordered_set<std::string> existIds{};
+        Il2cppUtils::Tools::CSListEditor listEditor(origList);
+        auto origCount = listEditor.get_Count();
+
+        for (auto i : listEditor) {
+            auto id = get_Id->Invoke<Il2cppString*>(i);
+            if (!id) continue;
+            existIds.emplace(id->ToString());
+        }
+
+        static auto UserCostume_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                              "UserCostume");
+        static auto UserHair_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                           "UserHair");
+        static auto UserMusic_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                            "UserMusic");
+        static auto UserCostume_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                              "UserCostume", ".ctor");
+        static auto UserHair_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                           "UserHair", ".ctor");
+        static auto UserMusic_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                            "UserMusic", ".ctor");
+
+        auto className = std::string(userClassName);
+        auto klass = className == "UserCostume" ? UserCostume_klass :
+                     className == "UserHair" ? UserHair_klass : UserMusic_klass;
+        auto ctor = className == "UserCostume" ? UserCostume_ctor :
+                    className == "UserHair" ? UserHair_ctor : UserMusic_ctor;
+
+        for (auto& i : allIds) {
+            if (i.empty()) continue;
+            if (existIds.contains(i)) continue;
+
+            void* userData = nullptr;
+            if (origCount > 0 && Clone) {
+                userData = Clone->Invoke<void*>(listEditor.get_Item(0));
+            }
+            else if (klass && ctor) {
+                userData = klass->New<void*>();
+                ctor->Invoke<void>(userData);
+            }
+            if (!userData) continue;
+
+            set_Id->Invoke<void>(userData, Il2cppString::New(i));
+            listEditor.Add(userData);
+            existIds.emplace(i);
+        }
+        return origList;
+    }
+
+    void* AddSolisCostumesToUserCollection(void* origList, const std::string& characterId = "") {
+        if (!origList) return origList;
+
+        static auto UserCostume_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                               "UserCostume", "Clone");
+        static auto UserCostume_get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                       "UserCostume", "get_CostumeId");
+        static auto UserCostume_set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                       "UserCostume", "set_CostumeId");
+        if (!UserCostume_Clone || !UserCostume_get_CostumeId || !UserCostume_set_CostumeId) {
+            Log::Error("AddSolisCostumesToUserCollection failed: UserCostume methods missing");
+            return origList;
+        }
+
+        auto allIds = GetSolisMasterIdAll(SolisMasterIdType::CostumeId, characterId);
+        return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserCostume",
+                                                         UserCostume_get_CostumeId, UserCostume_set_CostumeId,
+                                                         UserCostume_Clone);
+    }
+
+    void* AddSolisHairsToUserCollection(void* origList, const std::string& characterId = "") {
+        if (!origList) return origList;
+
+        static auto UserHair_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                            "UserHair", "Clone");
+        static auto UserHair_get_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                 "UserHair", "get_HairId");
+        static auto UserHair_set_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                 "UserHair", "set_HairId");
+        if (!UserHair_Clone || !UserHair_get_HairId || !UserHair_set_HairId) {
+            Log::Error("AddSolisHairsToUserCollection failed: UserHair methods missing");
+            return origList;
+        }
+
+        auto allIds = GetSolisMasterIdAll(SolisMasterIdType::HairId, characterId);
+        return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserHair",
+                                                         UserHair_get_HairId, UserHair_set_HairId,
+                                                         UserHair_Clone);
+    }
+
+    void* AddSolisMusicsToUserCollection(void* origList) {
+        if (!origList) return origList;
+
+        static auto UserMusic_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                            "UserMusic", "Clone");
+        static auto UserMusic_get_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                   "UserMusic", "get_MusicId");
+        static auto UserMusic_set_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                   "UserMusic", "set_MusicId");
+        if (!UserMusic_Clone || !UserMusic_get_MusicId || !UserMusic_set_MusicId) {
+            Log::Error("AddSolisMusicsToUserCollection failed: UserMusic methods missing");
+            return origList;
+        }
+
+        auto allIds = GetSolisMasterIdAll(SolisMasterIdType::MusicId);
+        return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserMusic",
+                                                         UserMusic_get_MusicId, UserMusic_set_MusicId,
+                                                         UserMusic_Clone);
+    }
+
+    void* NewSolisStringList(const std::vector<std::string>& ids) {
+        static auto List_String_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
+            "System.Collections.Generic.List`1[System.String]");
+        static auto List_String_ctor_mtd = List_String_klass ?
+                Il2cppUtils::il2cpp_class_get_method_from_name(List_String_klass, ".ctor", 0) : nullptr;
+        static auto List_String_ctor = List_String_ctor_mtd ?
+                reinterpret_cast<void (*)(void*, void*)>(List_String_ctor_mtd->methodPointer) : nullptr;
+        if (!List_String_klass || !List_String_ctor) return nullptr;
+
+        auto list = UnityResolve::Invoke<void*>("il2cpp_object_new", List_String_klass);
+        List_String_ctor(list, List_String_ctor_mtd);
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(list);
+        for (const auto& id : ids) {
+            if (!id.empty()) editor.Add(Il2cppString::New(id));
+        }
+        return list;
+    }
+
+    bool GetSolisDefaultLiveIdVectors(void* characterIds, std::vector<std::string>& costumeIds,
+                                      std::vector<std::string>& hairIds) {
+        if (!characterIds) return false;
+        static auto get_CharacterMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                 "MasterManager", "get_CharacterMaster");
+        static auto get_CostumeMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                               "MasterManager", "get_CostumeMaster");
+        static auto CharacterMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                 "Solis.Common.Master",
+                                                                                 "CharacterMaster", "GetAllWithSortByKey",
+                                                                                 {"Solis.Common.Master.CharacterSortType"});
+        static auto CostumeMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                               "Solis.Common.Master",
+                                                                               "CostumeMaster", "GetAllWithSortByKey",
+                                                                               {"Solis.Common.Master.CostumeSortType"});
+        static auto Character_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                              "Character", "get_Id");
+        static auto Costume_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                            "Costume", "get_Id");
+        static auto Character_get_DefaultLiveCostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                "Solis.Common.Proto.Master",
+                                                                                "Character", "get_DefaultLiveCostumeId");
+        static auto Costume_get_DefaultHairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                       "Solis.Common.Proto.Master",
+                                                                       "Costume", "get_DefaultHairId");
+        if (!get_CharacterMaster || !get_CostumeMaster || !CharacterMaster_GetAllWithSortByKey ||
+            !CostumeMaster_GetAllWithSortByKey || !Character_get_Id || !Costume_get_Id ||
+            !Character_get_DefaultLiveCostumeId || !Costume_get_DefaultHairId) {
+            Log::Error("GetSolisDefaultLiveIdVectors failed: master methods missing");
+            return false;
+        }
+
+        auto characterMaster = get_CharacterMaster->Invoke<void*>(nullptr);
+        auto costumeMaster = get_CostumeMaster->Invoke<void*>(nullptr);
+        if (!characterMaster || !costumeMaster) return false;
+
+        static std::unordered_map<std::string, std::string> defaultLiveCostumeByCharacter{};
+        static std::unordered_map<std::string, std::string> defaultHairByCostume{};
+        if (defaultLiveCostumeByCharacter.empty()) {
+            auto characterList = CharacterMaster_GetAllWithSortByKey->Invoke<void*>(characterMaster, 0x0);
+            if (!characterList) return false;
+
+            Il2cppUtils::Tools::CSListEditor<void*> characterListEditor(characterList);
+            for (auto character : characterListEditor) {
+                if (!character) continue;
+                auto characterId = Character_get_Id->Invoke<Il2cppString*>(character);
+                auto costumeId = Character_get_DefaultLiveCostumeId->Invoke<Il2cppString*>(character);
+                if (!characterId || !costumeId) continue;
+
+                auto characterIdStr = characterId->ToString();
+                auto costumeIdStr = costumeId->ToString();
+                if (!characterIdStr.empty() && !costumeIdStr.empty()) {
+                    defaultLiveCostumeByCharacter[characterIdStr] = costumeIdStr;
+                }
+            }
+        }
+        if (defaultHairByCostume.empty()) {
+            auto costumeList = CostumeMaster_GetAllWithSortByKey->Invoke<void*>(costumeMaster, 0x0);
+            if (!costumeList) return false;
+
+            Il2cppUtils::Tools::CSListEditor<void*> costumeListEditor(costumeList);
+            for (auto costume : costumeListEditor) {
+                if (!costume) continue;
+                auto costumeId = Costume_get_Id->Invoke<Il2cppString*>(costume);
+                auto hairId = Costume_get_DefaultHairId->Invoke<Il2cppString*>(costume);
+                if (!costumeId || !hairId) continue;
+
+                auto costumeIdStr = costumeId->ToString();
+                auto hairIdStr = hairId->ToString();
+                if (!costumeIdStr.empty() && !hairIdStr.empty()) {
+                    defaultHairByCostume[costumeIdStr] = hairIdStr;
+                }
+            }
+        }
+        if (defaultLiveCostumeByCharacter.empty() || defaultHairByCostume.empty()) return false;
+
+        costumeIds.clear();
+        hairIds.clear();
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> characterIdEditor(characterIds);
+        for (auto characterId : characterIdEditor) {
+            if (!characterId) return false;
+
+            auto characterIdStr = characterId->ToString();
+            auto costumeIt = defaultLiveCostumeByCharacter.find(characterIdStr);
+            if (costumeIt == defaultLiveCostumeByCharacter.end()) return false;
+
+            auto hairIt = defaultHairByCostume.find(costumeIt->second);
+            if (hairIt == defaultHairByCostume.end()) return false;
+
+            costumeIds.emplace_back(costumeIt->second);
+            hairIds.emplace_back(hairIt->second);
+        }
+
+        if (costumeIds.empty() || costumeIds.size() != hairIds.size()) return false;
+        return true;
+    }
+
+    bool TryGetSolisDefaultLiveIds(void* characterIds, void** safeCostumeIds, void** safeHairIds) {
+        if (!characterIds || !safeCostumeIds || !safeHairIds) return false;
+
+        std::vector<std::string> costumeIds{};
+        std::vector<std::string> hairIds{};
+        if (!GetSolisDefaultLiveIdVectors(characterIds, costumeIds, hairIds)) return false;
+
+        auto newCostumeIds = NewSolisStringList(costumeIds);
+        auto newHairIds = NewSolisStringList(hairIds);
+        if (!newCostumeIds || !newHairIds) return false;
+
+        *safeCostumeIds = newCostumeIds;
+        *safeHairIds = newHairIds;
+        Log::DebugFmt("TryGetSolisDefaultLiveIds replaced %d costume/hair ids", static_cast<int>(costumeIds.size()));
+        return true;
+    }
+
+    bool ReplaceSolisRepeatedStringField(void* field, const std::vector<std::string>& ids) {
+        if (!field || ids.empty()) return false;
+
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(field);
+        auto count = editor.get_Count();
+        if (count == static_cast<int>(ids.size())) {
+            for (int i = 0; i < count; ++i) {
+                editor.set_Item(i, Il2cppString::New(ids[i]));
+            }
+            return true;
+        }
+        if (count == 0) {
+            for (const auto& id : ids) {
+                editor.Add(Il2cppString::New(id));
+            }
+            return editor.get_Count() == static_cast<int>(ids.size());
+        }
+
+        Log::DebugFmt("ReplaceSolisRepeatedStringField skipped: field count %d, replacement count %d",
+                      count, static_cast<int>(ids.size()));
+        return false;
+    }
+
+    bool ForceReplaceSolisRepeatedStringField(void* field, const std::vector<std::string>& ids) {
+        if (!field || ids.empty()) return false;
+
+        auto fieldKlass = Il2cppUtils::get_class_from_instance(field);
+        auto clearMtd = fieldKlass ? Il2cppUtils::il2cpp_class_get_method_from_name(fieldKlass, "Clear", 0) : nullptr;
+        if (!clearMtd) {
+            Log::Error("ForceReplaceSolisRepeatedStringField failed: Clear missing");
+            return false;
+        }
+
+        auto clear = reinterpret_cast<void (*)(void*, void*)>(clearMtd->methodPointer);
+        clear(field, clearMtd);
+
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(field);
+        for (const auto& id : ids) {
+            if (!id.empty()) editor.Add(Il2cppString::New(id));
+        }
+        return editor.get_Count() == static_cast<int>(ids.size());
+    }
+
+    bool ReplaceSolisCheckShootingRequestIds(void* characterIds, void* costumeIds, void* hairIds) {
+        std::vector<std::string> safeCostumeIds{};
+        std::vector<std::string> safeHairIds{};
+        if (!GetSolisDefaultLiveIdVectors(characterIds, safeCostumeIds, safeHairIds)) return false;
+
+        auto replacedCostume = ReplaceSolisRepeatedStringField(costumeIds, safeCostumeIds);
+        auto replacedHair = ReplaceSolisRepeatedStringField(hairIds, safeHairIds);
+        Log::DebugFmt("ReplaceSolisCheckShootingRequestIds result: costume=%d hair=%d count=%d",
+                      replacedCostume, replacedHair, static_cast<int>(safeCostumeIds.size()));
+        return replacedCostume && replacedHair;
+    }
+
+    void NormalizeSolisReplacementCount(std::vector<std::string>& ids, int targetCount) {
+        if (targetCount <= 0 || ids.empty()) return;
+        if (static_cast<int>(ids.size()) == targetCount) return;
+
+        std::vector<std::string> normalized{};
+        normalized.reserve(targetCount);
+        for (int i = 0; i < targetCount; ++i) {
+            normalized.emplace_back(ids[i % ids.size()]);
+        }
+        ids = std::move(normalized);
+    }
+
+    bool ReplaceSolisSingleShootingRequestIds(void* request, Il2cppString* characterId,
+                                              UnityResolve::Method* set_CostumeId,
+                                              UnityResolve::Method* set_HairId) {
+        if (!request || !characterId || !set_CostumeId || !set_HairId) return false;
+
+        auto characterIds = NewSolisStringList({characterId->ToString()});
+        std::vector<std::string> safeCostumeIds{};
+        std::vector<std::string> safeHairIds{};
+        if (!GetSolisDefaultLiveIdVectors(characterIds, safeCostumeIds, safeHairIds) ||
+            safeCostumeIds.empty() || safeHairIds.empty()) {
+            return false;
+        }
+
+        set_CostumeId->Invoke<void>(request, Il2cppString::New(safeCostumeIds[0]));
+        set_HairId->Invoke<void>(request, Il2cppString::New(safeHairIds[0]));
+        Log::DebugFmt("ReplaceSolisSingleShootingRequestIds result: costume=%s hair=%s",
+                      safeCostumeIds[0].c_str(), safeHairIds[0].c_str());
+        return true;
+    }
+
+    Il2cppString* GetFirstSolisStringFromList(void* list) {
+        if (!list) return nullptr;
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(list);
+        if (editor.get_Count() <= 0) return nullptr;
+        return editor.get_Item(0);
+    }
+
+    bool GetSolisSafeIdsFromCostumeHairFields(void* costumeIds, void* hairIds,
+                                              std::vector<std::string>& safeCostumeIds,
+                                              std::vector<std::string>& safeHairIds) {
+        if (!costumeIds && !hairIds) return false;
+
+        static auto get_CharacterMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                 "MasterManager", "get_CharacterMaster");
+        static auto get_CostumeMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                               "MasterManager", "get_CostumeMaster");
+        static auto get_HairMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                            "MasterManager", "get_HairMaster");
+        static auto CharacterMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                 "Solis.Common.Master",
+                                                                                 "CharacterMaster", "GetAllWithSortByKey",
+                                                                                 {"Solis.Common.Master.CharacterSortType"});
+        static auto CostumeMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                               "Solis.Common.Master",
+                                                                               "CostumeMaster", "GetAllWithSortByKey",
+                                                                               {"Solis.Common.Master.CostumeSortType"});
+        static auto HairMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                            "Solis.Common.Master",
+                                                                            "HairMaster", "GetAllWithSortByKey",
+                                                                            {"Solis.Common.Master.HairSortType"});
+        static auto Character_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                              "Character", "get_Id");
+        static auto Character_get_DefaultLiveCostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                "Solis.Common.Proto.Master",
+                                                                                "Character", "get_DefaultLiveCostumeId");
+        static auto Costume_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                            "Costume", "get_Id");
+        static auto Costume_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                     "Costume", "get_CharacterId");
+        static auto Costume_get_DefaultHairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                       "Solis.Common.Proto.Master",
+                                                                       "Costume", "get_DefaultHairId");
+        static auto Hair_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                         "Hair", "get_Id");
+        static auto Hair_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                  "Hair", "get_CharacterId");
+        if (!get_CharacterMaster || !get_CostumeMaster || !get_HairMaster || !CharacterMaster_GetAllWithSortByKey ||
+            !CostumeMaster_GetAllWithSortByKey || !HairMaster_GetAllWithSortByKey || !Character_get_Id ||
+            !Character_get_DefaultLiveCostumeId || !Costume_get_Id || !Costume_get_CharacterId ||
+            !Costume_get_DefaultHairId || !Hair_get_Id || !Hair_get_CharacterId) {
+            Log::Error("GetSolisSafeIdsFromCostumeHairFields failed: master methods missing");
+            return false;
+        }
+
+        static std::unordered_map<std::string, std::string> defaultLiveCostumeByCharacter{};
+        static std::unordered_map<std::string, std::string> defaultHairByCostume{};
+        static std::unordered_map<std::string, std::string> characterByCostume{};
+        static std::unordered_map<std::string, std::string> characterByHair{};
+
+        auto characterMaster = get_CharacterMaster->Invoke<void*>(nullptr);
+        auto costumeMaster = get_CostumeMaster->Invoke<void*>(nullptr);
+        auto hairMaster = get_HairMaster->Invoke<void*>(nullptr);
+        if (!characterMaster || !costumeMaster || !hairMaster) return false;
+
+        if (defaultLiveCostumeByCharacter.empty()) {
+            auto characterList = CharacterMaster_GetAllWithSortByKey->Invoke<void*>(characterMaster, 0x0);
+            if (!characterList) return false;
+            Il2cppUtils::Tools::CSListEditor<void*> editor(characterList);
+            for (auto character : editor) {
+                if (!character) continue;
+                auto characterId = Character_get_Id->Invoke<Il2cppString*>(character);
+                auto costumeId = Character_get_DefaultLiveCostumeId->Invoke<Il2cppString*>(character);
+                if (!characterId || !costumeId) continue;
+                auto characterIdStr = characterId->ToString();
+                auto costumeIdStr = costumeId->ToString();
+                if (!characterIdStr.empty() && !costumeIdStr.empty()) defaultLiveCostumeByCharacter[characterIdStr] = costumeIdStr;
+            }
+        }
+        if (defaultHairByCostume.empty() || characterByCostume.empty()) {
+            auto costumeList = CostumeMaster_GetAllWithSortByKey->Invoke<void*>(costumeMaster, 0x0);
+            if (!costumeList) return false;
+            Il2cppUtils::Tools::CSListEditor<void*> editor(costumeList);
+            for (auto costume : editor) {
+                if (!costume) continue;
+                auto costumeId = Costume_get_Id->Invoke<Il2cppString*>(costume);
+                auto characterId = Costume_get_CharacterId->Invoke<Il2cppString*>(costume);
+                auto hairId = Costume_get_DefaultHairId->Invoke<Il2cppString*>(costume);
+                if (!costumeId) continue;
+                auto costumeIdStr = costumeId->ToString();
+                if (characterId) {
+                    auto characterIdStr = characterId->ToString();
+                    if (!costumeIdStr.empty() && !characterIdStr.empty()) characterByCostume[costumeIdStr] = characterIdStr;
+                }
+                if (hairId) {
+                    auto hairIdStr = hairId->ToString();
+                    if (!costumeIdStr.empty() && !hairIdStr.empty()) defaultHairByCostume[costumeIdStr] = hairIdStr;
+                }
+            }
+        }
+        if (characterByHair.empty()) {
+            auto hairList = HairMaster_GetAllWithSortByKey->Invoke<void*>(hairMaster, 0x0);
+            if (!hairList) return false;
+            Il2cppUtils::Tools::CSListEditor<void*> editor(hairList);
+            for (auto hair : editor) {
+                if (!hair) continue;
+                auto hairId = Hair_get_Id->Invoke<Il2cppString*>(hair);
+                auto characterId = Hair_get_CharacterId->Invoke<Il2cppString*>(hair);
+                if (!hairId || !characterId) continue;
+                auto hairIdStr = hairId->ToString();
+                auto characterIdStr = characterId->ToString();
+                if (!hairIdStr.empty() && !characterIdStr.empty()) characterByHair[hairIdStr] = characterIdStr;
+            }
+        }
+
+        auto appendSafeForCharacter = [&](const std::string& characterId) {
+            auto costumeIt = defaultLiveCostumeByCharacter.find(characterId);
+            if (costumeIt == defaultLiveCostumeByCharacter.end()) return;
+            auto hairIt = defaultHairByCostume.find(costumeIt->second);
+            if (hairIt == defaultHairByCostume.end()) return;
+            safeCostumeIds.emplace_back(costumeIt->second);
+            safeHairIds.emplace_back(hairIt->second);
+        };
+
+        safeCostumeIds.clear();
+        safeHairIds.clear();
+        if (costumeIds) {
+            Il2cppUtils::Tools::CSListEditor<Il2cppString*> costumeEditor(costumeIds);
+            for (auto costumeId : costumeEditor) {
+                if (!costumeId) continue;
+                auto characterIt = characterByCostume.find(costumeId->ToString());
+                if (characterIt != characterByCostume.end()) appendSafeForCharacter(characterIt->second);
+            }
+        }
+        if (safeCostumeIds.empty() && hairIds) {
+            Il2cppUtils::Tools::CSListEditor<Il2cppString*> hairEditor(hairIds);
+            for (auto hairId : hairEditor) {
+                if (!hairId) continue;
+                auto characterIt = characterByHair.find(hairId->ToString());
+                if (characterIt != characterByHair.end()) appendSafeForCharacter(characterIt->second);
+            }
+        }
+
+        return !safeCostumeIds.empty() && safeCostumeIds.size() == safeHairIds.size();
+    }
+
+    bool ReplaceSolisCostumeHairRequestIds(void* costumeIds, void* hairIds) {
+        std::vector<std::string> safeCostumeIds{};
+        std::vector<std::string> safeHairIds{};
+        if (!GetSolisSafeIdsFromCostumeHairFields(costumeIds, hairIds, safeCostumeIds, safeHairIds)) return false;
+
+        safeCostumeIds = {safeCostumeIds[0]};
+        safeHairIds = {safeHairIds[0]};
+
+        auto replacedCostume = ForceReplaceSolisRepeatedStringField(costumeIds, safeCostumeIds);
+        auto replacedHair = ForceReplaceSolisRepeatedStringField(hairIds, safeHairIds);
+        Log::DebugFmt("ReplaceSolisCostumeHairRequestIds result: costume=%d hair=%d costumeCount=%d hairCount=%d",
+                      replacedCostume, replacedHair, static_cast<int>(safeCostumeIds.size()),
+                      static_cast<int>(safeHairIds.size()));
+        return replacedCostume && replacedHair;
+    }
+
+    bool ReplaceSolisCostumeSetRequestIds(void* request,
+                                          UnityResolve::Method* get_CostumeId,
+                                          UnityResolve::Method* get_HairId,
+                                          UnityResolve::Method* set_CostumeId,
+                                          UnityResolve::Method* set_HairId) {
+        if (!request || !get_CostumeId || !get_HairId || !set_CostumeId || !set_HairId) return false;
+
+        auto costumeId = get_CostumeId->Invoke<Il2cppString*>(request);
+        auto hairId = get_HairId->Invoke<Il2cppString*>(request);
+        std::vector<std::string> requestedCostumeIds{costumeId ? costumeId->ToString() : ""};
+        std::vector<std::string> requestedHairIds{hairId ? hairId->ToString() : ""};
+        auto costumeIds = NewSolisStringList(requestedCostumeIds);
+        auto hairIds = NewSolisStringList(requestedHairIds);
+
+        std::vector<std::string> safeCostumeIds{};
+        std::vector<std::string> safeHairIds{};
+        if (!GetSolisSafeIdsFromCostumeHairFields(costumeIds, hairIds, safeCostumeIds, safeHairIds)) return false;
+        if (safeCostumeIds.empty() || safeHairIds.empty()) return false;
+
+        set_CostumeId->Invoke<void>(request, Il2cppString::New(safeCostumeIds[0]));
+        set_HairId->Invoke<void>(request, Il2cppString::New(safeHairIds[0]));
+        Log::DebugFmt("ReplaceSolisCostumeSetRequestIds: %s/%s -> %s/%s",
+                      requestedCostumeIds[0].c_str(), requestedHairIds[0].c_str(),
+                      safeCostumeIds[0].c_str(), safeHairIds[0].c_str());
+        return true;
+    }
+
+    bool ReplaceSolisExpressionShootingRequestIds(void* request,
+                                                  UnityResolve::Method* get_CharacterId,
+                                                  UnityResolve::Method* set_CharacterId,
+                                                  UnityResolve::Method* set_CostumeId,
+                                                  UnityResolve::Method* set_HairId,
+                                                  UnityResolve::Method* get_CharacterIds,
+                                                  UnityResolve::Method* get_CostumeIds,
+                                                  UnityResolve::Method* get_HairIds) {
+        if (!request) return false;
+
+        auto replacedSingle = false;
+        auto replacedRepeated = false;
+        if (get_CharacterId && set_CostumeId && set_HairId) {
+            replacedSingle = ReplaceSolisSingleShootingRequestIds(
+                    request, get_CharacterId->Invoke<Il2cppString*>(request), set_CostumeId, set_HairId);
+        }
+        if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+            replacedRepeated = ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                                   get_CostumeIds->Invoke<void*>(request),
+                                                                   get_HairIds->Invoke<void*>(request));
+            if (!replacedSingle && set_CharacterId && set_CostumeId && set_HairId) {
+                auto characterId = GetFirstSolisStringFromList(get_CharacterIds->Invoke<void*>(request));
+                auto costumeId = GetFirstSolisStringFromList(get_CostumeIds->Invoke<void*>(request));
+                auto hairId = GetFirstSolisStringFromList(get_HairIds->Invoke<void*>(request));
+                if (characterId && costumeId && hairId) {
+                    set_CharacterId->Invoke<void>(request, characterId);
+                    set_CostumeId->Invoke<void>(request, costumeId);
+                    set_HairId->Invoke<void>(request, hairId);
+                    replacedSingle = true;
+                }
+            }
+        }
+        Log::DebugFmt("ReplaceSolisExpressionShootingRequestIds result: single=%d repeated=%d",
+                      replacedSingle, replacedRepeated);
+        return replacedSingle || replacedRepeated;
+    }
+
+    void* GetEmptySolisPhotoPoseTypes() {
+        static void* emptyPoseTypes = nullptr;
+        if (emptyPoseTypes) return emptyPoseTypes;
+
+        static auto RepeatedField_PhotoPoseType_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
+            "Google.Protobuf.Collections.RepeatedField`1[Solis.Common.Proto.PhotoPoseType]");
+        static auto RepeatedField_PhotoPoseType_ctor_mtd = RepeatedField_PhotoPoseType_klass ?
+                Il2cppUtils::il2cpp_class_get_method_from_name(RepeatedField_PhotoPoseType_klass, ".ctor", 0) : nullptr;
+        static auto RepeatedField_PhotoPoseType_ctor = RepeatedField_PhotoPoseType_ctor_mtd ?
+                reinterpret_cast<void (*)(void*, void*)>(RepeatedField_PhotoPoseType_ctor_mtd->methodPointer) : nullptr;
+        if (!RepeatedField_PhotoPoseType_klass || !RepeatedField_PhotoPoseType_ctor) {
+            Log::Error("GetEmptySolisPhotoPoseTypes failed: RepeatedField<PhotoPoseType> missing");
+            return nullptr;
+        }
+
+        emptyPoseTypes = UnityResolve::Invoke<void*>("il2cpp_object_new", RepeatedField_PhotoPoseType_klass);
+        RepeatedField_PhotoPoseType_ctor(emptyPoseTypes, RepeatedField_PhotoPoseType_ctor_mtd);
+        return emptyPoseTypes;
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync, (int actionType, Il2cppString* photoActivityId,
+        Il2cppString* photoMusicId, Il2cppString* photoStageId, void* characterIds, void* costumeIds,
+        void* hairIds, void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache,
+        void* mtd)) {
+        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+            void* safeCostumeIds = nullptr;
+            void* safeHairIds = nullptr;
+            if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
+                costumeIds = safeCostumeIds;
+                hairIds = safeHairIds;
+            }
+        }
+        return Solis_Photo_CheckShootingAsync_Orig(actionType, photoActivityId, photoMusicId, photoStageId,
+                                                   characterIds, costumeIds, hairIds, ct, callOption, errorHandler,
+                                                   requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
+        void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CheckShootingAsync_Request_Orig(request, ct, callOption, errorHandler,
+                                                           requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync, (int actionType, Il2cppString* specialPhotoShootingId,
+        Il2cppString* musicId, Il2cppString* stageId, void* characterIds, void* costumeIds, void* hairIds,
+        void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+            void* safeCostumeIds = nullptr;
+            void* safeHairIds = nullptr;
+            if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
+                costumeIds = safeCostumeIds;
+                hairIds = safeHairIds;
+            }
+        }
+        return Solis_Photo_CheckSpecialShootingAsync_Orig(actionType, specialPhotoShootingId, musicId, stageId,
+                                                          characterIds, costumeIds, hairIds, ct, callOption,
+                                                          errorHandler, requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Request, (void* request, void* ct, void* callOption,
+        void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckSpecialShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckSpecialShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CheckSpecialShootingAsync_Request_Orig(request, ct, callOption, errorHandler,
+                                                                  requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync, (Il2cppString* photoContestId, int actionType,
+        Il2cppString* photoContestActivityId, Il2cppString* photoContestQuestMusicId,
+        Il2cppString* photoContestQuestStageId, void* selectedCharacterIds, void* selectedCostumeIds,
+        Il2cppString* sectionId, void* selectedHairIds, void* ct, void* callOption, void* errorHandler,
+        Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+            void* safeCostumeIds = nullptr;
+            void* safeHairIds = nullptr;
+            if (TryGetSolisDefaultLiveIds(selectedCharacterIds, &safeCostumeIds, &safeHairIds)) {
+                selectedCostumeIds = safeCostumeIds;
+                selectedHairIds = safeHairIds;
+            }
+        }
+        return Solis_PhotoContest_CheckShootingAsync_Orig(photoContestId, actionType, photoContestActivityId,
+                                                          photoContestQuestMusicId, photoContestQuestStageId,
+                                                          selectedCharacterIds, selectedCostumeIds, sectionId,
+                                                          selectedHairIds, ct, callOption, errorHandler,
+                                                          requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
+        void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
+            static auto get_SelectedCostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                        "PhotoContestCheckShootingRequest", "get_SelectedCostumeIds");
+            static auto get_SelectedHairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoContestCheckShootingRequest", "get_SelectedHairIds");
+            if (get_SelectedCharacterIds && get_SelectedCostumeIds && get_SelectedHairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_SelectedCharacterIds->Invoke<void*>(request),
+                                                    get_SelectedCostumeIds->Invoke<void*>(request),
+                                                    get_SelectedHairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoContest_CheckShootingAsync_Request_Orig(request, ct, callOption, errorHandler,
+                                                                  requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync, (Il2cppString* photoMusicId, void* characterIds,
+        void* costumeIds, void* hairIds, void* ct, void* callOption, void* errorHandler,
+        Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+            void* safeCostumeIds = nullptr;
+            void* safeHairIds = nullptr;
+            if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
+                costumeIds = safeCostumeIds;
+                hairIds = safeHairIds;
+            }
+        }
+        return Solis_PhotoPanorama_CheckShootingAsync_Orig(photoMusicId, characterIds, costumeIds, hairIds, ct,
+                                                           callOption, errorHandler, requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
+        void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoPanoramaCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoPanoramaCheckShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoPanorama_CheckShootingAsync_Request_Orig(request, ct, callOption, errorHandler,
+                                                                   requestIdForResponseCache, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CheckShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckSpecialShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckSpecialShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CheckSpecialShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CheckExpressionShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCheckExpressionShootingRequest", "get_CharacterId");
+            static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCheckExpressionShootingRequest", "set_CharacterId");
+            static auto set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "PhotoCheckExpressionShootingRequest", "set_CostumeId");
+            static auto set_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "PhotoCheckExpressionShootingRequest", "set_HairId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckExpressionShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckExpressionShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckExpressionShootingRequest", "get_HairIds");
+            ReplaceSolisExpressionShootingRequestIds(request, get_CharacterId, set_CharacterId,
+                                                     set_CostumeId, set_HairId,
+                                                     get_CharacterIds, get_CostumeIds, get_HairIds);
+        }
+        return Solis_Photo_CheckExpressionShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateShootingsRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCreateShootingsRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCreateShootingsRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CreateShootingsAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CreateSpecialShootingsAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateSpecialShootingsRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCreateSpecialShootingsRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCreateSpecialShootingsRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Photo_CreateSpecialShootingsAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Photo_CreateExpressionShootingsAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateExpressionShootingsRequest", "get_CharacterId");
+            static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateExpressionShootingsRequest", "set_CharacterId");
+            static auto set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "PhotoCreateExpressionShootingsRequest", "set_CostumeId");
+            static auto set_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "PhotoCreateExpressionShootingsRequest", "set_HairId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateExpressionShootingsRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCreateExpressionShootingsRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCreateExpressionShootingsRequest", "get_HairIds");
+            ReplaceSolisExpressionShootingRequestIds(request, get_CharacterId, set_CharacterId,
+                                                     set_CostumeId, set_HairId,
+                                                     get_CharacterIds, get_CostumeIds, get_HairIds);
+        }
+        return Solis_Photo_CreateExpressionShootingsAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
+            static auto get_SelectedCostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                        "PhotoContestCheckShootingRequest", "get_SelectedCostumeIds");
+            static auto get_SelectedHairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoContestCheckShootingRequest", "get_SelectedHairIds");
+            if (get_SelectedCharacterIds && get_SelectedCostumeIds && get_SelectedHairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_SelectedCharacterIds->Invoke<void*>(request),
+                                                    get_SelectedCostumeIds->Invoke<void*>(request),
+                                                    get_SelectedHairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoContest_CheckShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoPanoramaCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoPanoramaCheckShootingRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoPanorama_CheckShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotoPanorama_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCreateShootingsRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoPanoramaCreateShootingsRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoPanoramaCreateShootingsRequest", "get_HairIds");
+            if (get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoPanorama_CreateShootingsAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Costume_SetCostumeAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllLiveCostume && request) {
+            static auto get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "CostumeSetRequest", "get_CostumeId");
+            static auto get_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "CostumeSetRequest", "get_HairId");
+            static auto set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "CostumeSetRequest", "set_CostumeId");
+            static auto set_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "CostumeSetRequest", "set_HairId");
+            ReplaceSolisCostumeSetRequestIds(request, get_CostumeId, get_HairId, set_CostumeId, set_HairId);
+        }
+        return Solis_Costume_SetCostumeAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Costume_SetLiveCostumeAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllLiveCostume && request) {
+            static auto get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "CostumeLiveSetRequest", "get_CostumeId");
+            static auto get_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "CostumeLiveSetRequest", "get_HairId");
+            static auto set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                               "CostumeLiveSetRequest", "set_CostumeId");
+            static auto set_HairId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "CostumeLiveSetRequest", "set_HairId");
+            ReplaceSolisCostumeSetRequestIds(request, get_CostumeId, get_HairId, set_CostumeId, set_HairId);
+        }
+        return Solis_Costume_SetLiveCostumeAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_Costume_CheckBulkAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllLiveCostume && request) {
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "CostumeCheckBulkRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "CostumeCheckBulkRequest", "get_HairIds");
+            if (get_CostumeIds && get_HairIds) {
+                ReplaceSolisCostumeHairRequestIds(get_CostumeIds->Invoke<void*>(request),
+                                                  get_HairIds->Invoke<void*>(request));
+            }
+        }
+        return Solis_Costume_CheckBulkAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
+    struct SolisUniTask {
+        void* source;
+        int16_t token;
+        int16_t padding0;
+        int32_t padding1;
+    };
+
+    SolisUniTask getSolisCompletedUniTask() {
+        SolisUniTask ret{};
+        static auto unitask_klass = Il2cppUtils::GetClass("UniTask.dll", "Cysharp.Threading.Tasks", "UniTask");
+        static auto CompletedTask_field = unitask_klass ? unitask_klass->Get<UnityResolve::Field>("CompletedTask") : nullptr;
+        if (!unitask_klass || !CompletedTask_field) return ret;
+
+        UnityResolve::Invoke<void>("il2cpp_field_static_get_value", CompletedTask_field->address, &ret);
+        return ret;
+    }
+
+    DEFINE_HOOK(SolisUniTask, Solis_CharacterCostumeScreenPresenter_CheckBulkAsync, (void* self, void* ct, void* mtd)) {
+        if (Config::unlockAllLiveCostume) {
+            return getSolisCompletedUniTask();
+        }
+        return Solis_CharacterCostumeScreenPresenter_CheckBulkAsync_Orig(self, ct, mtd);
+    }
+
+    DEFINE_HOOK(bool, Solis_Costume_get_IsUserUnavailable, (void* self, void* mtd)) {
+        auto ret = Solis_Costume_get_IsUserUnavailable_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume || !self) return ret;
+        return false;
+    }
+
+    DEFINE_HOOK(bool, Solis_Costume_get_IsDisableAdmin, (void* self, void* mtd)) {
+        auto ret = Solis_Costume_get_IsDisableAdmin_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume || !self) return ret;
+        return false;
+    }
+
+    DEFINE_HOOK(bool, Solis_Hair_get_IsDisableAdmin, (void* self, void* mtd)) {
+        auto ret = Solis_Hair_get_IsDisableAdmin_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume || !self) return ret;
+        return false;
+    }
+
+    DEFINE_HOOK(void*, Solis_Costume_get_ImpossiblePhotoPoseTypes, (void* self, void* mtd)) {
+        auto ret = Solis_Costume_get_ImpossiblePhotoPoseTypes_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        auto emptyPoseTypes = GetEmptySolisPhotoPoseTypes();
+        return emptyPoseTypes ? emptyPoseTypes : ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_Hair_get_ImpossiblePhotoPoseTypes, (void* self, void* mtd)) {
+        auto ret = Solis_Hair_get_ImpossiblePhotoPoseTypes_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        auto emptyPoseTypes = GetEmptySolisPhotoPoseTypes();
+        return emptyPoseTypes ? emptyPoseTypes : ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_ActorCostume_get_SdHair, (void* self, void* mtd)) {
+        auto ret = Solis_ActorCostume_get_SdHair_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume || !self) return ret;
+
+        static auto ActorCostume_get_Costume = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Data",
+                                                                      "ActorCostume", "get_Costume");
+        static auto Costume_get_DefaultHair = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                     "Costume", "get_DefaultHair");
+        if (!ActorCostume_get_Costume || !Costume_get_DefaultHair) return ret;
+
+        auto costume = ActorCostume_get_Costume->Invoke<void*>(self);
+        if (!costume) return ret;
+
+        auto defaultHair = Costume_get_DefaultHair->Invoke<void*>(costume);
+        return defaultHair ? defaultHair : ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_FindBy_Orig(self, predicate, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || std::string(this_klass->name) != "UserCostumeCollection") return ret;
+
+        static auto UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                        "UserCostumeCollection");
+        static auto UserCostumeCollection_GetAllList_mtd = UserCostumeCollection_klass ?
+                Il2cppUtils::il2cpp_class_get_method_from_name(UserCostumeCollection_klass->address, "GetAllList", 1) : nullptr;
+        static auto UserCostumeCollection_GetAllList = UserCostumeCollection_GetAllList_mtd ?
+                reinterpret_cast<void* (*)(void*, void*)>(UserCostumeCollection_GetAllList_mtd->methodPointer) : nullptr;
+        if (!UserCostumeCollection_GetAllList) return ret;
+
+        auto origList = UserCostumeCollection_GetAllList(self, nullptr);
+        return AddSolisCostumesToUserCollection(origList);
+    }
+
+    DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_GetAllList_Orig(self, comparison, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || std::string(this_klass->name) != "UserCostumeCollection") return ret;
+        return AddSolisCostumesToUserCollection(ret);
+    }
+
+    DEFINE_HOOK(bool, Solis_UserCostumeCollection_Exists, (void* self, Il2cppString* costumeId, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_Exists_Orig(self, costumeId, mtd);
+        if (!Config::unlockAllLiveCostume || !costumeId) return ret;
+        return IsSolisMasterIdExists(costumeId->ToString(), SolisMasterIdType::CostumeId) || ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetSortedCharacterCostumes, (void* self, Il2cppString* characterId, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_GetSortedCharacterCostumes_Orig(self, characterId, mtd);
+        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        return AddSolisCostumesToUserCollection(ret, characterId->ToString());
+    }
+
+    DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetOrderSortedCharacterCostumes, (void* self, Il2cppString* characterId, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_GetOrderSortedCharacterCostumes_Orig(self, characterId, mtd);
+        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        return AddSolisCostumesToUserCollection(ret, characterId->ToString());
+    }
+
+    DEFINE_HOOK(void*, Solis_UserHairCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
+        auto ret = Solis_UserHairCollection_GetAllList_Orig(self, comparison, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || std::string(this_klass->name) != "UserHairCollection") return ret;
+        return AddSolisHairsToUserCollection(ret);
+    }
+
+    DEFINE_HOOK(bool, Solis_UserHairCollection_Exists, (void* self, Il2cppString* hairId, void* mtd)) {
+        auto ret = Solis_UserHairCollection_Exists_Orig(self, hairId, mtd);
+        if (!Config::unlockAllLiveCostume || !hairId) return ret;
+        return IsSolisMasterIdExists(hairId->ToString(), SolisMasterIdType::HairId) || ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserHairCollection_GetSortedCharacterHairs,
+        (void* self, Il2cppString* characterId, void* costume, bool isBaseHairOnly, void* mtd)) {
+        auto ret = Solis_UserHairCollection_GetSortedCharacterHairs_Orig(self, characterId, costume, isBaseHairOnly, mtd);
+        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        return AddSolisHairsToUserCollection(ret, characterId->ToString());
+    }
+
+    DEFINE_HOOK(void*, Solis_UserHairCollection_GetSortedCharacterOrnamentHairs,
+        (void* self, Il2cppString* hairId, void* mtd)) {
+        auto ret = Solis_UserHairCollection_GetSortedCharacterOrnamentHairs_Orig(self, hairId, mtd);
+        if (!Config::unlockAllLiveCostume) return ret;
+
+        static auto UserHairCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                     "UserHairCollection");
+        static auto UserHairCollection_GetAllList_mtd = UserHairCollection_klass ?
+                Il2cppUtils::il2cpp_class_get_method_from_name(UserHairCollection_klass->address, "GetAllList", 1) : nullptr;
+        static auto UserHairCollection_GetAllList = UserHairCollection_GetAllList_mtd ?
+                reinterpret_cast<void* (*)(void*, void*)>(UserHairCollection_GetAllList_mtd->methodPointer) : nullptr;
+        if (!UserHairCollection_GetAllList) return ret;
+
+        auto origList = UserHairCollection_GetAllList(self, nullptr);
+        return AddSolisHairsToUserCollection(origList);
+    }
+
+    DEFINE_HOOK(bool, Solis_UserHairCollection_ExistsCharacterOrnamentHair,
+        (void* self, Il2cppString* characterId, void* mtd)) {
+        auto ret = Solis_UserHairCollection_ExistsCharacterOrnamentHair_Orig(self, characterId, mtd);
+        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_CostumeSpecifierExtensions_IsAppropriateCostume,
+        (void* costumeSpecifier, void* costume, void* mtd)) {
+        auto ret = Solis_CostumeSpecifierExtensions_IsAppropriateCostume_Orig(costumeSpecifier, costume, mtd);
+        if (!Config::unlockAllLiveCostume || !costume) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_Hair_IsWearableCostume, (void* self, void* costume, void* mtd)) {
+        auto ret = Solis_Hair_IsWearableCostume_Orig(self, costume, mtd);
+        if (!Config::unlockAllLiveCostume || !self || !costume) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_ActivityCharacterSelectCommonModel_IsAppropriateCostume,
+        (void* self, void* costume, void* mtd)) {
+        auto ret = Solis_ActivityCharacterSelectCommonModel_IsAppropriateCostume_Orig(self, costume, mtd);
+        if (!Config::unlockAllLiveCostume || !costume) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_RefreshLevelSelectScreenModel_IsAppropriateCostume,
+        (void* self, void* refreshLevel, void* costume, void* mtd)) {
+        auto ret = Solis_RefreshLevelSelectScreenModel_IsAppropriateCostume_Orig(self, refreshLevel, costume, mtd);
+        if (!Config::unlockAllLiveCostume || !costume) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_CostumeChangeSheetModel_IsWearableCostume,
+        (void* self, void* hair, void* mtd)) {
+        auto ret = Solis_CostumeChangeSheetModel_IsWearableCostume_Orig(self, hair, mtd);
+        if (!Config::unlockAllLiveCostume || !hair) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserMusicCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
+        auto ret = Solis_UserMusicCollection_GetAllList_Orig(self, comparison, mtd);
+        if (!Config::unlockAllLive) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || std::string(this_klass->name) != "UserMusicCollection") return ret;
+        return AddSolisMusicsToUserCollection(ret);
+    }
+
+    DEFINE_HOOK(bool, Solis_UserMusicCollection_Exists, (void* self, Il2cppString* musicId, void* mtd)) {
+        auto ret = Solis_UserMusicCollection_Exists_Orig(self, musicId, mtd);
+        if (!Config::unlockAllLive || !musicId) return ret;
+        return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
+    }
+
+    DEFINE_HOOK(bool, Solis_UserCharacterMusicCollection_Exists, (void* self, Il2cppString* characterId, Il2cppString* musicId, void* mtd)) {
+        auto ret = Solis_UserCharacterMusicCollection_Exists_Orig(self, characterId, musicId, mtd);
+        if (!Config::unlockAllLive || !musicId) return ret;
+        return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
+    }
+
     DEFINE_HOOK(void*, UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
         auto ret = UserCostumeCollection_FindBy_Orig(self, predicate, mtd);
         if (!Config::unlockAllLiveCostume) return ret;
@@ -2133,6 +3413,240 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(OnDownloadProgress_Invoke,
                  Il2cppUtils::GetMethodPointer("Octo.dll", "Octo",
                                                "OnDownloadProgress", "Invoke"));
+
+        auto Solis_UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                       "UserCostumeCollection");
+        if (Solis_UserCostumeCollection_klass) {
+            auto FindBy_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "FindBy", 1);
+            if (FindBy_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_FindBy, FindBy_mtd->methodPointer);
+            }
+
+            auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "GetAllList", 1);
+            if (GetAllList_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_GetAllList, GetAllList_mtd->methodPointer);
+            }
+
+            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "Exists", 1);
+            if (Exists_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_Exists, Exists_mtd->methodPointer);
+            }
+
+            auto GetSortedCharacterCostumes_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserCostumeCollection_klass->address, "GetSortedCharacterCostumes", 1);
+            if (GetSortedCharacterCostumes_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_GetSortedCharacterCostumes, GetSortedCharacterCostumes_mtd->methodPointer);
+            }
+
+            auto GetOrderSortedCharacterCostumes_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserCostumeCollection_klass->address, "GetOrderSortedCharacterCostumes", 1);
+            if (GetOrderSortedCharacterCostumes_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_GetOrderSortedCharacterCostumes, GetOrderSortedCharacterCostumes_mtd->methodPointer);
+            }
+        }
+
+        auto Solis_UserHairCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                    "UserHairCollection");
+        if (Solis_UserHairCollection_klass) {
+            auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserHairCollection_klass->address, "GetAllList", 1);
+            if (GetAllList_mtd) {
+                ADD_HOOK(Solis_UserHairCollection_GetAllList, GetAllList_mtd->methodPointer);
+            }
+
+            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserHairCollection_klass->address, "Exists", 1);
+            if (Exists_mtd) {
+                ADD_HOOK(Solis_UserHairCollection_Exists, Exists_mtd->methodPointer);
+            }
+
+            auto GetSortedCharacterHairs_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserHairCollection_klass->address, "GetSortedCharacterHairs", 3);
+            if (GetSortedCharacterHairs_mtd) {
+                ADD_HOOK(Solis_UserHairCollection_GetSortedCharacterHairs, GetSortedCharacterHairs_mtd->methodPointer);
+            }
+
+            auto GetSortedCharacterOrnamentHairs_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserHairCollection_klass->address, "GetSortedCharacterOrnamentHairs", 1);
+            if (GetSortedCharacterOrnamentHairs_mtd) {
+                ADD_HOOK(Solis_UserHairCollection_GetSortedCharacterOrnamentHairs,
+                         GetSortedCharacterOrnamentHairs_mtd->methodPointer);
+            }
+
+            auto ExistsCharacterOrnamentHair_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserHairCollection_klass->address, "ExistsCharacterOrnamentHair", 1);
+            if (ExistsCharacterOrnamentHair_mtd) {
+                ADD_HOOK(Solis_UserHairCollection_ExistsCharacterOrnamentHair,
+                         ExistsCharacterOrnamentHair_mtd->methodPointer);
+            }
+        }
+
+        ADD_HOOK(Solis_CostumeSpecifierExtensions_IsAppropriateCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
+                                               "CostumeSpecifierExtensions", "IsAppropriateCostume"));
+        ADD_HOOK(Solis_Hair_IsWearableCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Hair", "IsWearableCostume"));
+        ADD_HOOK(Solis_Costume_get_IsUserUnavailable,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Costume", "get_IsUserUnavailable"));
+        ADD_HOOK(Solis_Costume_get_IsDisableAdmin,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Costume", "get_IsDisableAdmin"));
+        ADD_HOOK(Solis_Hair_get_IsDisableAdmin,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Hair", "get_IsDisableAdmin"));
+        ADD_HOOK(Solis_Costume_get_ImpossiblePhotoPoseTypes,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Costume", "get_ImpossiblePhotoPoseTypes"));
+        ADD_HOOK(Solis_Hair_get_ImpossiblePhotoPoseTypes,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "Hair", "get_ImpossiblePhotoPoseTypes"));
+        ADD_HOOK(Solis_ActorCostume_get_SdHair,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
+                                               "ActorCostume", "get_SdHair"));
+        ADD_HOOK(Solis_ActivityCharacterSelectCommonModel_IsAppropriateCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ActivityCharacterSelectCommonModel", "IsAppropriateCostume"));
+        ADD_HOOK(Solis_RefreshLevelSelectScreenModel_IsAppropriateCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "RefreshLevelSelectScreenModel", "IsAppropriateCostume"));
+        ADD_HOOK(Solis_CostumeChangeSheetModel_IsWearableCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CostumeChangeSheetModel", "IsWearableCostume"));
+
+        auto Solis_UserMusicCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                     "UserMusicCollection");
+        if (Solis_UserMusicCollection_klass) {
+            auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserMusicCollection_klass->address, "GetAllList", 1);
+            if (GetAllList_mtd) {
+                ADD_HOOK(Solis_UserMusicCollection_GetAllList, GetAllList_mtd->methodPointer);
+            }
+
+            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserMusicCollection_klass->address, "Exists", 1);
+            if (Exists_mtd) {
+                ADD_HOOK(Solis_UserMusicCollection_Exists, Exists_mtd->methodPointer);
+            }
+        }
+
+        auto Solis_UserCharacterMusicCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                              "UserCharacterMusicCollection");
+        if (Solis_UserCharacterMusicCollection_klass) {
+            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCharacterMusicCollection_klass->address, "Exists", 2);
+            if (Exists_mtd) {
+                ADD_HOOK(Solis_UserCharacterMusicCollection_Exists, Exists_mtd->methodPointer);
+            }
+        }
+
+        auto Solis_ApiPhoto_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                          "Api/Photo");
+        if (Solis_ApiPhoto_klass) {
+            auto Photo_c_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                       "Api/Photo/<>c");
+            if (Photo_c_klass) {
+                auto CheckShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CheckShootingAsync>b__26_0", 4);
+                if (CheckShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CheckShootingAsync_Call, CheckShootingAsyncCall_mtd->methodPointer);
+                }
+
+                auto CheckSpecialShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CheckSpecialShootingAsync>b__42_0", 4);
+                if (CheckSpecialShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CheckSpecialShootingAsync_Call, CheckSpecialShootingAsyncCall_mtd->methodPointer);
+                }
+
+                auto CheckExpressionShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CheckExpressionShootingAsync>b__66_0", 4);
+                if (CheckExpressionShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CheckExpressionShootingAsync_Call,
+                             CheckExpressionShootingAsyncCall_mtd->methodPointer);
+                }
+
+                auto CreateShootingsAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CreateShootingsAsync>b__29_0", 4);
+                if (CreateShootingsAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CreateShootingsAsync_Call, CreateShootingsAsyncCall_mtd->methodPointer);
+                }
+
+                auto CreateSpecialShootingsAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CreateSpecialShootingsAsync>b__45_0", 4);
+                if (CreateSpecialShootingsAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CreateSpecialShootingsAsync_Call,
+                             CreateSpecialShootingsAsyncCall_mtd->methodPointer);
+                }
+
+                auto CreateExpressionShootingsAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Photo_c_klass->address, "<CreateExpressionShootingsAsync>b__69_0", 4);
+                if (CreateExpressionShootingsAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Photo_CreateExpressionShootingsAsync_Call,
+                             CreateExpressionShootingsAsyncCall_mtd->methodPointer);
+                }
+            }
+        }
+
+        auto Solis_ApiPhotoContest_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                                 "Api/PhotoContest");
+        if (Solis_ApiPhotoContest_klass) {
+            auto PhotoContest_c_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                              "Api/PhotoContest/<>c");
+            if (PhotoContest_c_klass) {
+                auto CheckShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        PhotoContest_c_klass->address, "<CheckShootingAsync>b__15_0", 4);
+                if (CheckShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_PhotoContest_CheckShootingAsync_Call, CheckShootingAsyncCall_mtd->methodPointer);
+                }
+            }
+        }
+
+        auto Solis_ApiPhotoPanorama_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                                  "Api/PhotoPanorama");
+        if (Solis_ApiPhotoPanorama_klass) {
+            auto PhotoPanorama_c_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                               "Api/PhotoPanorama/<>c");
+            if (PhotoPanorama_c_klass) {
+                auto CheckShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        PhotoPanorama_c_klass->address, "<CheckShootingAsync>b__5_0", 4);
+                if (CheckShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_PhotoPanorama_CheckShootingAsync_Call, CheckShootingAsyncCall_mtd->methodPointer);
+                }
+
+                auto CreateShootingsAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        PhotoPanorama_c_klass->address, "<CreateShootingsAsync>b__8_0", 4);
+                if (CreateShootingsAsyncCall_mtd) {
+                    ADD_HOOK(Solis_PhotoPanorama_CreateShootingsAsync_Call,
+                             CreateShootingsAsyncCall_mtd->methodPointer);
+                }
+            }
+        }
+
+        auto Solis_ApiCostume_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                            "Api/Costume");
+        if (Solis_ApiCostume_klass) {
+            auto Costume_c_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
+                                                         "Api/Costume/<>c");
+            if (Costume_c_klass) {
+                auto SetCostumeAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Costume_c_klass->address, "<SetCostumeAsync>b__3_0", 4);
+                if (SetCostumeAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Costume_SetCostumeAsync_Call, SetCostumeAsyncCall_mtd->methodPointer);
+                }
+
+                auto SetLiveCostumeAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Costume_c_klass->address, "<SetLiveCostumeAsync>b__6_0", 4);
+                if (SetLiveCostumeAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Costume_SetLiveCostumeAsync_Call, SetLiveCostumeAsyncCall_mtd->methodPointer);
+                }
+
+                auto CheckBulkAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        Costume_c_klass->address, "<CheckBulkAsync>b__12_0", 4);
+                if (CheckBulkAsyncCall_mtd) {
+                    ADD_HOOK(Solis_Costume_CheckBulkAsync_Call, CheckBulkAsyncCall_mtd->methodPointer);
+                }
+            }
+        }
+
+        // CharacterCostumeScreenPresenter.CheckBulkAsync returns UniTask by value.
+        // Hooking this async state-machine entry directly is unstable on arm64/houdini;
+        // keep the lower-level Costume:CheckBulk request sanitizer instead.
 
         /*
         auto UserDataManager_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
