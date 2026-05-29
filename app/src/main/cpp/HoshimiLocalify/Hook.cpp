@@ -1777,11 +1777,21 @@ namespace HoshimiLocal::HookMain {
         std::vector<std::string> safeHairIds{};
         if (!GetSolisDefaultLiveIdVectors(characterIds, safeCostumeIds, safeHairIds)) return false;
 
-        auto replacedCostume = ReplaceSolisRepeatedStringField(costumeIds, safeCostumeIds);
-        auto replacedHair = ReplaceSolisRepeatedStringField(hairIds, safeHairIds);
-        Log::DebugFmt("ReplaceSolisCheckShootingRequestIds result: costume=%d hair=%d count=%d",
-                      replacedCostume, replacedHair, static_cast<int>(safeCostumeIds.size()));
-        return replacedCostume && replacedHair;
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> characterEditor(characterIds);
+        if (characterEditor.get_Count() <= 0 || !characterEditor.get_Item(0) ||
+            safeCostumeIds.empty() || safeHairIds.empty()) {
+            return false;
+        }
+
+        std::vector<std::string> safeCharacterIds{characterEditor.get_Item(0)->ToString()};
+        std::vector<std::string> oneSafeCostumeId{safeCostumeIds[0]};
+        std::vector<std::string> oneSafeHairId{safeHairIds[0]};
+        auto replacedCharacter = ForceReplaceSolisRepeatedStringField(characterIds, safeCharacterIds);
+        auto replacedCostume = ForceReplaceSolisRepeatedStringField(costumeIds, oneSafeCostumeId);
+        auto replacedHair = ForceReplaceSolisRepeatedStringField(hairIds, oneSafeHairId);
+        Log::DebugFmt("ReplaceSolisCheckShootingRequestIds result: character=%d costume=%d hair=%d count=%d",
+                      replacedCharacter, replacedCostume, replacedHair, static_cast<int>(oneSafeCostumeId.size()));
+        return replacedCharacter && replacedCostume && replacedHair;
     }
 
     void NormalizeSolisReplacementCount(std::vector<std::string>& ids, int targetCount) {
@@ -1821,6 +1831,112 @@ namespace HoshimiLocal::HookMain {
         Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(list);
         if (editor.get_Count() <= 0) return nullptr;
         return editor.get_Item(0);
+    }
+
+    bool SolisStringListContains(void* list, const std::string& id) {
+        if (!list || id.empty()) return false;
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(list);
+        for (auto item : editor) {
+            if (item && item->ToString() == id) return true;
+        }
+        return false;
+    }
+
+    bool SolisStringListContainsAny(void* list, void* ids) {
+        if (!list || !ids) return false;
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> idEditor(ids);
+        for (auto id : idEditor) {
+            if (id && SolisStringListContains(list, id->ToString())) return true;
+        }
+        return false;
+    }
+
+    std::string GetSolisSafePhotoExpressionId(void* characterIds, const std::string& currentExpressionId = "") {
+        if (!characterIds) return currentExpressionId;
+
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> characterEditor(characterIds);
+        auto characterCount = characterEditor.get_Count();
+        if (characterCount <= 0) return currentExpressionId;
+
+        static auto get_PhotoExpressionMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                       "MasterManager", "get_PhotoExpressionMaster");
+        static auto PhotoExpressionMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                       "Solis.Common.Master",
+                                                                                       "PhotoExpressionMaster",
+                                                                                       "GetAllWithSortByKey",
+                                                                                       {"Solis.Common.Master.PhotoExpressionSortType"});
+        static auto PhotoExpression_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                                    "PhotoExpression", "get_Id");
+        static auto PhotoExpression_get_CostumeTypeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                "Solis.Common.Proto.Master",
+                                                                                "PhotoExpression", "get_CostumeTypeIds");
+        static auto PhotoExpression_get_ForceCostumeTypeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                   "Solis.Common.Proto.Master",
+                                                                                   "PhotoExpression", "get_ForceCostumeTypeId");
+        static auto PhotoExpression_get_ImpossibleShootingCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                                "Solis.Common.Proto.Master",
+                                                                                                "PhotoExpression",
+                                                                                                "get_ImpossibleShootingCharacterIds");
+        static auto PhotoExpression_GetMaxCharacterAmount = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                   "Solis.Common.Proto.Master",
+                                                                                   "PhotoExpression",
+                                                                                   "GetMaxCharacterAmount");
+        if (!get_PhotoExpressionMaster || !PhotoExpressionMaster_GetAllWithSortByKey ||
+            !PhotoExpression_get_Id || !PhotoExpression_get_ImpossibleShootingCharacterIds ||
+            !PhotoExpression_GetMaxCharacterAmount) {
+            Log::Error("GetSolisSafePhotoExpressionId failed: methods missing");
+            return currentExpressionId;
+        }
+
+        auto master = get_PhotoExpressionMaster->Invoke<void*>(nullptr);
+        auto expressionList = master ? PhotoExpressionMaster_GetAllWithSortByKey->Invoke<void*>(master, 0x0) : nullptr;
+        if (!expressionList) return currentExpressionId;
+
+        auto isExpressionSafe = [&](void* expression, bool requireNoCostumeType) -> bool {
+            if (!expression) return false;
+            auto id = PhotoExpression_get_Id->Invoke<Il2cppString*>(expression);
+            if (!id || id->ToString().empty()) return false;
+
+            auto maxCharacterAmount = PhotoExpression_GetMaxCharacterAmount->Invoke<int>(expression);
+            if (maxCharacterAmount > 0 && characterCount > maxCharacterAmount) return false;
+
+            auto impossibleCharacterIds = PhotoExpression_get_ImpossibleShootingCharacterIds->Invoke<void*>(expression);
+            if (SolisStringListContainsAny(impossibleCharacterIds, characterIds)) return false;
+
+            if (requireNoCostumeType && PhotoExpression_get_CostumeTypeIds && PhotoExpression_get_ForceCostumeTypeId) {
+                auto costumeTypeIds = PhotoExpression_get_CostumeTypeIds->Invoke<void*>(expression);
+                Il2cppUtils::Tools::CSListEditor<Il2cppString*> costumeTypeEditor(costumeTypeIds);
+                auto forceCostumeTypeId = PhotoExpression_get_ForceCostumeTypeId->Invoke<Il2cppString*>(expression);
+                if (costumeTypeEditor.get_Count() > 0) return false;
+                if (forceCostumeTypeId && !forceCostumeTypeId->ToString().empty()) return false;
+            }
+
+            return true;
+        };
+
+        Il2cppUtils::Tools::CSListEditor<void*> expressionEditor(expressionList);
+        if (!currentExpressionId.empty()) {
+            for (auto expression : expressionEditor) {
+                auto id = expression && PhotoExpression_get_Id ? PhotoExpression_get_Id->Invoke<Il2cppString*>(expression) : nullptr;
+                if (id && id->ToString() == currentExpressionId && isExpressionSafe(expression, true)) {
+                    return currentExpressionId;
+                }
+            }
+        }
+
+        for (auto expression : expressionEditor) {
+            if (!isExpressionSafe(expression, true)) continue;
+            auto id = PhotoExpression_get_Id->Invoke<Il2cppString*>(expression);
+            return id->ToString();
+        }
+
+        for (auto expression : expressionEditor) {
+            if (!isExpressionSafe(expression, false)) continue;
+            auto id = PhotoExpression_get_Id->Invoke<Il2cppString*>(expression);
+            return id->ToString();
+        }
+
+        return currentExpressionId;
     }
 
     bool GetSolisSafeIdsFromCostumeHairFields(void* costumeIds, void* hairIds,
@@ -2005,6 +2121,8 @@ namespace HoshimiLocal::HookMain {
     }
 
     bool ReplaceSolisExpressionShootingRequestIds(void* request,
+                                                  UnityResolve::Method* get_PhotoExpressionId,
+                                                  UnityResolve::Method* set_PhotoExpressionId,
                                                   UnityResolve::Method* get_CharacterId,
                                                   UnityResolve::Method* set_CharacterId,
                                                   UnityResolve::Method* set_CostumeId,
@@ -2016,18 +2134,16 @@ namespace HoshimiLocal::HookMain {
 
         auto replacedSingle = false;
         auto replacedRepeated = false;
-        if (get_CharacterId && set_CostumeId && set_HairId) {
-            replacedSingle = ReplaceSolisSingleShootingRequestIds(
-                    request, get_CharacterId->Invoke<Il2cppString*>(request), set_CostumeId, set_HairId);
-        }
+        void* characterIds = nullptr;
         if (get_CharacterIds && get_CostumeIds && get_HairIds) {
-            replacedRepeated = ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
-                                                                   get_CostumeIds->Invoke<void*>(request),
-                                                                   get_HairIds->Invoke<void*>(request));
-            if (!replacedSingle && set_CharacterId && set_CostumeId && set_HairId) {
-                auto characterId = GetFirstSolisStringFromList(get_CharacterIds->Invoke<void*>(request));
-                auto costumeId = GetFirstSolisStringFromList(get_CostumeIds->Invoke<void*>(request));
-                auto hairId = GetFirstSolisStringFromList(get_HairIds->Invoke<void*>(request));
+            characterIds = get_CharacterIds->Invoke<void*>(request);
+            auto costumeIds = get_CostumeIds->Invoke<void*>(request);
+            auto hairIds = get_HairIds->Invoke<void*>(request);
+            replacedRepeated = ReplaceSolisCheckShootingRequestIds(characterIds, costumeIds, hairIds);
+            if (replacedRepeated && set_CharacterId && set_CostumeId && set_HairId) {
+                auto characterId = GetFirstSolisStringFromList(characterIds);
+                auto costumeId = GetFirstSolisStringFromList(costumeIds);
+                auto hairId = GetFirstSolisStringFromList(hairIds);
                 if (characterId && costumeId && hairId) {
                     set_CharacterId->Invoke<void>(request, characterId);
                     set_CostumeId->Invoke<void>(request, costumeId);
@@ -2036,9 +2152,29 @@ namespace HoshimiLocal::HookMain {
                 }
             }
         }
-        Log::DebugFmt("ReplaceSolisExpressionShootingRequestIds result: single=%d repeated=%d",
-                      replacedSingle, replacedRepeated);
-        return replacedSingle || replacedRepeated;
+        if (!replacedSingle && get_CharacterId && set_CostumeId && set_HairId) {
+            replacedSingle = ReplaceSolisSingleShootingRequestIds(
+                    request, get_CharacterId->Invoke<Il2cppString*>(request), set_CostumeId, set_HairId);
+        }
+
+        auto replacedExpression = false;
+        if (get_PhotoExpressionId && set_PhotoExpressionId && characterIds) {
+            auto currentExpressionId = get_PhotoExpressionId->Invoke<Il2cppString*>(request);
+            auto safeExpressionId = GetSolisSafePhotoExpressionId(
+                    characterIds, currentExpressionId ? currentExpressionId->ToString() : "");
+            if (!safeExpressionId.empty() &&
+                (!currentExpressionId || currentExpressionId->ToString() != safeExpressionId)) {
+                set_PhotoExpressionId->Invoke<void>(request, Il2cppString::New(safeExpressionId));
+                replacedExpression = true;
+                Log::DebugFmt("ReplaceSolisExpressionShootingRequestIds expression: %s -> %s",
+                              currentExpressionId ? currentExpressionId->ToString().c_str() : "",
+                              safeExpressionId.c_str());
+            }
+        }
+
+        Log::DebugFmt("ReplaceSolisExpressionShootingRequestIds result: single=%d repeated=%d expression=%d",
+                      replacedSingle, replacedRepeated, replacedExpression);
+        return replacedSingle || replacedRepeated || replacedExpression;
     }
 
     void* GetEmptySolisPhotoPoseTypes() {
@@ -2244,6 +2380,12 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_Photo_CheckExpressionShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
         if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                       "PhotoCheckExpressionShootingRequest",
+                                                                       "get_PhotoExpressionId");
+            static auto set_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                       "PhotoCheckExpressionShootingRequest",
+                                                                       "set_PhotoExpressionId");
             static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                  "PhotoCheckExpressionShootingRequest", "get_CharacterId");
             static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2258,7 +2400,8 @@ namespace HoshimiLocal::HookMain {
                                                                 "PhotoCheckExpressionShootingRequest", "get_CostumeIds");
             static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                              "PhotoCheckExpressionShootingRequest", "get_HairIds");
-            ReplaceSolisExpressionShootingRequestIds(request, get_CharacterId, set_CharacterId,
+            ReplaceSolisExpressionShootingRequestIds(request, get_PhotoExpressionId, set_PhotoExpressionId,
+                                                     get_CharacterId, set_CharacterId,
                                                      set_CostumeId, set_HairId,
                                                      get_CharacterIds, get_CostumeIds, get_HairIds);
         }
@@ -2304,6 +2447,12 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_Photo_CreateExpressionShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
         if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+            static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                       "PhotoCreateExpressionShootingsRequest",
+                                                                       "get_PhotoExpressionId");
+            static auto set_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                       "PhotoCreateExpressionShootingsRequest",
+                                                                       "set_PhotoExpressionId");
             static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                  "PhotoCreateExpressionShootingsRequest", "get_CharacterId");
             static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2318,7 +2467,8 @@ namespace HoshimiLocal::HookMain {
                                                                 "PhotoCreateExpressionShootingsRequest", "get_CostumeIds");
             static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                              "PhotoCreateExpressionShootingsRequest", "get_HairIds");
-            ReplaceSolisExpressionShootingRequestIds(request, get_CharacterId, set_CharacterId,
+            ReplaceSolisExpressionShootingRequestIds(request, get_PhotoExpressionId, set_PhotoExpressionId,
+                                                     get_CharacterId, set_CharacterId,
                                                      set_CostumeId, set_HairId,
                                                      get_CharacterIds, get_CostumeIds, get_HairIds);
         }
@@ -2487,6 +2637,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_ActorCostume_get_SdHair, (void* self, void* mtd)) {
         auto ret = Solis_ActorCostume_get_SdHair_Orig(self, mtd);
         if (!Config::unlockAllLiveCostume || !self) return ret;
+        if (ret) return ret;
 
         static auto ActorCostume_get_Costume = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Data",
                                                                       "ActorCostume", "get_Costume");
@@ -2499,6 +2650,39 @@ namespace HoshimiLocal::HookMain {
 
         auto defaultHair = Costume_get_DefaultHair->Invoke<void*>(costume);
         return defaultHair ? defaultHair : ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_ActorCostume_GetCurrentIntersectedPoseTypes, (void* self, void* mtd)) {
+        auto ret = Solis_ActorCostume_GetCurrentIntersectedPoseTypes_Orig(self, mtd);
+        if (!Config::unlockAllLiveCostume || !self) return ret;
+
+        static auto ActorCostume_get_Costume = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Data",
+                                                                      "ActorCostume", "get_Costume");
+        static auto Costume_GetPossiblePoseTypes = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                          "Solis.Common.Proto.Master",
+                                                                          "Costume", "GetPossiblePoseTypes");
+        if (!ActorCostume_get_Costume || !Costume_GetPossiblePoseTypes) return ret;
+
+        auto costume = ActorCostume_get_Costume->Invoke<void*>(self);
+        if (!costume) return ret;
+
+        auto poseTypes = Costume_GetPossiblePoseTypes->Invoke<void*>(costume);
+        return poseTypes ? poseTypes : ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_ActorCostume_GetExpressionIntersectedPoseTypes,
+        (void* self, void* expression, void* mtd)) {
+        auto ret = Solis_ActorCostume_GetExpressionIntersectedPoseTypes_Orig(self, expression, mtd);
+        if (!Config::unlockAllLiveCostume || !expression) return ret;
+
+        static auto PhotoExpression_GetPossiblePoseTypes = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                  "Solis.Common.Proto.Master",
+                                                                                  "PhotoExpression",
+                                                                                  "GetPossiblePoseTypes");
+        if (!PhotoExpression_GetPossiblePoseTypes) return ret;
+
+        auto poseTypes = PhotoExpression_GetPossiblePoseTypes->Invoke<void*>(expression);
+        return poseTypes ? poseTypes : ret;
     }
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
@@ -3503,6 +3687,12 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Solis_ActorCostume_get_SdHair,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
                                                "ActorCostume", "get_SdHair"));
+        ADD_HOOK(Solis_ActorCostume_GetCurrentIntersectedPoseTypes,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
+                                               "ActorCostume", "GetCurrentIntersectedPoseTypes"));
+        ADD_HOOK(Solis_ActorCostume_GetExpressionIntersectedPoseTypes,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
+                                               "ActorCostume", "GetExpressionIntersectedPoseTypes"));
         ADD_HOOK(Solis_ActivityCharacterSelectCommonModel_IsAppropriateCostume,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
                                                "ActivityCharacterSelectCommonModel", "IsAppropriateCostume"));
