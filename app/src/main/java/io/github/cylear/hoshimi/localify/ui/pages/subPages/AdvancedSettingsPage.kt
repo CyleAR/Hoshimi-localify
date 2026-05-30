@@ -365,6 +365,10 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                             checked = config.value.unlockAllLiveCostume) {
                                 v -> context?.onUnlockAllLiveCostumeChanged(v)
                         }
+                        IPSwitch(modifier, stringResource(R.string.unlockAllPhotoPose),
+                            checked = config.value.unlockAllPhotoPose) {
+                                v -> context?.onUnlockAllPhotoPoseChanged(v)
+                        }
 
                         /*
                         HorizontalDivider(

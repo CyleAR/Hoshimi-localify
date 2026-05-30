@@ -21,6 +21,7 @@ namespace HoshimiLocal::Config {
     int targetFrameRate = 0;
     bool unlockAllLive = false;
     bool unlockAllLiveCostume = false;
+    bool unlockAllPhotoPose = false;
 
     bool enableLiveCustomeDress = false;
     std::string liveCustomeHeadId = "";
@@ -77,6 +78,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enableFreeCamera);
             GetConfigItem(unlockAllLive);
             GetConfigItem(unlockAllLiveCostume);
+            GetConfigItem(unlockAllPhotoPose);
             GetConfigItem(enableLiveCustomeDress);
             GetConfigItem(liveCustomeHeadId);
             GetConfigItem(liveCustomeCostumeId);
@@ -134,6 +136,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enableFreeCamera);
             SetConfigItem(unlockAllLive);
             SetConfigItem(unlockAllLiveCostume);
+            SetConfigItem(unlockAllPhotoPose);
             SetConfigItem(enableLiveCustomeDress);
             SetConfigItem(liveCustomeHeadId);
             SetConfigItem(liveCustomeCostumeId);

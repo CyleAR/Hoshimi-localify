@@ -1371,6 +1371,7 @@ namespace HoshimiLocal::HookMain {
     enum class SolisMasterIdType {
         CostumeId,
         HairId,
+        PhotoPoseId,
         MusicId
     };
 
@@ -1379,11 +1380,14 @@ namespace HoshimiLocal::HookMain {
         std::vector<std::string> ret{};
 
         const char* masterGetterName = getType == SolisMasterIdType::CostumeId ? "get_CostumeMaster" :
-                                       getType == SolisMasterIdType::HairId ? "get_HairMaster" : "get_MusicMaster";
+                                       getType == SolisMasterIdType::HairId ? "get_HairMaster" :
+                                       getType == SolisMasterIdType::PhotoPoseId ? "get_PhotoPoseMaster" : "get_MusicMaster";
         const char* masterClassName = getType == SolisMasterIdType::CostumeId ? "CostumeMaster" :
-                                      getType == SolisMasterIdType::HairId ? "HairMaster" : "MusicMaster";
+                                      getType == SolisMasterIdType::HairId ? "HairMaster" :
+                                      getType == SolisMasterIdType::PhotoPoseId ? "PhotoPoseMaster" : "MusicMaster";
         const char* protoClassName = getType == SolisMasterIdType::CostumeId ? "Costume" :
-                                     getType == SolisMasterIdType::HairId ? "Hair" : "Music";
+                                     getType == SolisMasterIdType::HairId ? "Hair" :
+                                     getType == SolisMasterIdType::PhotoPoseId ? "PhotoPose" : "Music";
 
         static auto get_CostumeMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                "MasterManager", "get_CostumeMaster");
@@ -1391,6 +1395,8 @@ namespace HoshimiLocal::HookMain {
                                                              "MasterManager", "get_MusicMaster");
         static auto get_HairMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                             "MasterManager", "get_HairMaster");
+        static auto get_PhotoPoseMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                 "MasterManager", "get_PhotoPoseMaster");
         static auto CostumeMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                                "CostumeMaster", "GetAllWithSortByKey",
                                                                                {"Solis.Common.Master.CostumeSortType"});
@@ -1400,6 +1406,9 @@ namespace HoshimiLocal::HookMain {
         static auto HairMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                             "HairMaster", "GetAllWithSortByKey",
                                                                             {"Solis.Common.Master.HairSortType"});
+        static auto PhotoPoseMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                                 "PhotoPoseMaster", "GetAllWithSortByKey",
+                                                                                 {"Solis.Common.Master.PhotoPoseSortType"});
         static auto Costume_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                             "Costume", "get_Id");
         static auto Costume_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
@@ -1412,13 +1421,18 @@ namespace HoshimiLocal::HookMain {
                                                          "Hair", "get_Id");
         static auto Hair_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                                   "Hair", "get_CharacterId");
+        static auto PhotoPose_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                                              "PhotoPose", "get_Id");
 
         auto getMaster = getType == SolisMasterIdType::CostumeId ? get_CostumeMaster :
-                         getType == SolisMasterIdType::HairId ? get_HairMaster : get_MusicMaster;
+                         getType == SolisMasterIdType::HairId ? get_HairMaster :
+                         getType == SolisMasterIdType::PhotoPoseId ? get_PhotoPoseMaster : get_MusicMaster;
         auto getAllWithSortByKey = getType == SolisMasterIdType::CostumeId ? CostumeMaster_GetAllWithSortByKey :
-                                   getType == SolisMasterIdType::HairId ? HairMaster_GetAllWithSortByKey : MusicMaster_GetAllWithSortByKey;
+                                   getType == SolisMasterIdType::HairId ? HairMaster_GetAllWithSortByKey :
+                                   getType == SolisMasterIdType::PhotoPoseId ? PhotoPoseMaster_GetAllWithSortByKey : MusicMaster_GetAllWithSortByKey;
         auto getId = getType == SolisMasterIdType::CostumeId ? Costume_get_Id :
-                     getType == SolisMasterIdType::HairId ? Hair_get_Id : Music_get_Id;
+                     getType == SolisMasterIdType::HairId ? Hair_get_Id :
+                     getType == SolisMasterIdType::PhotoPoseId ? PhotoPose_get_Id : Music_get_Id;
         if (!getMaster || !getAllWithSortByKey || !getId) {
             Log::ErrorFmt("GetSolisMasterIdAll failed: %s/%s/%s missing", masterGetterName, masterClassName, protoClassName);
             return ret;
@@ -1452,7 +1466,7 @@ namespace HoshimiLocal::HookMain {
                     if (!itemCharacterId || itemCharacterId->ToString() != characterId) continue;
                 }
             }
-            else {
+            else if (getType == SolisMasterIdType::MusicId) {
                 if (Music_get_Is3DAvailable && !Music_get_Is3DAvailable->Invoke<bool>(item)) continue;
             }
 
@@ -1471,10 +1485,12 @@ namespace HoshimiLocal::HookMain {
         if (id.empty()) return false;
         static std::unordered_set<std::string> costumeIds{};
         static std::unordered_set<std::string> hairIds{};
+        static std::unordered_set<std::string> photoPoseIds{};
         static std::unordered_set<std::string> musicIds{};
 
         auto& ids = getType == SolisMasterIdType::CostumeId ? costumeIds :
-                    getType == SolisMasterIdType::HairId ? hairIds : musicIds;
+                    getType == SolisMasterIdType::HairId ? hairIds :
+                    getType == SolisMasterIdType::PhotoPoseId ? photoPoseIds : musicIds;
         if (ids.empty()) {
             auto allIds = GetSolisMasterIdAll(getType);
             ids.insert(allIds.begin(), allIds.end());
@@ -1501,20 +1517,26 @@ namespace HoshimiLocal::HookMain {
                                                               "UserCostume");
         static auto UserHair_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                            "UserHair");
+        static auto UserPhotoPose_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                "UserPhotoPose");
         static auto UserMusic_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                             "UserMusic");
         static auto UserCostume_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                               "UserCostume", ".ctor");
         static auto UserHair_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                            "UserHair", ".ctor");
+        static auto UserPhotoPose_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                "UserPhotoPose", ".ctor");
         static auto UserMusic_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                             "UserMusic", ".ctor");
 
         auto className = std::string(userClassName);
         auto klass = className == "UserCostume" ? UserCostume_klass :
-                     className == "UserHair" ? UserHair_klass : UserMusic_klass;
+                     className == "UserHair" ? UserHair_klass :
+                     className == "UserPhotoPose" ? UserPhotoPose_klass : UserMusic_klass;
         auto ctor = className == "UserCostume" ? UserCostume_ctor :
-                    className == "UserHair" ? UserHair_ctor : UserMusic_ctor;
+                    className == "UserHair" ? UserHair_ctor :
+                    className == "UserPhotoPose" ? UserPhotoPose_ctor : UserMusic_ctor;
 
         for (auto& i : allIds) {
             if (i.empty()) continue;
@@ -1595,6 +1617,26 @@ namespace HoshimiLocal::HookMain {
         return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserMusic",
                                                          UserMusic_get_MusicId, UserMusic_set_MusicId,
                                                          UserMusic_Clone);
+    }
+
+    void* AddSolisPhotoPosesToUserCollection(void* origList) {
+        if (!origList) return origList;
+
+        static auto UserPhotoPose_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                 "UserPhotoPose", "Clone");
+        static auto UserPhotoPose_get_PhotoPoseId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                           "UserPhotoPose", "get_PhotoPoseId");
+        static auto UserPhotoPose_set_PhotoPoseId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                           "UserPhotoPose", "set_PhotoPoseId");
+        if (!UserPhotoPose_Clone || !UserPhotoPose_get_PhotoPoseId || !UserPhotoPose_set_PhotoPoseId) {
+            Log::Error("AddSolisPhotoPosesToUserCollection failed: UserPhotoPose methods missing");
+            return origList;
+        }
+
+        auto allIds = GetSolisMasterIdAll(SolisMasterIdType::PhotoPoseId);
+        return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserPhotoPose",
+                                                         UserPhotoPose_get_PhotoPoseId, UserPhotoPose_set_PhotoPoseId,
+                                                         UserPhotoPose_Clone);
     }
 
     void* NewSolisStringList(const std::vector<std::string>& ids) {
@@ -1785,6 +1827,72 @@ namespace HoshimiLocal::HookMain {
             ret += item->ToString();
         }
         return ret;
+    }
+
+    std::string GetSolisApiSafeShootingCharacterId(const std::string& characterId) {
+        if (characterId == "char-mna" || characterId == "char-mng") {
+            return "char-ktn";
+        }
+        return characterId;
+    }
+
+    bool ReplaceSolisApiUnsafeShootingCharacterIds(void* characterIds) {
+        if (!characterIds) return false;
+
+        bool replaced = false;
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(characterIds);
+        auto count = editor.get_Count();
+        for (int i = 0; i < count; ++i) {
+            auto characterId = editor.get_Item(i);
+            if (!characterId) continue;
+
+            auto oldId = characterId->ToString();
+            auto safeId = GetSolisApiSafeShootingCharacterId(oldId);
+            if (oldId == safeId) continue;
+
+            editor.set_Item(i, Il2cppString::New(safeId));
+            replaced = true;
+            Log::DebugFmt("ReplaceSolisApiUnsafeShootingCharacterIds: %s -> %s",
+                          oldId.c_str(), safeId.c_str());
+        }
+        return replaced;
+    }
+
+    bool ReplaceSolisApiUnsafeShootingCharacterId(void* request, UnityResolve::Method* get_CharacterId,
+                                                  UnityResolve::Method* set_CharacterId) {
+        if (!request || !get_CharacterId || !set_CharacterId) return false;
+
+        auto characterId = get_CharacterId->Invoke<Il2cppString*>(request);
+        if (!characterId) return false;
+
+        auto oldId = characterId->ToString();
+        auto safeId = GetSolisApiSafeShootingCharacterId(oldId);
+        if (oldId == safeId) return false;
+
+        set_CharacterId->Invoke<void>(request, Il2cppString::New(safeId));
+        Log::DebugFmt("ReplaceSolisApiUnsafeShootingCharacterId: %s -> %s",
+                      oldId.c_str(), safeId.c_str());
+        return true;
+    }
+
+    bool ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(void* createShootingParams) {
+        if (!createShootingParams) return false;
+
+        static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateShootingParam", "get_MainCharacterId");
+        static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateShootingParam", "set_MainCharacterId");
+        if (!get_MainCharacterId || !set_MainCharacterId) return false;
+
+        bool replaced = false;
+        Il2cppUtils::Tools::CSListEditor<void*> editor(createShootingParams);
+        auto count = editor.get_Count();
+        for (int i = 0; i < count; ++i) {
+            auto param = editor.get_Item(i);
+            if (!param) continue;
+            replaced |= ReplaceSolisApiUnsafeShootingCharacterId(param, get_MainCharacterId, set_MainCharacterId);
+        }
+        return replaced;
     }
 
     bool ReplaceSolisCheckShootingRequestIds(void* characterIds, void* costumeIds, void* hairIds) {
@@ -2256,6 +2364,9 @@ namespace HoshimiLocal::HookMain {
                           SolisRepeatedStringFieldToLogString(costumeIds).c_str(),
                           SolisRepeatedStringFieldToLogString(hairIds).c_str());
         }
+        if (Config::unlockAllPhotoPose) {
+            ReplaceSolisApiUnsafeShootingCharacterIds(characterIds);
+        }
         if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
@@ -2305,6 +2416,13 @@ namespace HoshimiLocal::HookMain {
                                                     get_HairIds->Invoke<void*>(request));
             }
         }
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckShootingRequest", "get_CharacterIds");
@@ -2325,6 +2443,9 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync, (int actionType, Il2cppString* specialPhotoShootingId,
         Il2cppString* musicId, Il2cppString* stageId, void* characterIds, void* costumeIds, void* hairIds,
         void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose) {
+            ReplaceSolisApiUnsafeShootingCharacterIds(characterIds);
+        }
         if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
@@ -2340,6 +2461,13 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
@@ -2362,6 +2490,9 @@ namespace HoshimiLocal::HookMain {
         Il2cppString* photoContestQuestStageId, void* selectedCharacterIds, void* selectedCostumeIds,
         Il2cppString* sectionId, void* selectedHairIds, void* ct, void* callOption, void* errorHandler,
         Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose) {
+            ReplaceSolisApiUnsafeShootingCharacterIds(selectedCharacterIds);
+        }
         if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
@@ -2379,6 +2510,13 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
+            if (get_SelectedCharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_SelectedCharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                           "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
@@ -2399,6 +2537,9 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync, (Il2cppString* photoMusicId, void* characterIds,
         void* costumeIds, void* hairIds, void* ct, void* callOption, void* errorHandler,
         Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose) {
+            ReplaceSolisApiUnsafeShootingCharacterIds(characterIds);
+        }
         if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
@@ -2413,6 +2554,13 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
@@ -2466,6 +2614,13 @@ namespace HoshimiLocal::HookMain {
                                                     get_HairIds->Invoke<void*>(request));
             }
         }
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckShootingRequest", "get_CharacterIds");
@@ -2484,6 +2639,13 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
@@ -2502,6 +2664,18 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckExpressionShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCheckExpressionShootingRequest", "get_CharacterId");
+            static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCheckExpressionShootingRequest", "set_CharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckExpressionShootingRequest", "get_CharacterIds");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_CharacterId, set_CharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                        "PhotoCheckExpressionShootingRequest",
@@ -2533,6 +2707,24 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateShootingsRequest", "get_MainCharacterId");
+            static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateShootingsRequest", "set_MainCharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateShootingsRequest", "get_CharacterIds");
+            static auto get_CreateShootingParams = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoCreateShootingsRequest",
+                                                                          "get_CreateShootingParams");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_MainCharacterId, set_MainCharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+            if (get_CreateShootingParams) {
+                ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(get_CreateShootingParams->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCreateShootingsRequest", "get_CharacterIds");
@@ -2551,6 +2743,24 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateSpecialShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateSpecialShootingsRequest", "get_MainCharacterId");
+            static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateSpecialShootingsRequest", "set_MainCharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateSpecialShootingsRequest", "get_CharacterIds");
+            static auto get_CreateShootingParams = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoCreateSpecialShootingsRequest",
+                                                                          "get_CreateShootingParams");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_MainCharacterId, set_MainCharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+            if (get_CreateShootingParams) {
+                ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(get_CreateShootingParams->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCreateSpecialShootingsRequest", "get_CharacterIds");
@@ -2569,6 +2779,29 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateExpressionShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateExpressionShootingsRequest", "get_MainCharacterId");
+            static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCreateExpressionShootingsRequest", "set_MainCharacterId");
+            static auto get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateExpressionShootingsRequest", "get_CharacterId");
+            static auto set_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCreateExpressionShootingsRequest", "set_CharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCreateExpressionShootingsRequest", "get_CharacterIds");
+            static auto get_CreateShootingParams = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoCreateExpressionShootingsRequest",
+                                                                          "get_CreateShootingParams");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_MainCharacterId, set_MainCharacterId);
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_CharacterId, set_CharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+            if (get_CreateShootingParams) {
+                ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(get_CreateShootingParams->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                        "PhotoCreateExpressionShootingsRequest",
@@ -2600,6 +2833,13 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
+            if (get_SelectedCharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_SelectedCharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                           "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
@@ -2616,8 +2856,47 @@ namespace HoshimiLocal::HookMain {
         return Solis_PhotoContest_CheckShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
     }
 
+    DEFINE_HOOK(void*, Solis_PhotoContest_SubmitShootingAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoContestSubmitShootingRequest",
+                                                                     "get_MainCharacterId");
+            static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoContestSubmitShootingRequest",
+                                                                     "set_MainCharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoContestSubmitShootingRequest",
+                                                                  "get_CharacterIds");
+            static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestSubmitShootingRequest",
+                                                                          "get_SelectedCharacterIds");
+            static auto get_CreateShootingParams = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoContestSubmitShootingRequest",
+                                                                          "get_CreateShootingParams");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_MainCharacterId, set_MainCharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+            if (get_SelectedCharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_SelectedCharacterIds->Invoke<void*>(request));
+            }
+            if (get_CreateShootingParams) {
+                ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(get_CreateShootingParams->Invoke<void*>(request));
+            }
+        }
+        return Solis_PhotoContest_SubmitShootingAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
+    }
+
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
@@ -2636,6 +2915,24 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
+        if (Config::unlockAllPhotoPose && request) {
+            static auto get_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoPanoramaCreateShootingsRequest", "get_MainCharacterId");
+            static auto set_MainCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoPanoramaCreateShootingsRequest", "set_MainCharacterId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoPanoramaCreateShootingsRequest", "get_CharacterIds");
+            static auto get_CreateShootingParams = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                          "PhotoPanoramaCreateShootingsRequest",
+                                                                          "get_CreateShootingParams");
+            ReplaceSolisApiUnsafeShootingCharacterId(request, get_MainCharacterId, set_MainCharacterId);
+            if (get_CharacterIds) {
+                ReplaceSolisApiUnsafeShootingCharacterIds(get_CharacterIds->Invoke<void*>(request));
+            }
+            if (get_CreateShootingParams) {
+                ReplaceSolisApiUnsafePhotoCreateShootingParamCharacterIds(get_CreateShootingParams->Invoke<void*>(request));
+            }
+        }
         if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCreateShootingsRequest", "get_CharacterIds");
@@ -2829,6 +3126,9 @@ namespace HoshimiLocal::HookMain {
         if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
             return AddSolisMusicsToUserCollection(ret);
         }
+        if (Config::unlockAllPhotoPose && thisKlassName == "UserPhotoPoseCollection") {
+            return AddSolisPhotoPosesToUserCollection(ret);
+        }
         return ret;
     }
 
@@ -2847,6 +3147,9 @@ namespace HoshimiLocal::HookMain {
         }
         if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
             return IsSolisMasterIdExists(idStr, SolisMasterIdType::MusicId) || ret;
+        }
+        if (Config::unlockAllPhotoPose && thisKlassName == "UserPhotoPoseCollection") {
+            return IsSolisMasterIdExists(idStr, SolisMasterIdType::PhotoPoseId) || ret;
         }
         return ret;
     }
@@ -2962,6 +3265,33 @@ namespace HoshimiLocal::HookMain {
         auto ret = Solis_UserCharacterMusicCollection_Exists_Orig(self, characterId, musicId, mtd);
         if (!Config::unlockAllLive || !musicId) return ret;
         return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserPhotoPoseCollection_GetUserPhotoPoses,
+        (void* self, Il2cppString* characterId, bool checkReleased, void* mtd)) {
+        auto ret = Solis_UserPhotoPoseCollection_GetUserPhotoPoses_Orig(self, characterId, checkReleased, mtd);
+        if (!Config::unlockAllPhotoPose || !characterId) return ret;
+
+        static auto get_PhotoPoseMotionMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
+                                                                       "MasterManager", "get_PhotoPoseMotionMaster");
+        static auto PhotoPoseMotionMaster_GetCharacterPoses = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                                                                                     "Solis.Common.Master",
+                                                                                     "PhotoPoseMotionMaster",
+                                                                                     "GetCharacterPoses",
+                                                                                     {"System.String", "System.Boolean"});
+        if (!get_PhotoPoseMotionMaster || !PhotoPoseMotionMaster_GetCharacterPoses) return ret;
+
+        auto master = get_PhotoPoseMotionMaster->Invoke<void*>(nullptr);
+        if (!master) return ret;
+
+        auto allPoses = PhotoPoseMotionMaster_GetCharacterPoses->Invoke<void*>(master, characterId, false);
+        return allPoses ? allPoses : ret;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoPose_IsReleased, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoPose_IsReleased_Orig(self, mtd);
+        if (!Config::unlockAllPhotoPose) return ret;
+        return true;
     }
 
     DEFINE_HOOK(bool, Solis_PhotoMusic_get_IsUnlocked, (void* self, void* mtd)) {
@@ -3896,6 +4226,16 @@ namespace HoshimiLocal::HookMain {
             }
         }
 
+        auto Solis_UserPhotoPoseCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
+                                                                         "UserPhotoPoseCollection");
+        if (Solis_UserPhotoPoseCollection_klass) {
+            auto GetUserPhotoPoses_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    Solis_UserPhotoPoseCollection_klass->address, "GetUserPhotoPoses", 2);
+            if (GetUserPhotoPoses_mtd) {
+                ADD_HOOK(Solis_UserPhotoPoseCollection_GetUserPhotoPoses, GetUserPhotoPoses_mtd->methodPointer);
+            }
+        }
+
         ADD_HOOK(Solis_CostumeSpecifierExtensions_IsAppropriateCostume,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Data",
                                                "CostumeSpecifierExtensions", "IsAppropriateCostume"));
@@ -3911,6 +4251,9 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Solis_Hair_get_IsDisableAdmin,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                "Hair", "get_IsDisableAdmin"));
+        ADD_HOOK(Solis_PhotoPose_IsReleased,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
+                                               "PhotoPose", "IsReleased"));
         ADD_HOOK(Solis_Costume_get_ImpossiblePhotoPoseTypes,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                "Costume", "get_ImpossiblePhotoPoseTypes"));
@@ -4068,6 +4411,12 @@ namespace HoshimiLocal::HookMain {
                         PhotoContest_c_klass->address, "<CheckShootingAsync>b__15_0", 4);
                 if (CheckShootingAsyncCall_mtd) {
                     ADD_HOOK(Solis_PhotoContest_CheckShootingAsync_Call, CheckShootingAsyncCall_mtd->methodPointer);
+                }
+
+                auto SubmitShootingAsyncCall_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                        PhotoContest_c_klass->address, "<SubmitShootingAsync>b__18_0", 4);
+                if (SubmitShootingAsyncCall_mtd) {
+                    ADD_HOOK(Solis_PhotoContest_SubmitShootingAsync_Call, SubmitShootingAsyncCall_mtd->methodPointer);
                 }
             }
         }

@@ -17,6 +17,7 @@ namespace HoshimiLocal::Config {
     extern int targetFrameRate;
     extern bool unlockAllLive;
     extern bool unlockAllLiveCostume;
+    extern bool unlockAllPhotoPose;
 
     extern bool enableLiveCustomeDress;
     extern std::string liveCustomeHeadId;
