@@ -1772,6 +1772,21 @@ namespace HoshimiLocal::HookMain {
         return editor.get_Count() == static_cast<int>(ids.size());
     }
 
+    std::string SolisRepeatedStringFieldToLogString(void* field) {
+        if (!field) return "";
+
+        std::string ret{};
+        Il2cppUtils::Tools::CSListEditor<Il2cppString*> editor(field);
+        auto count = editor.get_Count();
+        for (int i = 0; i < count; ++i) {
+            auto item = editor.get_Item(i);
+            if (!item) continue;
+            if (!ret.empty()) ret += ",";
+            ret += item->ToString();
+        }
+        return ret;
+    }
+
     bool ReplaceSolisCheckShootingRequestIds(void* characterIds, void* costumeIds, void* hairIds) {
         std::vector<std::string> safeCostumeIds{};
         std::vector<std::string> safeHairIds{};
@@ -1792,6 +1807,36 @@ namespace HoshimiLocal::HookMain {
         Log::DebugFmt("ReplaceSolisCheckShootingRequestIds result: character=%d costume=%d hair=%d count=%d",
                       replacedCharacter, replacedCostume, replacedHair, static_cast<int>(oneSafeCostumeId.size()));
         return replacedCharacter && replacedCostume && replacedHair;
+    }
+
+    bool ReplaceSolisPhotoCheckConditionIds(void* request) {
+        if (!request) return false;
+
+        static auto get_ActionType = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                            "PhotoCheckShootingRequest", "get_ActionType");
+        static auto set_PhotoActivityId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                 "PhotoCheckShootingRequest", "set_PhotoActivityId");
+        static auto set_PhotoMusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                              "PhotoCheckShootingRequest", "set_PhotoMusicId");
+        static auto set_PhotoStageId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                              "PhotoCheckShootingRequest", "set_PhotoStageId");
+        if (!get_ActionType || !set_PhotoActivityId || !set_PhotoMusicId || !set_PhotoStageId) return false;
+
+        auto actionType = get_ActionType->Invoke<int>(request);
+        if (actionType == 1 || actionType == 2) {
+            set_PhotoActivityId->Invoke<void>(request, Il2cppString::New("photo_activity-studio-00"));
+            set_PhotoMusicId->Invoke<void>(request, Il2cppString::New(""));
+            set_PhotoStageId->Invoke<void>(request, Il2cppString::New(""));
+            Log::Debug("ReplaceSolisPhotoCheckConditionIds: activity check uses photo_activity-studio-00");
+            return true;
+        }
+        if (actionType != 3) return false;  // PhotoShootingActionType_Quest
+
+        set_PhotoActivityId->Invoke<void>(request, Il2cppString::New(""));
+        set_PhotoMusicId->Invoke<void>(request, Il2cppString::New("music-hsm-001"));
+        set_PhotoStageId->Invoke<void>(request, Il2cppString::New("stage-live-hall-00-00"));
+        Log::Debug("ReplaceSolisPhotoCheckConditionIds: quest check uses music-hsm-001/stage-live-hall-00-00");
+        return true;
     }
 
     void NormalizeSolisReplacementCount(std::vector<std::string>& ids, int targetCount) {
@@ -2201,7 +2246,17 @@ namespace HoshimiLocal::HookMain {
         Il2cppString* photoMusicId, Il2cppString* photoStageId, void* characterIds, void* costumeIds,
         void* hairIds, void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache,
         void* mtd)) {
-        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+        if (Config::unlockAllLive) {
+            Log::DebugFmt("Photo.CheckShooting args: action=%d activity=%s music=%s stage=%s characters=%s costumes=%s hairs=%s",
+                          actionType,
+                          photoActivityId ? photoActivityId->ToString().c_str() : "",
+                          photoMusicId ? photoMusicId->ToString().c_str() : "",
+                          photoStageId ? photoStageId->ToString().c_str() : "",
+                          SolisRepeatedStringFieldToLogString(characterIds).c_str(),
+                          SolisRepeatedStringFieldToLogString(costumeIds).c_str(),
+                          SolisRepeatedStringFieldToLogString(hairIds).c_str());
+        }
+        if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
             if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
@@ -2216,7 +2271,41 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLive && request) {
+            static auto get_ActionType = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_ActionType");
+            static auto get_PhotoActivityId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCheckShootingRequest", "get_PhotoActivityId");
+            static auto get_PhotoMusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_PhotoMusicId");
+            static auto get_PhotoStageId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_PhotoStageId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckShootingRequest", "get_HairIds");
+            auto activityId = get_PhotoActivityId ? get_PhotoActivityId->Invoke<Il2cppString*>(request) : nullptr;
+            auto musicId = get_PhotoMusicId ? get_PhotoMusicId->Invoke<Il2cppString*>(request) : nullptr;
+            auto stageId = get_PhotoStageId ? get_PhotoStageId->Invoke<Il2cppString*>(request) : nullptr;
+            Log::DebugFmt("Photo.CheckShooting request: action=%d activity=%s music=%s stage=%s characters=%s costumes=%s hairs=%s",
+                          get_ActionType ? get_ActionType->Invoke<int>(request) : -1,
+                          activityId ? activityId->ToString().c_str() : "",
+                          musicId ? musicId->ToString().c_str() : "",
+                          stageId ? stageId->ToString().c_str() : "",
+                          get_CharacterIds ? SolisRepeatedStringFieldToLogString(get_CharacterIds->Invoke<void*>(request)).c_str() : "",
+                          get_CostumeIds ? SolisRepeatedStringFieldToLogString(get_CostumeIds->Invoke<void*>(request)).c_str() : "",
+                          get_HairIds ? SolisRepeatedStringFieldToLogString(get_HairIds->Invoke<void*>(request)).c_str() : "");
+            auto replacedCondition = ReplaceSolisPhotoCheckConditionIds(request);
+            if (replacedCondition && get_ActionType && get_ActionType->Invoke<int>(request) != 3 &&
+                get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2236,7 +2325,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync, (int actionType, Il2cppString* specialPhotoShootingId,
         Il2cppString* musicId, Il2cppString* stageId, void* characterIds, void* costumeIds, void* hairIds,
         void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+        if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
             if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
@@ -2251,7 +2340,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2273,7 +2362,7 @@ namespace HoshimiLocal::HookMain {
         Il2cppString* photoContestQuestStageId, void* selectedCharacterIds, void* selectedCostumeIds,
         Il2cppString* sectionId, void* selectedHairIds, void* ct, void* callOption, void* errorHandler,
         Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+        if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
             if (TryGetSolisDefaultLiveIds(selectedCharacterIds, &safeCostumeIds, &safeHairIds)) {
@@ -2290,7 +2379,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                           "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
             static auto get_SelectedCostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2310,7 +2399,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync, (Il2cppString* photoMusicId, void* characterIds,
         void* costumeIds, void* hairIds, void* ct, void* callOption, void* errorHandler,
         Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if (Config::unlockAllLive || Config::unlockAllLiveCostume) {
+        if (Config::unlockAllLiveCostume) {
             void* safeCostumeIds = nullptr;
             void* safeHairIds = nullptr;
             if (TryGetSolisDefaultLiveIds(characterIds, &safeCostumeIds, &safeHairIds)) {
@@ -2324,7 +2413,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Request, (void* request, void* ct, void* callOption,
         void* errorHandler, Il2cppString* requestIdForResponseCache, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2343,7 +2432,41 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLive && request) {
+            static auto get_ActionType = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_ActionType");
+            static auto get_PhotoActivityId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                     "PhotoCheckShootingRequest", "get_PhotoActivityId");
+            static auto get_PhotoMusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_PhotoMusicId");
+            static auto get_PhotoStageId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_PhotoStageId");
+            static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                  "PhotoCheckShootingRequest", "get_CharacterIds");
+            static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                                "PhotoCheckShootingRequest", "get_CostumeIds");
+            static auto get_HairIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                                             "PhotoCheckShootingRequest", "get_HairIds");
+            auto activityId = get_PhotoActivityId ? get_PhotoActivityId->Invoke<Il2cppString*>(request) : nullptr;
+            auto musicId = get_PhotoMusicId ? get_PhotoMusicId->Invoke<Il2cppString*>(request) : nullptr;
+            auto stageId = get_PhotoStageId ? get_PhotoStageId->Invoke<Il2cppString*>(request) : nullptr;
+            Log::DebugFmt("Photo.CheckShooting call: action=%d activity=%s music=%s stage=%s characters=%s costumes=%s hairs=%s",
+                          get_ActionType ? get_ActionType->Invoke<int>(request) : -1,
+                          activityId ? activityId->ToString().c_str() : "",
+                          musicId ? musicId->ToString().c_str() : "",
+                          stageId ? stageId->ToString().c_str() : "",
+                          get_CharacterIds ? SolisRepeatedStringFieldToLogString(get_CharacterIds->Invoke<void*>(request)).c_str() : "",
+                          get_CostumeIds ? SolisRepeatedStringFieldToLogString(get_CostumeIds->Invoke<void*>(request)).c_str() : "",
+                          get_HairIds ? SolisRepeatedStringFieldToLogString(get_HairIds->Invoke<void*>(request)).c_str() : "");
+            auto replacedCondition = ReplaceSolisPhotoCheckConditionIds(request);
+            if (replacedCondition && get_ActionType && get_ActionType->Invoke<int>(request) != 3 &&
+                get_CharacterIds && get_CostumeIds && get_HairIds) {
+                ReplaceSolisCheckShootingRequestIds(get_CharacterIds->Invoke<void*>(request),
+                                                    get_CostumeIds->Invoke<void*>(request),
+                                                    get_HairIds->Invoke<void*>(request));
+            }
+        }
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2361,7 +2484,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckSpecialShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCheckSpecialShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2379,7 +2502,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CheckExpressionShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                        "PhotoCheckExpressionShootingRequest",
                                                                        "get_PhotoExpressionId");
@@ -2410,7 +2533,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCreateShootingsRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2428,7 +2551,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateSpecialShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoCreateSpecialShootingsRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2446,7 +2569,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_Photo_CreateExpressionShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_PhotoExpressionId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                        "PhotoCreateExpressionShootingsRequest",
                                                                        "get_PhotoExpressionId");
@@ -2477,7 +2600,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoContest_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_SelectedCharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                           "PhotoContestCheckShootingRequest", "get_SelectedCharacterIds");
             static auto get_SelectedCostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2495,7 +2618,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCheckShootingRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2513,7 +2636,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_PhotoPanorama_CreateShootingsAsync_Call, (void* self, void* request, void* metadata,
         void* deadline, void* ct, void* mtd)) {
-        if ((Config::unlockAllLive || Config::unlockAllLiveCostume) && request) {
+        if (Config::unlockAllLiveCostume && request) {
             static auto get_CharacterIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
                                                                   "PhotoPanoramaCreateShootingsRequest", "get_CharacterIds");
             static auto get_CostumeIds = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
@@ -2694,17 +2817,38 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_GetAllList_Orig(self, comparison, mtd);
-        if (!Config::unlockAllLiveCostume) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
-        if (!this_klass || std::string(this_klass->name) != "UserCostumeCollection") return ret;
-        return AddSolisCostumesToUserCollection(ret);
+        if (!this_klass) return ret;
+
+        std::string thisKlassName(this_klass->name);
+        if (Config::unlockAllLiveCostume) {
+            if (thisKlassName == "UserCostumeCollection") return AddSolisCostumesToUserCollection(ret);
+            if (thisKlassName == "UserHairCollection") return AddSolisHairsToUserCollection(ret);
+        }
+        if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
+            return AddSolisMusicsToUserCollection(ret);
+        }
+        return ret;
     }
 
     DEFINE_HOOK(bool, Solis_UserCostumeCollection_Exists, (void* self, Il2cppString* costumeId, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_Exists_Orig(self, costumeId, mtd);
-        if (!Config::unlockAllLiveCostume || !costumeId) return ret;
-        return IsSolisMasterIdExists(costumeId->ToString(), SolisMasterIdType::CostumeId) || ret;
+        if (!costumeId) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass) return ret;
+
+        auto idStr = costumeId->ToString();
+        std::string thisKlassName(this_klass->name);
+        if (Config::unlockAllLiveCostume) {
+            if (thisKlassName == "UserCostumeCollection") return IsSolisMasterIdExists(idStr, SolisMasterIdType::CostumeId) || ret;
+            if (thisKlassName == "UserHairCollection") return IsSolisMasterIdExists(idStr, SolisMasterIdType::HairId) || ret;
+        }
+        if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
+            return IsSolisMasterIdExists(idStr, SolisMasterIdType::MusicId) || ret;
+        }
+        return ret;
     }
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetSortedCharacterCostumes, (void* self, Il2cppString* characterId, void* mtd)) {
@@ -2818,6 +2962,107 @@ namespace HoshimiLocal::HookMain {
         auto ret = Solis_UserCharacterMusicCollection_Exists_Orig(self, characterId, musicId, mtd);
         if (!Config::unlockAllLive || !musicId) return ret;
         return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoMusic_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoMusic_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoPanoramaMusic_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoPanoramaMusic_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoContestQuestMusic_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoContestQuestMusic_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoActivity_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoActivity_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoContestActivity_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoContestActivity_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_SpecialPhotoActivityInfo_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_SpecialPhotoActivityInfo_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoStage_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoStage_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoContestQuestStage_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoContestQuestStage_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_SpecialPhotoQuestStage_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_SpecialPhotoQuestStage_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoContestSectionInfo_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoContestSectionInfo_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_PhotoExpression_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_PhotoExpression_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_SpecialPhotoShootingInfo_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_SpecialPhotoShootingInfo_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked, (void* self, void* mtd)) {
+        auto ret = Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(bool, Solis_LivePhotographyMusicListItemModel_get_IsUnLocked, (void* self, void* mtd)) {
+        auto ret = Solis_LivePhotographyMusicListItemModel_get_IsUnLocked_Orig(self, mtd);
+        if (!Config::unlockAllLive) return ret;
+        return true;
+    }
+
+    DEFINE_HOOK(void, Solis_LivePhotographyMusicListItemModel_set_IsUnLocked, (void* self, bool value, void* mtd)) {
+        if (Config::unlockAllLive) value = true;
+        return Solis_LivePhotographyMusicListItemModel_set_IsUnLocked_Orig(self, value, mtd);
     }
 
     DEFINE_HOOK(void*, UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
@@ -3713,6 +3958,58 @@ namespace HoshimiLocal::HookMain {
                 ADD_HOOK(Solis_UserCharacterMusicCollection_Exists, Exists_mtd->methodPointer);
             }
         }
+
+        ADD_HOOK(Solis_PhotoMusic_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoMusic", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoPanoramaMusic_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoPanoramaMusic", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoContestQuestMusic_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoContestQuestMusic", "get_IsUnlocked"));
+        ADD_HOOK(Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "SpecialPhotoQuestMusicInfo", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoActivity_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoActivity", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoContestActivity_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoContestActivity", "get_IsUnlocked"));
+        ADD_HOOK(Solis_SpecialPhotoActivityInfo_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "SpecialPhotoActivityInfo", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoStage_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoStage", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoContestQuestStage_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoContestQuestStage", "get_IsUnlocked"));
+        ADD_HOOK(Solis_SpecialPhotoQuestStage_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "SpecialPhotoQuestStage", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoContestSectionInfo_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoContestSectionInfo", "get_IsUnlocked"));
+        ADD_HOOK(Solis_PhotoExpression_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "PhotoExpression", "get_IsUnlocked"));
+        ADD_HOOK(Solis_SpecialPhotoShootingInfo_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
+                                               "SpecialPhotoShootingInfo", "get_IsUnlocked"));
+        ADD_HOOK(Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ActivityPhotographyGridListItemModel", "get_IsUnlocked"));
+        ADD_HOOK(Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ExpressionPhotographyGridListItemModel", "get_IsUnlocked"));
+        ADD_HOOK(Solis_LivePhotographyMusicListItemModel_get_IsUnLocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "LivePhotographyMusicListItemModel", "get_IsUnLocked"));
+        ADD_HOOK(Solis_LivePhotographyMusicListItemModel_set_IsUnLocked,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "LivePhotographyMusicListItemModel", "set_IsUnLocked"));
 
         auto Solis_ApiPhoto_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",
                                                           "Api/Photo");
