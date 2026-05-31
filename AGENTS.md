@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide provides instructions for building and deploying project.
+This guide provides instructions for building and deploying the project.
 
 ## 1. Prerequisites
 
@@ -12,27 +12,46 @@ This guide provides instructions for building and deploying project.
 
 ### Native Code & APK
 
-Before build, you must clean build using:
+Before building, use a clean release build:
 
-**gradlew **clean** build**
+```powershell
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+.\gradlew clean assembleRelease
+```
 
-To build the debug APK from the root directory:
-
+For local debug-only work, use:
 ```powershell
 $env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
 .\gradlew assembleDebug
 ```
 
-The APK will be located at: `app\build\outputs\apk\debug\app-debug.apk`
+The release APK will be located at: `app\build\outputs\apk\release\app-release.apk`
 
-## 3. Deployment & ADB Commands
+The debug APK will be located at: `app\build\outputs\apk\debug\app-debug.apk`
+
+## 3. GitHub Actions Release Build
+
+The GitHub Actions workflow is manual-only. Run `Build APK` from the GitHub Actions tab.
+
+The workflow:
+
+- Builds the release APK with `./gradlew clean assembleRelease`
+- Reads `versionName` from `app/build.gradle`
+- Renames the APK to `HoshimiLocalify_{versionName}.apk`
+- Creates a git tag using `versionName`
+- Creates or updates the GitHub Release for that tag
+- Uploads the APK as a Release asset
+
+If the tag already exists on a different commit, the workflow fails instead of overwriting it.
+
+## 4. Deployment & ADB Commands
 
 ### Install APK
 
 ```powershell
-.\platform-tools\adb.exe -s 127.0.0.1:16384 install -r "app\build\outputs\apk\debug\app-debug.apk"
+.\platform-tools\adb.exe -s 127.0.0.1:16384 install -r "app\build\outputs\apk\release\app-release.apk"
 ```
 or
 ```powershell
-.\platform-tools\adb.exe -s emulator-5556 install -r "app\build\outputs\apk\debug\app-debug.apk"
+.\platform-tools\adb.exe -s emulator-5556 install -r "app\build\outputs\apk\release\app-release.apk"
 ```
