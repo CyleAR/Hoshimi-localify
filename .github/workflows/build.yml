@@ -1,73 +1,65 @@
-name: Android CI
+name: Build APK
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
-
+    name: Build release APK
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: recursive
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: set up android development environment
-      uses: android-actions/setup-android@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-    - name: install dependencies
-      run: |
-        sdkmanager --install "cmake;3.22.1"
-        echo "cmake.dir=/usr/local/lib/android/sdk/cmake/3.22.1" > local.properties
-        npm install -g pnpm
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-    - name: Setup Java JDK
-      uses: actions/setup-java@v4.2.1
-      with:
-        distribution: 'temurin'
-        java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-    - name: Update Assets
-      run: |
-        git submodule foreach --recursive git pull origin main
-        git clone https://${{ secrets.ACCESS_TOKEN_GITHUB }}@github.com/imas-tools/idolypride-raw-txts.git app/src/main/assets/idolypride-local/idolypride-raw-txts
-        mv app/src/main/assets/idolypride-local/idolypride-raw-txts/Resource app/src/main/assets/idolypride-local/raw
-        rm -rf app/src/main/assets/idolypride-local/idolypride-raw-txts
+      - name: Install Android build tools
+        run: |
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
 
-    - name: Build Assets
-      run: |
-        mv app/src/main/assets/idolypride-local/IdolypridePreTranslation/.env.sample app/src/main/assets/idolypride-local/IdolypridePreTranslation/.env
-        cd app/src/main/assets/idolypride-local && make build-resource
+      - name: Read app version
+        id: app_version
+        run: |
+          version_name="$(sed -n 's/^[[:space:]]*versionName[[:space:]]*"\([^"]*\)".*/\1/p' app/build.gradle | head -n 1)"
+          if [ -z "$version_name" ]; then
+            echo "versionName was not found in app/build.gradle" >&2
+            exit 1
+          fi
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
 
-    - name: Write branch and commit info
-      run: |
-        branch=$(git rev-parse --abbrev-ref HEAD)
-        hash=$(git rev-parse --short=8 HEAD)
-        echo "$branch.$hash" > app/src/main/assets/idolypride-local/version.txt
-              
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+      - name: Grant execute permission for Gradle wrapper
+        run: chmod +x gradlew
 
-    - name: Build with Gradle
-      run: ./gradlew build
+      - name: Build APK
+        run: ./gradlew clean assembleRelease
 
-    - uses: actions/upload-artifact@v4
-      with:
-        name: IdolyprideAddon-Unsigned-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Rename APK
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/release/app-release.apk "artifacts/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
 
-    - uses: ilharp/sign-android-release@v1
-      name: Sign app APK
-      id: sign_app
-      with:
-        releaseDir: app/build/outputs/apk/debug
-        signingKey: ${{ secrets.KEYSTOREB64 }}
-        keyAlias: ${{ secrets.ANDROID_KEY_ALIAS }}
-        keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        buildToolsVersion: 33.0.0
-
-    - uses: actions/upload-artifact@v4
-      with:
-        name: IdolyprideAddon-Signed-apk
-        path: ${{steps.sign_app.outputs.signedFile}}
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoshimiLocalify_${{ steps.app_version.outputs.version_name }}
+          path: artifacts/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk
+          if-no-files-found: error
