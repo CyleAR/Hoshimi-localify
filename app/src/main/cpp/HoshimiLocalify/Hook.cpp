@@ -532,17 +532,6 @@ namespace HoshimiLocal::HookMain {
         auto fontAsset = get_font->Invoke<void*>(TMP_Textself);
         if (!fontAsset) return;
 
-        // CampusAlphanumeric 계열은 건너뜀
-        auto fontAssetName = get_name->Invoke<Il2cppString*>(fontAsset);
-        if (fontAssetName) {
-            std::string fontName = fontAssetName->ToString();
-            std::transform(fontName.begin(), fontName.end(), fontName.begin(),
-                [](unsigned char c) { return std::tolower(c); });
-            if (fontName.find("campusalphanumeric") != std::string::npos) {
-                return;
-            }
-        }
-
         if (updatedFontPtrs.contains(fontAsset)) return;
         if (updatedFontPtrs.size() > 200) updatedFontPtrs.clear();
 
@@ -1235,11 +1224,6 @@ namespace HoshimiLocal::HookMain {
     }
 
     /*
-    DEFINE_HOOK(void*, UserDataManagerBase_get__userIdolCardSkinList, (void* self, void* mtd)) {  // Live默认选择
-        auto ret = UserDataManagerBase_get__userIdolCardSkinList_Orig(self, mtd);
-        Log::DebugFmt("UserDataManagerBase_get__userIdolCardSkinList: %p", ret);
-        return ret;
-    }
     DEFINE_HOOK(void*, UserDataManagerBase_get__userCostumeList, (void* self, void* mtd)) {  // 服装选择界面
         auto ret = UserDataManagerBase_get__userCostumeList_Orig(self, mtd);
         Log::DebugFmt("UserDataManagerBase_get__userCostumeList: %p", ret);
@@ -1250,31 +1234,6 @@ namespace HoshimiLocal::HookMain {
         Log::DebugFmt("UserDataManagerBase_get__userCostumeHeadList: %p", ret);
         return ret;
     }*/
-
-    DEFINE_HOOK(bool, UserIdolCardSkinCollection_Exists, (void* self, Il2cppString* id, void* mtd)) { // Live默认选择
-        auto ret = UserIdolCardSkinCollection_Exists_Orig(self, id, mtd);
-        // Log::DebugFmt("UserIdolCardSkinCollection_Exists: %s, ret: %d", id->ToString().c_str(), ret);
-        if (!Config::unlockAllLive) return ret;
-
-        if (id) {
-            std::string idStr = id->ToString();
-            if (idStr.starts_with("music") || idStr.starts_with("i_card-skin")) {  // eg. music-all-kllj-006, i_card-skin-hski-3-002
-                return true;
-            }
-        }
-        return ret;
-    }
-
-
-    DEFINE_HOOK(void, PictureBookLiveThumbnailView_SetDataAsync, (void* self, void* liveData, Il2cppString* characterId, bool isReleased, bool isUnlocked, bool isNew, bool hasLiveSkin, void* ct, void* mtd)) {
-        // Log::DebugFmt("PictureBookLiveThumbnailView_SetDataAsync: isReleased: %d, isUnlocked: %d, isNew: %d, hasLiveSkin: %d", isReleased, isUnlocked, isNew, hasLiveSkin);
-        if (Config::dbgMode && Config::unlockAllLive) {
-            isUnlocked = true;
-            isReleased = true;
-            hasLiveSkin = true;
-        }
-        PictureBookLiveThumbnailView_SetDataAsync_Orig(self, liveData, characterId, isReleased, isUnlocked, isNew, hasLiveSkin, ct, mtd);
-    }
 
     enum class GetIdolIdType {
         MusicId,
@@ -1293,9 +1252,6 @@ namespace HoshimiLocal::HookMain {
         static auto IdolCardSkin_get_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_MusicId");
         static auto IdolCardSkin_get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_CostumeId");
         static auto IdolCardSkin_get_CostumeHeadId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_CostumeHeadId");
-        static auto GetLiveMusics = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.OutGame",
-                                                           "PictureBookWindowPresenter", "GetLiveMusics");
-
         auto idolCardSkinMaster = get_IdolCardSkinMaster->Invoke<void*>(nullptr);  // IdolCardSkinMaster
 
         std::vector<std::string> ret{};
@@ -3444,168 +3400,7 @@ namespace HoshimiLocal::HookMain {
         return ret;
     }
 
-    void* getCompletedUniTask() {
-        static auto unitask_klass = Il2cppUtils::GetClass("UniTask.dll", "Cysharp.Threading.Tasks", "UniTask");
-        static auto CompletedTask_field = unitask_klass->Get<UnityResolve::Field>("CompletedTask");
-        auto ret = UnityResolve::Invoke<void*>("il2cpp_object_new", unitask_klass->address);
-        UnityResolve::Invoke<void>("il2cpp_field_static_get_value", CompletedTask_field->address, ret);
-        return ret;
-    }
-
-
-    DEFINE_HOOK(void*, Produce_ViewPictureBookLiveAsync, (void* retstr, void* musicId, void* characterId,
-        void* ct, void* callOption, void* errorHandlerIl, void* requestIdForResponseCache, void* mtd, void* wenhao)) {
-
-        // Log::DebugFmt("Produce_ViewPictureBookLiveAsync: %s - %s", musicId->ToString().c_str(), characterId->ToString().c_str());
-        if (Config::unlockAllLive) return getCompletedUniTask();
-        return Produce_ViewPictureBookLiveAsync_Orig(retstr, musicId, characterId, ct, callOption, errorHandlerIl, requestIdForResponseCache, mtd, wenhao);
-    }
-
-
-    void* PictureBookWindowPresenter_instance = nullptr;
-    std::string PictureBookWindowPresenter_charaId;
-    DEFINE_HOOK(void*, PictureBookWindowPresenter_GetLiveMusics, (void* self, Il2cppString* charaId, void* mtd)) {
-        // Log::DebugFmt("GetLiveMusics: %s", charaId->ToString().c_str());
-
-        if (Config::unlockAllLive) {
-            PictureBookWindowPresenter_instance = self;
-            PictureBookWindowPresenter_charaId = charaId->ToString();
-
-            static auto PictureBookWindowPresenter_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.OutGame",
-                                                                                 "PictureBookWindowPresenter");
-            static auto existsMusicIds_field = PictureBookWindowPresenter_klass->Get<UnityResolve::Field>("_existsMusicIds");
-            // auto existsMusicIds = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::List<Il2cppString*>*>(self, existsMusicIds_field);
-            auto existsMusicIds = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Dictionary<Il2cppString*, UnityResolve::UnityType::List<Il2cppString*>>*>(self, existsMusicIds_field);
-
-            if (!existsMusicIds) {
-                static auto Dict_List_String_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
-                    "System.Collections.Generic.Dictionary`2[System.String, System.Collections.Generic.List`1[System.String]]");
-                static auto List_String_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
-                    "System.Collections.Generic.List`1[System.String]");
-                static auto List_String_ctor_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(List_String_klass, ".ctor", 0);
-                static auto List_String_ctor = reinterpret_cast<void (*)(void*, void*)>(List_String_ctor_mtd->methodPointer);
-
-                auto fullIds = GetIdolMusicIdAll();
-
-                static auto Dict_List_String_ctor_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Dict_List_String_klass, ".ctor", 0);
-                static auto Dict_List_String_ctor = reinterpret_cast<void (*)(void*, void*)>(Dict_List_String_ctor_mtd->methodPointer);
-
-                auto newDict = UnityResolve::Invoke<void*>("il2cpp_object_new", Dict_List_String_klass);
-                Dict_List_String_ctor(newDict, Dict_List_String_ctor_mtd);
-                Il2cppUtils::Tools::CSDictEditor<Il2cppString*, void*> newDictEditor(newDict, Dict_List_String_klass);
-
-                // auto fullIds = GetIdolMusicIdAll();
-
-                for (auto& i : fullIds) {
-                    // Log::DebugFmt("GetLiveMusics - Add: %s", i.c_str());  // eg. music-all-amao-001, music-char-hski-001
-                    //newListEditor.Add(Il2cppString::New(i));
-					auto newList = UnityResolve::Invoke<void*>("il2cpp_object_new", List_String_klass);
-                    List_String_ctor(newList, List_String_ctor_mtd);
-					newDictEditor.Add(Il2cppString::New(i), newList);
-                }
-                Il2cppUtils::ClassSetFieldValue(self, existsMusicIds_field, newDict);
-                existsMusicIds = reinterpret_cast<decltype(existsMusicIds)>(newDict);
-                // Log::DebugFmt("GetLiveMusics - set end: %d", fullIds.size());
-            }
-
-            /*
-            Il2cppUtils::Tools::CSDictEditor<Il2cppString*, void*> dicCheckEditor(existsMusicIds, Dict_List_String_klass);
-            for (auto& i : fullIds) {
-				auto currKeyStr = Il2cppString::New(i);
-                void* currList;
-                if (dicCheckEditor.ContainsKey(currKeyStr)) {
-					currList = dicCheckEditor.get_Item(currKeyStr);
-                }
-                else {
-					currList = UnityResolve::Invoke<void*>("il2cpp_object_new", List_String_klass);
-                    List_String_ctor(currList, List_String_ctor_mtd);
-                }
-                Il2cppUtils::Tools::CSListEditor<Il2cppString*> currListEditor(currList);
-                if (!currListEditor.Contains(charaId)) {
-                    currListEditor.Add(charaId);
-                }
-                
-            }*/
-
-        }
-
-        return PictureBookWindowPresenter_GetLiveMusics_Orig(self, charaId, mtd);
-    }
-
-    DEFINE_HOOK(void, PictureBookLiveSelectScreenModel_ctor, (void* self, void* transitionParam, UnityResolve::UnityType::List<void*>* musics, void* mtd)) {
-        // Log::DebugFmt("PictureBookLiveSelectScreenModel_ctor");
-
-        if (Config::dbgMode && Config::unlockAllLive) {
-            static auto GetLiveMusics = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.OutGame",
-                                                               "PictureBookWindowPresenter", "GetLiveMusics");
-            if (PictureBookWindowPresenter_instance && !PictureBookWindowPresenter_charaId.empty()) {
-                auto fullMusics = GetLiveMusics->Invoke<UnityResolve::UnityType::List<void*>*>(PictureBookWindowPresenter_instance,
-                                                               Il2cppString::New(PictureBookWindowPresenter_charaId));
-                return PictureBookLiveSelectScreenModel_ctor_Orig(self, transitionParam, fullMusics, mtd);
-            }
-        }
-
-        return PictureBookLiveSelectScreenModel_ctor_Orig(self, transitionParam, musics, mtd);
-    }
-
     bool needRestoreHides = false;
-    DEFINE_HOOK(void*, PictureBookLiveSelectScreenPresenter_MoveLiveScene, (void* self, void* produceLive, bool isPlayCharacterFocusCamera, void* mtd)) {
-        needRestoreHides = false;
-        // Log::InfoFmt("MoveLiveScene: characterId: %s, idolCardId: %s, costumeId: %s, costumeHeadId: %s,",
-        //              characterId->ToString().c_str(), idolCardId->ToString().c_str(), costumeId->ToString().c_str(), costumeHeadId->ToString().c_str());
-
-        /*
-         characterId: hski, costumeId: hski-cstm-0002, costumeHeadId: costume_head_hski-cstm-0002,
-         characterId: shro, costumeId: shro-cstm-0006, costumeHeadId: costume_head_shro-cstm-0006,
-         */
-        /*
-        if (Config::dbgMode && Config::enableLiveCustomeDress) {
-            // 修改 LiveFixedData_GetCharacter 可以更改 Loading 角色和演唱者名字，而不变更实际登台人
-            return PictureBookLiveSelectScreenPresenter_MoveLiveScene_Orig(self, produceLive, characterId, idolCardId,
-                                                                           Config::liveCustomeCostumeId.empty() ? costumeId : Il2cppString::New(Config::liveCustomeCostumeId),
-                                                                           Config::liveCustomeHeadId.empty() ? costumeHeadId : Il2cppString::New(Config::liveCustomeHeadId),
-                                                                           mtd);
-        }
-         */
-        // return PictureBookLiveSelectScreenPresenter_MoveLiveScene_Orig(self, produceLive, characterId, idolCardId, costumeId, costumeHeadId, mtd);
-        return PictureBookLiveSelectScreenPresenter_MoveLiveScene_Orig(self, produceLive, isPlayCharacterFocusCamera, mtd);
-    }
-
-    // std::string lastMusicId;
-
-    DEFINE_HOOK(void, PictureBookLiveSelectScreenPresenter_OnSelectMusic, (void* self, void* itemModel, void* ct, void* mtd)) {
-        /*  // 修改角色后，Live 结束返回时, itemModel 为 null
-        Log::DebugFmt("OnSelectMusic itemModel at %p", itemModel);
-
-        static auto GetMusic = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.OutGame",
-                                                      "PlaylistMusicContext", "GetMusic");
-        static auto GetCurrMusic = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.OutGame.PictureBook",
-                                                      "PictureBookLiveSelectMusicListItemModel", "get_Music");
-        static auto GetMusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master",
-                                                          "Music", "get_Id");
-
-        static auto PictureBookLiveSelectMusicListItemModel_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.OutGame.PictureBook",
-                                                                                          "PictureBookLiveSelectMusicListItemModel");
-        static auto PictureBookLiveSelectMusicListItemModel_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.OutGame.PictureBook",
-                                                                                          "PictureBookLiveSelectMusicListItemModel", ".ctor", {"*", "*"});
-
-        if (!itemModel) {
-            Log::DebugFmt("OnSelectMusic block", itemModel);
-            auto music = GetMusic->Invoke<void*>(lastMusicId);
-            auto newItemModel = PictureBookLiveSelectMusicListItemModel_klass->New<void*>();
-            PictureBookLiveSelectMusicListItemModel_ctor->Invoke<void>(newItemModel, music, false);
-
-            return PictureBookLiveSelectScreenPresenter_OnSelectMusic_Orig(self, newItemModel, isFirst, mtd);
-        }
-
-        if (itemModel) {
-            auto currMusic = GetCurrMusic->Invoke<void*>(itemModel);
-            auto musicId = GetMusicId->Invoke<Il2cppString*>(currMusic);
-            lastMusicId = musicId->ToString();
-        }*/
-        if (!itemModel) return;
-        return PictureBookLiveSelectScreenPresenter_OnSelectMusic_Orig(self, itemModel, ct, mtd);
-    }
 
     DEFINE_HOOK(bool, VLDOF_IsActive, (void* self)) {
         if (Config::enableFreeCamera) return false;
@@ -3874,6 +3669,92 @@ namespace HoshimiLocal::HookMain {
         if (ret) {
             ProcessApiBase(ret);
         }
+        return ret;
+    }
+
+    void UpdateSolisSwingBreastBones(void* breastBones) {
+        if (!Config::enableBreastParam || !breastBones) return;
+
+        static auto ActorSwingBreastBone_klass = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing",
+                                                                       "ActorSwingBreastBone");
+        static auto LimitInfo_klass = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing",
+                                                            "LimitInfo");
+        if (!ActorSwingBreastBone_klass || !LimitInfo_klass) return;
+
+        static auto damping_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("damping");
+        static auto stiffness_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("stiffness");
+        static auto spring_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("spring");
+        static auto average_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("average");
+        static auto useArmCorrection_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("useArmCorrection");
+        static auto leftBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreast");
+        static auto rightBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreast");
+        static auto leftBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreastEnd");
+        static auto rightBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreastEnd");
+        static auto limitInfo_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("limitInfo");
+
+        static auto limitInfo_useLimit_field = LimitInfo_klass->Get<UnityResolve::Field>("useLimit");
+        static auto limitInfo_axisX_field = LimitInfo_klass->Get<UnityResolve::Field>("axisX");
+        static auto limitInfo_axisY_field = LimitInfo_klass->Get<UnityResolve::Field>("axisY");
+        static auto limitInfo_axisZ_field = LimitInfo_klass->Get<UnityResolve::Field>("axisZ");
+
+        if (!damping_field || !stiffness_field || !spring_field || !average_field || !useArmCorrection_field ||
+            !leftBreast_field || !rightBreast_field || !leftBreastEnd_field || !rightBreastEnd_field ||
+            !limitInfo_field || !limitInfo_useLimit_field || !limitInfo_axisX_field ||
+            !limitInfo_axisY_field || !limitInfo_axisZ_field) {
+            return;
+        }
+
+        Il2cppUtils::Tools::CSListEditor<void*> listEditor(breastBones);
+        for (auto bone : listEditor) {
+            if (!bone) continue;
+
+            if (Config::bUseScale) {
+                auto leftBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreast_field);
+                auto rightBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreast_field);
+                auto leftBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreastEnd_field);
+                auto rightBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreastEnd_field);
+
+                const auto setScale = UnityResolve::UnityType::Vector3(Config::bScale, Config::bScale, Config::bScale);
+                if (leftBreast) leftBreast->SetLocalScale(setScale);
+                if (rightBreast) rightBreast->SetLocalScale(setScale);
+                if (leftBreastEnd) leftBreastEnd->SetLocalScale(setScale);
+                if (rightBreastEnd) rightBreastEnd->SetLocalScale(setScale);
+            }
+
+            auto limitInfo = Il2cppUtils::ClassGetFieldValue<void*>(bone, limitInfo_field);
+            if (limitInfo) {
+                if (!Config::bUseLimit) {
+                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 0);
+                }
+                else {
+                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 1);
+                    auto axisX = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisX_field);
+                    auto axisY = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisY_field);
+                    auto axisZ = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisZ_field);
+                    axisX.m_X *= Config::bLimitXx;
+                    axisX.m_Y *= Config::bLimitXy;
+                    axisY.m_X *= Config::bLimitYx;
+                    axisY.m_Y *= Config::bLimitYy;
+                    axisZ.m_X *= Config::bLimitZx;
+                    axisZ.m_Y *= Config::bLimitZy;
+                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisX_field, axisX);
+                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisY_field, axisY);
+                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisZ_field, axisZ);
+                }
+            }
+
+            Il2cppUtils::ClassSetFieldValue(bone, damping_field, Config::bDamping);
+            Il2cppUtils::ClassSetFieldValue(bone, stiffness_field, Config::bStiffness);
+            Il2cppUtils::ClassSetFieldValue(bone, spring_field, Config::bSpring);
+            Il2cppUtils::ClassSetFieldValue(bone, average_field, Config::bAverage);
+            Il2cppUtils::ClassSetFieldValue(bone, useArmCorrection_field, Config::bUseArmCorrection);
+        }
+    }
+
+    DEFINE_HOOK(void*, SolisActorController_InitializeActorSwing_GetBreastBones,
+        (void* self, void* modelParts, void* mtd)) {
+        auto ret = SolisActorController_InitializeActorSwing_GetBreastBones_Orig(self, modelParts, mtd);
+        UpdateSolisSwingBreastBones(ret);
         return ret;
     }
 
@@ -4478,10 +4359,6 @@ namespace HoshimiLocal::HookMain {
         if (UserDataManager_klass) {
             auto UserDataManagerBase_klass = UnityResolve::Invoke<Il2cppUtils::Il2CppClassHead*>("il2cpp_class_get_parent", UserDataManager_klass->address);
             if (UserDataManagerBase_klass) {
-                auto get_userIdolCardSkinList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(UserDataManagerBase_klass, "get__userIdolCardSkinList", 0);
-                if (get_userIdolCardSkinList_mtd) {
-                    ADD_HOOK(UserDataManagerBase_get__userIdolCardSkinList, get_userIdolCardSkinList_mtd->methodPointer);
-                }
                 auto get_userCostumeList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(UserDataManagerBase_klass, "get__userCostumeList", 0);
                 if (get_userCostumeList_mtd) {
                     ADD_HOOK(UserDataManagerBase_get__userCostumeList, get_userCostumeList_mtd->methodPointer);
@@ -4494,13 +4371,6 @@ namespace HoshimiLocal::HookMain {
         }*/
 
 /*
-        auto UserIdolCardSkinCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
-                                                                      "UserIdolCardSkinCollection");
-        auto UserIdolCardSkinCollection_Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(UserIdolCardSkinCollection_klass->address, "Exists", 1);
-        if (UserIdolCardSkinCollection_Exists_mtd) {
-            ADD_HOOK(UserIdolCardSkinCollection_Exists, UserIdolCardSkinCollection_Exists_mtd->methodPointer);
-        }
-
         auto UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
                                                                       "UserCostumeCollection");
         auto UserCostumeCollection_FindBy_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
@@ -4510,26 +4380,7 @@ namespace HoshimiLocal::HookMain {
         }
 
         // 双端
-        ADD_HOOK(PictureBookLiveThumbnailView_SetDataAsync,
-            Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.OutGame.PictureBook",
-                "PictureBookLiveThumbnailView", "SetDataAsync", { "*", "*", "*", "*", "*" }));
-
-        ADD_HOOK(PictureBookWindowPresenter_GetLiveMusics,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.OutGame",
-                                               "PictureBookWindowPresenter", "GetLiveMusics"));
-
-        ADD_HOOK(PictureBookLiveSelectScreenModel_ctor,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.OutGame",
-                                               "PictureBookLiveSelectScreenModel", ".ctor"));
-
-        ADD_HOOK(PictureBookLiveSelectScreenPresenter_MoveLiveScene,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.OutGame",
-                                               "PictureBookLiveSelectScreenPresenter", "MoveLiveScene"));
-
         // 双端
-        ADD_HOOK(PictureBookLiveSelectScreenPresenter_OnSelectMusic,
-            Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.OutGame",
-                "PictureBookLiveSelectScreenPresenter", "OnSelectMusicAsync"));
 */
 /*
         ADD_HOOK(VLDOF_IsActive,
@@ -4559,6 +4410,17 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(SolisActorController_LateUpdate,
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
                                                "SolisActorController", "LateUpdate"));
+
+        auto SolisActorController_c_klass = Il2cppUtils::GetClass("solis-submodule.Runtime.dll", "Solis.Common",
+                                                                  "SolisActorController/<>c");
+        if (SolisActorController_c_klass) {
+            auto GetBreastBones_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
+                    SolisActorController_c_klass->address, "<InitializeActorSwing>b__64_3", 1);
+            if (GetBreastBones_mtd) {
+                ADD_HOOK(SolisActorController_InitializeActorSwing_GetBreastBones,
+                         GetBreastBones_mtd->methodPointer);
+            }
+        }
 
         ADD_HOOK(PlatformInformation_get_IsAndroid, Il2cppUtils::GetMethodPointer("Firebase.Platform.dll", "Firebase.Platform",
                                                                          "PlatformInformation", "get_IsAndroid"));
