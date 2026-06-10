@@ -84,7 +84,7 @@ fun CollapsibleBox(
                     content()
                 }
                 else if (showExpand) {
-                    Text(text = "Details ??", color = Color.Gray)
+                    Text(text = "Details ↓", color = Color.Gray)
                 }
             //}
 

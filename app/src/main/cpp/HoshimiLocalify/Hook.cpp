@@ -801,47 +801,6 @@ namespace HoshimiLocal::HookMain {
         }
     }
 
-    /*
-    // 未使用的 Hook
-    DEFINE_HOOK(void, MasterBase_GetAll, (void* self, UnityResolve::UnityType::Array<UnityResolve::UnityType::Byte>* getAllSQL,
-            int sqlLength, UnityResolve::UnityType::List<void*>* result, void* predicate, void* comparison, void* mtd)) {
-        // result: List<Campus.Common.Proto.Client.Master.*>, 和 query 的表名一致
-
-        MasterBase_GetAll_Orig(self, getAllSQL, sqlLength, result, predicate, comparison, mtd);
-
-        auto data_ptr = reinterpret_cast<std::uint8_t*>(getAllSQL->GetData());
-        std::string qS(data_ptr, data_ptr + sqlLength);
-
-
-        Il2cppUtils::Tools::CSListEditor resultList(result);
-        MasterLocal::LocalizeMaster(qS, result);
-    }
-
-    void LocalizeFindByKey(void* result, void* self) {
-        return;  // 暂时不需要了
-        auto self_klass = Il2cppUtils::get_class_from_instance(self);
-        Log::DebugFmt("Localize: %s", self_klass->name);  // FeatureLockMaster
-        // return;
-
-        if (!result) return;
-        auto result_klass = Il2cppUtils::get_class_from_instance(result);
-        std::string klassName = result_klass->name;
-
-        auto MasterBase_klass = Il2cppUtils::get_class_from_instance(self);
-        auto MasterBase_GetTableName = Il2cppUtils::il2cpp_class_get_method_from_name(MasterBase_klass, "GetTableName", 0);
-        if (MasterBase_GetTableName) {
-            auto tableName = reinterpret_cast<Il2cppString* (*)(void*, void*)>(MasterBase_GetTableName->methodPointer)(self, MasterBase_GetTableName);
-            // Log::DebugFmt("MasterBase_FindByKey: %s", tableName->ToString().c_str());
-
-            if (klassName == "List`1") {
-                MasterLocal::LocalizeMaster(result, tableName->ToString());
-            }
-            else {
-                MasterLocal::LocalizeMasterItem(result, tableName->ToString());
-            }
-        }
-    }*/
-
     DEFINE_HOOK(Il2cppString*, OctoCaching_GetResourceFileName, (void* data, void* method)) {
         auto ret = OctoCaching_GetResourceFileName_Orig(data, method);
         //Log::DebugFmt("OctoCaching_GetResourceFileName: %s", ret->ToString().c_str());
@@ -1221,107 +1180,6 @@ namespace HoshimiLocal::HookMain {
 
         return ret;
         // return UnityResolve::UnityType::String::New("[I18]" + ret->ToString());
-    }
-
-    /*
-    DEFINE_HOOK(void*, UserDataManagerBase_get__userCostumeList, (void* self, void* mtd)) {  // 服装选择界面
-        auto ret = UserDataManagerBase_get__userCostumeList_Orig(self, mtd);
-        Log::DebugFmt("UserDataManagerBase_get__userCostumeList: %p", ret);
-        return ret;
-    }
-    DEFINE_HOOK(void*, UserDataManagerBase_get__userCostumeHeadList, (void* self, void* mtd)) {  // 服装选择界面
-        auto ret = UserDataManagerBase_get__userCostumeHeadList_Orig(self, mtd);
-        Log::DebugFmt("UserDataManagerBase_get__userCostumeHeadList: %p", ret);
-        return ret;
-    }*/
-
-    enum class GetIdolIdType {
-        MusicId,
-        CostumeId,
-        CostumeHeadId
-    };
-
-    std::vector<std::string> GetIdolMusicIdAll(const std::string& charaNameId = "", GetIdolIdType getType = GetIdolIdType::MusicId) {
-        // 传入例: fktn
-        // System.Collections.Generic.List`1<valuetype [mscorlib]System.ValueTuple`2<class Campus.Common.Proto.Client.Master.IdolCardSkin, class Campus.Common.Proto.Client.Master.Music>>
-        static auto get_IdolCardSkinMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Master", "MasterManager", "get_IdolCardSkinMaster");
-        static auto Master_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Master", "IdolCardSkinMaster", "GetAllWithSortByKey");
-        static auto IdolCardSkin_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_Id");
-        static auto IdolCardSkin_get_IdolCardId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_IdolCardId");
-        static auto IdolCardSkin_GetMusic = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "GetMusic");
-        static auto IdolCardSkin_get_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_MusicId");
-        static auto IdolCardSkin_get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_CostumeId");
-        static auto IdolCardSkin_get_CostumeHeadId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master", "IdolCardSkin", "get_CostumeHeadId");
-        auto idolCardSkinMaster = get_IdolCardSkinMaster->Invoke<void*>(nullptr);  // IdolCardSkinMaster
-
-        std::vector<std::string> ret{};
-
-        if (!idolCardSkinMaster) {
-            Log::ErrorFmt("get_IdolCardSkinMaster failed: %p", idolCardSkinMaster);
-            return ret;
-        }
-        // List<IdolCardSkin>
-        auto idolCardSkinList = Master_GetAllWithSortByKey->Invoke<UnityResolve::UnityType::List<void*>*>(idolCardSkinMaster, 0x0, nullptr);
-
-        auto idolCardSkins = idolCardSkinList->ToArray()->ToVector();
-        const auto checkStartCharaId = "i_card-" + charaNameId;
-        // Log::DebugFmt("checkStartCharaId: %s", checkStartCharaId.c_str());
-
-        // origMusics->Clear();
-        UnityResolve::Method* idGetFunc = nullptr;
-        switch (getType) {
-            case GetIdolIdType::MusicId: idGetFunc = IdolCardSkin_get_MusicId;
-                break;
-            case GetIdolIdType::CostumeId: idGetFunc = IdolCardSkin_get_CostumeId;
-                break;
-            case GetIdolIdType::CostumeHeadId: idGetFunc = IdolCardSkin_get_CostumeHeadId;
-                break;
-            default:
-                idGetFunc = IdolCardSkin_get_MusicId;
-        }
-
-        for (auto i : idolCardSkins) {
-            if (!i) continue;
-            // auto charaId = IdolCardSkin_get_Id->Invoke<Il2cppString*>(i);
-            auto targetId = idGetFunc->Invoke<Il2cppString*>(i);
-            auto cardId = IdolCardSkin_get_IdolCardId->Invoke<Il2cppString*>(i)->ToString();
-            auto music = IdolCardSkin_GetMusic->Invoke<void*>(i);
-
-            if (charaNameId.empty() || cardId.starts_with(checkStartCharaId)) {
-                std::string musicIdStr = targetId->ToString();
-                // Log::DebugFmt("Add cardId: %s, musicId: %s", cardId.c_str(), musicIdStr.c_str());
-                if (std::find(ret.begin(), ret.end(), musicIdStr) == ret.end()) {
-                    ret.emplace_back(musicIdStr);
-                }
-            }
-        }
-        return ret;
-    }
-
-    void* AddIdsToUserDataCollectionFromMaster(void* origList, std::vector<std::string>& allIds,
-                                               UnityResolve::Method* get_CostumeId, UnityResolve::Method* set_CostumeId, UnityResolve::Method* Clone) {
-        std::unordered_set<std::string> existIds{};
-        Il2cppUtils::Tools::CSListEditor listEditor(origList);
-        if (listEditor.get_Count() <= 0) {
-            return origList;
-        }
-
-        for (auto i : listEditor) {
-            auto costumeId = get_CostumeId->Invoke<Il2cppString*>(i);
-            if (!costumeId) continue;
-            existIds.emplace(costumeId->ToString());
-        }
-
-        for (auto& i : allIds) {
-            if (i.empty()) continue;
-            // Log::DebugFmt("Try add %s", i.c_str());
-            if (existIds.contains(i)) continue;
-
-            auto userCostume = Clone->Invoke<void*>(listEditor.get_Item(0));
-            set_CostumeId->Invoke<void>(userCostume, Il2cppString::New(i));
-            listEditor.Add(userCostume);
-        }
-        return origList;
     }
 
     enum class SolisMasterIdType {
@@ -3351,55 +3209,6 @@ namespace HoshimiLocal::HookMain {
         return Solis_LivePhotographyMusicListItemModel_set_IsUnLocked_Orig(self, value, mtd);
     }
 
-    DEFINE_HOOK(void*, UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
-        auto ret = UserCostumeCollection_FindBy_Orig(self, predicate, mtd);
-        if (!Config::unlockAllLiveCostume) return ret;
-
-        auto this_klass = Il2cppUtils::get_class_from_instance(self);
-        // auto predicate_klass = Il2cppUtils::get_class_from_instance(predicate);  // System::Predicate`1
-        // Log::DebugFmt("UserCostumeCollection_FindBy this: %s::%s, predicate: %s::%s", this_klass->namespaze, this_klass->name,
-        //               predicate_klass->namespaze, predicate_klass->name);
-
-        static auto UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
-                                                                        "UserCostumeCollection");
-        static auto UserCostumeCollection_GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
-                UserCostumeCollection_klass->address, "GetAllList", 1);
-        static auto UserCostumeCollection_GetAllList = reinterpret_cast<void* (*)(void*, void*)>(UserCostumeCollection_GetAllList_mtd->methodPointer);
-
-        std::string thisKlassName(this_klass->name);
-        // Campus.Common.User::UserCostumeHeadCollection || Campus.Common.User::UserCostumeCollection
-        // 两个 class 的 GetAllList 均使用的父类 Qua.UserDataManagement.UserDataCollectionBase`2 的方法，地址一致
-        if (thisKlassName == "UserCostumeHeadCollection") {
-            static auto UserCostume_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostumeHead", "Clone");
-            static auto UserCostume_get_CostumeHeadId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostumeHead", "get_CostumeHeadId");
-            static auto UserCostume_set_CostumeHeadId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostumeHead", "set_CostumeHeadId");
-
-            // auto ret_klass = Il2cppUtils::get_class_from_instance(ret);  // WhereEnumerableIterator
-            auto origList = UserCostumeCollection_GetAllList(self, nullptr);
-
-            auto allIds = GetIdolMusicIdAll("", GetIdolIdType::CostumeHeadId);
-
-            // List<Campus.Common.Proto.Client.Transaction.UserCostumeHead>
-            return AddIdsToUserDataCollectionFromMaster(origList, allIds, UserCostume_get_CostumeHeadId, UserCostume_set_CostumeHeadId, UserCostume_Clone);
-        }
-        else if (thisKlassName == "UserCostumeCollection") {
-            // static auto UserCostume_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostume");
-            static auto UserCostume_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostume", "Clone");
-            static auto UserCostume_get_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostume", "get_CostumeId");
-            static auto UserCostume_set_CostumeId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Transaction", "UserCostume", "set_CostumeId");
-
-            // auto ret_klass = Il2cppUtils::get_class_from_instance(ret);  // WhereEnumerableIterator
-            auto origList = UserCostumeCollection_GetAllList(self, nullptr);
-
-            auto allIds = GetIdolMusicIdAll("", GetIdolIdType::CostumeId);
-
-            // List<Campus.Common.Proto.Client.Transaction.UserCostume>
-            return AddIdsToUserDataCollectionFromMaster(origList, allIds, UserCostume_get_CostumeId, UserCostume_set_CostumeId, UserCostume_Clone);
-        }
-
-        return ret;
-    }
-
     bool needRestoreHides = false;
 
     DEFINE_HOOK(bool, VLDOF_IsActive, (void* self)) {
@@ -3408,45 +3217,15 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, SolisQualityManager_set_TargetFrameRate, (void* self, float value)) {
-        // Log::InfoFmt("CampusQualityManager_set_TargetFrameRate: %f", value);
         const auto configFps = Config::targetFrameRate;
         SolisQualityManager_set_TargetFrameRate_Orig(self, configFps == 0 ? value : (float)configFps);
     }
 
-    DEFINE_HOOK(void, SolisQualityManager_ApplySetting, (void* self, int qualitySettingsLevel, int maxBufferPixel, float renderScale, int volumeIndex)) {
+    DEFINE_HOOK(void, SolisQualityManager_ApplySetting, (void* self)) {
         if (Config::targetFrameRate != 0) {
             SolisQualityManager_set_TargetFrameRate_Orig(self, Config::targetFrameRate);
         }
-        if (Config::useCustomeGraphicSettings) {
-            static auto SetReflectionQuality = Il2cppUtils::GetMethod("solis-submodule.Runtime.dll", "Solis.Common",
-                                                                      "SolisQualityManager", "SetReflectionQuality");
-            static auto SetLODQuality = Il2cppUtils::GetMethod("solis-submodule.Runtime.dll", "Solis.Common",
-                                                               "SolisQualityManager", "SetLODQuality");
-
-            static auto Enum_GetValues = Il2cppUtils::GetMethod("mscorlib.dll", "System", "Enum", "GetValues");
-
-            static auto QualityLevel_klass = Il2cppUtils::GetClass("solis-submodule.Runtime.dll", "Solis.Common", "QualityLevel");
-
-            static auto values = Enum_GetValues->Invoke<UnityResolve::UnityType::Array<int>*>(QualityLevel_klass->GetType())->ToVector();
-            if (values.empty()) {
-                values = {0x0, 0xa, 0x14, 0x1e, 0x28, 0x64};
-            }
-            if (Config::lodQualityLevel >= values.size()) Config::lodQualityLevel = values.size() - 1;
-            if (Config::reflectionQualityLevel >= values.size()) Config::reflectionQualityLevel = values.size() - 1;
-
-            SetLODQuality->Invoke<void>(self, values[Config::lodQualityLevel]);
-            SetReflectionQuality->Invoke<void>(self, values[Config::reflectionQualityLevel]);
-
-            qualitySettingsLevel = Config::qualitySettingsLevel;
-            maxBufferPixel = Config::maxBufferPixel;
-            renderScale = Config::renderScale;
-            volumeIndex = Config::volumeIndex;
-
-            Log::ShowToastFmt("ApplySetting\nqualityLevel: %d, maxBufferPixel: %d\nenderScale: %f, volumeIndex: %d\nLODQualityLv: %d, ReflectionLv: %d",
-                              qualitySettingsLevel, maxBufferPixel, renderScale, volumeIndex, Config::lodQualityLevel, Config::reflectionQualityLevel);
-        }
-
-        SolisQualityManager_ApplySetting_Orig(self, qualitySettingsLevel, maxBufferPixel, renderScale, volumeIndex);
+        SolisQualityManager_ApplySetting_Orig(self);
     }
 
     DEFINE_HOOK(void, UIManager_UpdateRenderTarget, (UnityResolve::UnityType::Vector2 ratio, void* mtd)) {
@@ -3464,18 +3243,8 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, VLUtility_GetLimitedResolution, (int32_t screenWidth, int32_t screenHeight,
             UnityResolve::UnityType::Vector2 aspectRatio, int32_t maxBufferPixel, float bufferScale, bool firstCall)) {
 
-        if (Config::useCustomeGraphicSettings && (Config::renderScale > 1.0f)) {
-            screenWidth *= Config::renderScale;
-            screenHeight *= Config::renderScale;
-        }
         //Log::DebugFmt("VLUtility_GetLimitedResolution: %d, %d, %f, %f", screenWidth, screenHeight, aspectRatio.x, aspectRatio.y);
         return VLUtility_GetLimitedResolution_Orig(screenWidth, screenHeight, aspectRatio, maxBufferPixel, bufferScale, firstCall);
-    }
-
-
-    DEFINE_HOOK(void, CampusActorModelParts_OnRegisterBone, (void* self, Il2cppString** name, UnityResolve::UnityType::Transform* bone)) {
-        CampusActorModelParts_OnRegisterBone_Orig(self, name, bone);
-        // Log::DebugFmt("CampusActorModelParts_OnRegisterBone: %s, %p", (*name)->ToString().c_str(), bone);
     }
 
     bool InitBodyParts() {
@@ -3758,173 +3527,6 @@ namespace HoshimiLocal::HookMain {
         return ret;
     }
 
-    void UpdateSwingBreastBonesData(void* initializeData) {
-        if (!Config::enableBreastParam) return;
-        static auto CampusActorAnimationInitializeData_klass = Il2cppUtils::GetClass("campus-submodule.Runtime.dll", "ActorAnimation",
-                                                                                     "CampusActorAnimationInitializeData");
-        static auto ActorSwingBreastBone_klass = Il2cppUtils::GetClass("ActorAnimation.Runtime.dll", "ActorAnimation",
-                                                                       "ActorSwingBreastBone");
-        static auto LimitInfo_klass = Il2cppUtils::GetClass("ActorAnimation.Runtime.dll", "ActorAnimation",
-                                                            "LimitInfo");
-
-        static auto Data_swingBreastBones_field = CampusActorAnimationInitializeData_klass->Get<UnityResolve::Field>("swingBreastBones");
-        static auto damping_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("damping");
-        static auto stiffness_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("stiffness");
-        static auto spring_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("spring");
-        static auto pendulum_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("pendulum");
-        static auto pendulumRange_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("pendulumRange");
-        static auto average_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("average");
-        static auto rootWeight_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rootWeight");
-        static auto useArmCorrection_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("useArmCorrection");
-        static auto isDirty_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("<isDirty>k__BackingField");
-        static auto leftBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreast");
-        static auto rightBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreast");
-        static auto leftBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreastEnd");
-        static auto rightBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreastEnd");
-        static auto limitInfo_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("limitInfo");
-
-        static auto limitInfo_useLimit_field = LimitInfo_klass->Get<UnityResolve::Field>("useLimit");
-        static auto limitInfo_axisX_field = LimitInfo_klass->Get<UnityResolve::Field>("axisX");
-        static auto limitInfo_axisY_field = LimitInfo_klass->Get<UnityResolve::Field>("axisY");
-        static auto limitInfo_axisZ_field = LimitInfo_klass->Get<UnityResolve::Field>("axisZ");
-
-        auto swingBreastBones = Il2cppUtils::ClassGetFieldValue
-                <UnityResolve::UnityType::List<UnityResolve::UnityType::MonoBehaviour*>*>(initializeData, Data_swingBreastBones_field);
-
-        auto boneArr = swingBreastBones->ToArray();
-        for (int i = 0; i < boneArr->max_length; i++) {
-            auto bone = boneArr->At(i);
-            if (!bone) continue;
-
-            auto damping = Il2cppUtils::ClassGetFieldValue<float>(bone, damping_field);
-            auto stiffness = Il2cppUtils::ClassGetFieldValue<float>(bone, stiffness_field);
-            auto spring = Il2cppUtils::ClassGetFieldValue<float>(bone, spring_field);
-            auto pendulum = Il2cppUtils::ClassGetFieldValue<float>(bone, pendulum_field);
-            auto pendulumRange = Il2cppUtils::ClassGetFieldValue<float>(bone, pendulumRange_field);
-            auto average = Il2cppUtils::ClassGetFieldValue<float>(bone, average_field);
-            auto rootWeight = Il2cppUtils::ClassGetFieldValue<float>(bone, rootWeight_field);
-            auto useArmCorrection = Il2cppUtils::ClassGetFieldValue<bool>(bone, useArmCorrection_field);
-            auto isDirty = Il2cppUtils::ClassGetFieldValue<bool>(bone, isDirty_field);
-
-            auto limitInfo = Il2cppUtils::ClassGetFieldValue<void*>(bone, limitInfo_field);
-            auto useLimit = Il2cppUtils::ClassGetFieldValue<int>(limitInfo, limitInfo_useLimit_field);
-
-            if (Config::bUseScale) {
-                auto leftBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreast_field);
-                auto rightBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreast_field);
-                auto leftBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreastEnd_field);
-                auto rightBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreastEnd_field);
-
-                const auto setScale = UnityResolve::UnityType::Vector3(Config::bScale, Config::bScale, Config::bScale);
-                leftBreast->SetLocalScale(setScale);
-                rightBreast->SetLocalScale(setScale);
-                leftBreastEnd->SetLocalScale(setScale);
-                rightBreastEnd->SetLocalScale(setScale);
-            }
-
-            Log::DebugFmt("orig bone: damping: %f, stiffness: %f, spring: %f, pendulum: %f, "
-                          "pendulumRange: %f, average: %f, rootWeight: %f, useLimit: %d, useArmCorrection: %d, isDirty: %d",
-                          damping, stiffness, spring, pendulum, pendulumRange, average, rootWeight, useLimit, useArmCorrection, isDirty);
-            if (!Config::bUseLimit) {
-                Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 0);
-            }
-            else {
-                Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 1);
-                auto axisX = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisX_field);
-                auto axisY = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisY_field);
-                auto axisZ = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisZ_field);
-                axisX.m_X *= Config::bLimitXx;
-                axisX.m_Y *= Config::bLimitXy;
-                axisY.m_X *= Config::bLimitYx;
-                axisY.m_Y *= Config::bLimitYy;
-                axisZ.m_X *= Config::bLimitZx;
-                axisZ.m_Y *= Config::bLimitZy;
-                Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisX_field, axisX);
-                Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisY_field, axisY);
-                Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisZ_field, axisZ);
-
-            }
-
-            Il2cppUtils::ClassSetFieldValue(bone, damping_field, Config::bDamping);
-            Il2cppUtils::ClassSetFieldValue(bone, stiffness_field, Config::bStiffness);
-            Il2cppUtils::ClassSetFieldValue(bone, spring_field, Config::bSpring);
-            Il2cppUtils::ClassSetFieldValue(bone, pendulum_field, Config::bPendulum);
-            Il2cppUtils::ClassSetFieldValue(bone, pendulumRange_field, Config::bPendulumRange);
-            Il2cppUtils::ClassSetFieldValue(bone, average_field, Config::bAverage);
-            Il2cppUtils::ClassSetFieldValue(bone, rootWeight_field, Config::bRootWeight);
-            Il2cppUtils::ClassSetFieldValue(bone, useArmCorrection_field, Config::bUseArmCorrection);
-            // Il2cppUtils::ClassSetFieldValue(bone, isDirty_field, Config::bIsDirty);
-        }
-        // Log::DebugFmt("\n");
-    }
-
-    DEFINE_HOOK(void, CampusActorAnimation_Setup, (void* self, void* rootTrans, void* initializeData)) {
-        UpdateSwingBreastBonesData(initializeData);
-        return CampusActorAnimation_Setup_Orig(self, rootTrans, initializeData);
-    }
-
-/*
-    std::map<std::string, std::pair<uintptr_t, void*>> findByKeyHookAddress{};
-    void* FindByKeyHooks(void* self, void* key, void* mtd) {
-        auto self_klass = Il2cppUtils::get_class_from_instance(self);
-
-        if (auto it = findByKeyHookAddress.find(self_klass->name); it != findByKeyHookAddress.end()) {
-            Log::DebugFmt("FindByKeyHooks Call cache: %s, %p, %p", self_klass->name, it->second.first, it->second.second);
-            return reinterpret_cast<decltype(FindByKeyHooks)*>(it->second.second)(self, key, mtd);
-        }
-        Log::DebugFmt("FindByKeyHooks not in cache: %s", self_klass->name);
-
-        auto FindByKey_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(self_klass, "FindByKey", 1);
-        for (auto& [k, v] : findByKeyHookAddress) {
-            if (FindByKey_mtd->methodPointer == v.first) {
-                findByKeyHookAddress.emplace(self_klass->name, std::make_pair(FindByKey_mtd->methodPointer, v.second));
-                Log::DebugFmt("FindByKeyHooks add to cache: %s", self_klass->name);
-                return reinterpret_cast<decltype(FindByKeyHooks)*>(v.second)(self, key, mtd);
-            }
-        }
-
-        Log::ErrorFmt("FindByKeyHooks not found hook: %s", self_klass->name);
-        return SHADOWHOOK_CALL_PREV(FindByKeyHooks, self, key, mtd);
-    }
-
-    static inline std::vector<void(*)(HookInstaller* hookInstaller)> g_registerMasterFindByKeyHookFuncs;
-
-#define DEF_AND_ADD_MASTER_FINDBYKEY_HOOK(name)                                \
-    using name##_FindByKey_Type = void* (*)(void* self, void* key, void* idx, void* mtd); \
-    inline name##_FindByKey_Type name##_FindByKey_Addr = nullptr;              \
-    inline void* name##_FindByKey_Orig = nullptr;                              \
-    inline void* name##_FindByKey_Hook(void* self, void* key, void* idx, void* mtd) {     \
-        auto result = reinterpret_cast<decltype(name##_FindByKey_Hook)*>(      \
-            name##_FindByKey_Orig)(self, key, idx, mtd);                            \
-        LocalizeFindByKey(result, self);                                       \
-        return result;                                                         \
-    }                                                                          \
-    inline void name##_RegisterHook(HookInstaller* hookInstaller) {            \
-        auto klass = Il2cppUtils::GetClass(                                    \
-            "Assembly-CSharp.dll", "Campus.Common.Master", #name);             \
-        auto mtd = Il2cppUtils::il2cpp_class_get_method_from_name(             \
-            klass->address, "GetData", 2);                                   \
-        ADD_HOOK(name##_FindByKey, mtd->methodPointer);                        \
-    }                                                                          \
-    struct name##_RegisterHookPusher {                                         \
-        name##_RegisterHookPusher() {                                          \
-            g_registerMasterFindByKeyHookFuncs.push_back(&name##_RegisterHook);\
-        }                                                                      \
-    } g_##name##_RegisterHookPusherInst;
-
-    DEF_AND_ADD_MASTER_FINDBYKEY_HOOK(AchievementMaster)
-    DEF_AND_ADD_MASTER_FINDBYKEY_HOOK(ProduceSkillMaster)
-    DEF_AND_ADD_MASTER_FINDBYKEY_HOOK(FeatureLockMaster)
-    DEF_AND_ADD_MASTER_FINDBYKEY_HOOK(ProduceCardMaster)
-
-    // 安装 DEF_AND_ADD_MASTER_FINDBYKEY_HOOK 的 hook
-    void InitMasterHooks(HookInstaller* hookInstaller) {
-        for (auto& func : g_registerMasterFindByKeyHookFuncs) {
-            func(hookInstaller);
-        }
-    }
-*/
-
     void StartInjectFunctions() {
         const auto hookInstaller = Plugin::GetInstance().GetHookInstaller();
 
@@ -4002,25 +3604,8 @@ namespace HoshimiLocal::HookMain {
                                                                                   "PreparedStatement", "FinalizeStatement"));
        */
 
-        // ADD_HOOK(EffectGroup_ctor, Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Campus.Common.Proto.Client.Master",
-        //                                                          "EffectGroup", ".ctor"));
-
         ADD_HOOK(MessageExtensions_MergeFrom, Il2cppUtils::GetMethodPointer("Google.Protobuf.dll", "Google.Protobuf",
                                                                             "MessageExtensions", "MergeFrom", {"Google.Protobuf.IMessage", "System.ReadOnlySpan<System.Byte>"}));
-
-        /* // 此 block 为 MasterBase 相关的 hook，后来发现它们最后都会调用 MessageExtensions.MergeFrom 进行构造，遂停用。现留档以备用
-        // ADD_HOOK(MasterBase_GetAll, Il2cppUtils::GetMethodPointer("quaunity-master-manager.Runtime.dll", "Qua.Master",
-        //                                                          "MasterBase`2", "GetAll", {"*", "*", "*", "*", "*"}));
-
-        // 安装 DEF_AND_ADD_MASTER_FINDBYKEY_HOOK 的 hook
-        InitMasterHooks(hookInstaller);
-
-        auto AchievementMaster_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.Master", "AchievementMaster");
-        auto AchievementMaster_GetAll_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(AchievementMaster_klass->address, "GetAll", 5);
-        // auto AchievementMaster_FindByKey_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(AchievementMaster_klass->address, "FindByKey", 1);
-        // Log::DebugFmt("AchievementMaster_GetAll_mtd at %p", AchievementMaster_GetAll_mtd);
-        ADD_HOOK(MasterBase_GetAll, AchievementMaster_GetAll_mtd->methodPointer);
-        */
 
         ADD_HOOK(OctoCaching_GetResourceFileName, Il2cppUtils::GetMethodPointer("Octo.dll", "Octo.Caching",
                                                                      "OctoCaching", "GetResourceFileName"));
@@ -4353,44 +3938,6 @@ namespace HoshimiLocal::HookMain {
         // Hooking this async state-machine entry directly is unstable on arm64/houdini;
         // keep the lower-level Costume:CheckBulk request sanitizer instead.
 
-        /*
-        auto UserDataManager_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
-                                                           "UserDataManager");
-        if (UserDataManager_klass) {
-            auto UserDataManagerBase_klass = UnityResolve::Invoke<Il2cppUtils::Il2CppClassHead*>("il2cpp_class_get_parent", UserDataManager_klass->address);
-            if (UserDataManagerBase_klass) {
-                auto get_userCostumeList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(UserDataManagerBase_klass, "get__userCostumeList", 0);
-                if (get_userCostumeList_mtd) {
-                    ADD_HOOK(UserDataManagerBase_get__userCostumeList, get_userCostumeList_mtd->methodPointer);
-                }
-                auto get_userCostumeHeadList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(UserDataManagerBase_klass, "get__userCostumeHeadList", 0);
-                if (get_userCostumeHeadList_mtd) {
-                    ADD_HOOK(UserDataManagerBase_get__userCostumeHeadList, get_userCostumeHeadList_mtd->methodPointer);
-                }
-            }
-        }*/
-
-/*
-        auto UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Campus.Common.User",
-                                                                      "UserCostumeCollection");
-        auto UserCostumeCollection_FindBy_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
-                UserCostumeCollection_klass->address, "FindBy", 1);
-        if (UserCostumeCollection_FindBy_mtd) {
-            ADD_HOOK(UserCostumeCollection_FindBy, UserCostumeCollection_FindBy_mtd->methodPointer);
-        }
-
-        // 双端
-        // 双端
-*/
-/*
-        ADD_HOOK(VLDOF_IsActive,
-                 Il2cppUtils::GetMethodPointer("Unity.RenderPipelines.Universal.Runtime.dll", "VL.Rendering",
-                                               "VLDOF", "IsActive"));
-
-        ADD_HOOK(CampusQualityManager_ApplySetting,
-                 Il2cppUtils::GetMethodPointer("campus-submodule.Runtime.dll", "Campus.Common",
-                                               "CampusQualityManager", "ApplySetting"));
-*/
 //        ADD_HOOK(UIManager_UpdateRenderTarget,
 //                 Il2cppUtils::GetMethodPointer("ADV.Runtime.dll", "Solis.ADV",
 //                                               "UIManager", "UpdateRenderTarget"));
@@ -4404,9 +3951,6 @@ namespace HoshimiLocal::HookMain {
                                                "VLUtility", "GetLimitedResolution",
                                                {"*", "*", "*", "*", "*", "*"}));
 
-        // ADD_HOOK(CampusActorModelParts_OnRegisterBone,
-        //          Il2cppUtils::GetMethodPointer("campus-submodule.Runtime.dll", "Campus.Common",
-        //                                        "CampusActorModelParts", "OnRegisterBone"));
         ADD_HOOK(SolisActorController_LateUpdate,
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
                                                "SolisActorController", "LateUpdate"));
@@ -4439,20 +3983,12 @@ namespace HoshimiLocal::HookMain {
             }
         }
 
-        /*
-        static auto CampusActorController_klass = Il2cppUtils::GetClass("campus-submodule.Runtime.dll",
-                                                                        "Campus.Common", "CampusActorController");
-        for (const auto& i : CampusActorController_klass->methods) {
-            Log::DebugFmt("CampusActorController.%s at %p", i->name.c_str(), i->function);
-        }*/
-
-        // ADD_HOOK(CampusActorAnimation_Setup,
-        //          Il2cppUtils::GetMethodPointer("campus-submodule.Runtime.dll", "Campus.Common",
-        //                                        "CampusActorAnimation", "Setup"));
-
         ADD_HOOK(SolisQualityManager_set_TargetFrameRate,
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
                                                "SolisQualityManager", "set_TargetFrameRate"));
+        ADD_HOOK(SolisQualityManager_ApplySetting,
+                 Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
+                                               "SolisQualityManager", "ApplySetting"));
 
         ADD_HOOK(Internal_LogException, Il2cppUtils::il2cpp_resolve_icall(
                 "UnityEngine.DebugLogHandler::Internal_LogException(System.Exception,UnityEngine.Object)"));

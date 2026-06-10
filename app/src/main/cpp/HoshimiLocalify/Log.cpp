@@ -9,7 +9,7 @@
 #include <android/log.h>
 
 extern JavaVM* g_javaVM;
-extern jclass g_gakumasHookMainClass;
+extern jclass g_hoshimiHookMainClass;
 extern jmethodID showToastMethodId;
 
 #define GetParamStringResult(name)\
@@ -86,7 +86,7 @@ namespace HoshimiLocal::Log {
                 return;
             }
 
-            jclass& kotlinClass = g_gakumasHookMainClass;
+            jclass& kotlinClass = g_hoshimiHookMainClass;
             if (!kotlinClass) {
                 g_javaVM->DetachCurrentThread();
                 return;
