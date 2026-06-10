@@ -93,7 +93,7 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
     val currentPluginVersion = "$version ($versionCode)"
     if (lastStartPluginVersion != currentPluginVersion) {  // 插件版本更新，强制启用资源更新检查
         lastStartPluginVersionFile.writeText(currentPluginVersion)
-        programConfig.checkBuiltInAssets = true
+        programConfig.useBuiltInAssets = true
         
         // Force delete version.txt so FilesChecker detects 0.0 and extracts the new APK assets
         val pluginFilesDir = File(filesDir, "hoshimi-local")
@@ -133,7 +133,7 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
     if (targetFile != null) {
         val dirUri = FileProvider.getUriForFile(
             this,
-            "io.gith.fileprovider",
+            "${BuildConfig.APPLICATION_ID}.fileprovider",
             File(targetFile.absolutePath)
         )
         // intent.setDataAndType(dirUri, "resource/file")

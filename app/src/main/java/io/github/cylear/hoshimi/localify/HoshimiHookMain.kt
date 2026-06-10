@@ -275,7 +275,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
 
             // 检查 files 版本和 assets 版本并更新
-            if (programConfig?.checkBuiltInAssets == true) {
+            if (programConfig?.useBuiltInAssets == true) {
                 FilesChecker.initAndCheck(activity.filesDir, modulePath)
             }
 

@@ -110,20 +110,43 @@ object RemoteAPIFilesChecker {
                                 val releaseVersion = releaseData.tag_name
                                 val localVersion = getLocalVersion(context)
                                 if (releaseVersion != localVersion) {
+                                    var foundZipAsset = false
                                     for (asset in releaseData.assets) {
                                         if (!asset.name.endsWith(".zip")) continue
-                                        FileDownloader.downloadFile(asset.browser_download_url,
-                                            onDownload, {data ->
+                                        foundZipAsset = true
+                                        val basePath = File(context.filesDir, BASEPATH)
+                                        if (!basePath.exists()) {
+                                            basePath.mkdirs()
+                                        }
+                                        val versionFile = File(basePath, "version.txt")
+                                        val dataFile = File(basePath, "remote.zip")
+                                        val tmpFile = File(basePath, "remote.zip.tmp")
+                                        FileDownloader.downloadFileToFile(asset.browser_download_url,
+                                            tmpFile,
+                                            onDownload, { downloadedFile ->
                                                 runCatching {
-                                                    val saveFile = saveDownloadData(context, data, releaseVersion)
-                                                    onSuccess(saveFile, releaseVersion)
+                                                    if (dataFile.exists()) {
+                                                        dataFile.delete()
+                                                    }
+                                                    if (!downloadedFile.renameTo(dataFile)) {
+                                                        downloadedFile.copyTo(dataFile, overwrite = true)
+                                                        downloadedFile.delete()
+                                                    }
+                                                    versionFile.writeText(releaseVersion)
+                                                    onSuccess(dataFile, releaseVersion)
                                                 }.onFailure { e ->
+                                                    tmpFile.delete()
                                                     onFailed(-1, e.toString())
                                                 }
                                             },
                                             onFailed)
                                         break
                                     }
+                                    if (!foundZipAsset) {
+                                        onFailed(-1, "No zip asset found in release.")
+                                    }
+                                } else {
+                                    onSuccess(File(context.filesDir, "$BASEPATH/remote.zip"), releaseVersion)
                                 }
                             } else {
                                 onFailed(-1, "Response body is null")

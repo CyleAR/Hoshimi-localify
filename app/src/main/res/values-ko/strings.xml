@@ -60,7 +60,7 @@
     <string name="home">홈</string>
     <string name="advanced_settings">고급 설정</string>
     <string name="about_warn_title">경고</string>
-    <string name="about_warn_p1">본 플러그인은 학습 및 교류 목적으로만 사용되어야 합니다.</string>
+    <string name="about_warn_p1">본 플러그인은 학습·교류 목적으로만 사용되어야 합니다.</string>
     <string name="about_warn_p2">외부 플러그인 사용은 관련 이용약관(TOS) 위반에 해당할 수 있으므로, 이용에 따른 모든 책임과 위험은 사용자 본인에게 있습니다.</string>
     <string name="about_about_title">플러그인 정보</string>
     <string name="about_about_p1">본 플러그인은 완전히 무료입니다. 만약 돈을 주고 구매하셨다면 판매자를 신고하시기 바랍니다.</string>
@@ -70,7 +70,7 @@
     <string name="contributors">기여자 목록</string>
     <string name="translation_repository">번역 리포지토리</string>
     <string name="resource_settings">리소스 설정</string>
-    <string name="check_built_in_resource">내장 리소스 업데이트 확인</string>
+    <string name="use_built_in_resource">내장 리소스 사용</string>
     <string name="delete_plugin_resource">플러그인 리소스 삭제</string>
     <string name="use_remote_zip_resource">원격 ZIP 리소스 사용</string>
     <string name="resource_url">리소스 URL</string>

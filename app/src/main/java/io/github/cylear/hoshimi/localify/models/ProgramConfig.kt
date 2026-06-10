@@ -2,6 +2,7 @@ package io.github.cylear.hoshimi.localify.models
 
 import io.github.cylear.hoshimi.localify.mainUtils.json
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -13,7 +14,8 @@ import kotlinx.serialization.json.jsonObject
 
 @Serializable
 data class ProgramConfig(
-    var checkBuiltInAssets: Boolean = true,
+    @SerialName("checkBuiltInAssets")
+    var useBuiltInAssets: Boolean = true,
     var transRemoteZipUrl: String = "",
     var useRemoteAssets: Boolean = false,
     var useAPIAssets: Boolean = false,

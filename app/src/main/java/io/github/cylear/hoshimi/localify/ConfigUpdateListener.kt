@@ -61,7 +61,7 @@ interface ConfigListener {
     fun onBUseArmCorrectionChanged(value: Boolean)
     fun onBUseScaleChanged(value: Boolean)
     fun onBClickPresetChanged(index: Int)
-    fun onPCheckBuiltInAssetsChanged(value: Boolean)
+    fun onPUseBuiltInAssetsChanged(value: Boolean)
     fun onPUseRemoteAssetsChanged(value: Boolean)
     fun onPCleanLocalAssetsChanged(value: Boolean)
     fun onPDelRemoteAfterUpdateChanged(value: Boolean)
@@ -541,8 +541,8 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         saveConfig()
     }
 
-    override fun onPCheckBuiltInAssetsChanged(value: Boolean) {
-        programConfig.checkBuiltInAssets = value
+    override fun onPUseBuiltInAssetsChanged(value: Boolean) {
+        programConfig.useBuiltInAssets = value
         if (value) {
             programConfig.cleanLocalAssets = false
         }
@@ -552,7 +552,7 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
     override fun onPUseRemoteAssetsChanged(value: Boolean) {
         programConfig.useRemoteAssets = value
         if (value) {
-            programConfig.checkBuiltInAssets = false
+            programConfig.useBuiltInAssets = false
             programConfig.cleanLocalAssets = false
             programConfig.useAPIAssets = false
         }
@@ -564,7 +564,7 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         if (value) {
             programConfig.useRemoteAssets = false
             programConfig.useAPIAssets = false
-            programConfig.checkBuiltInAssets = false
+            programConfig.useBuiltInAssets = false
         }
         saveProgramConfig()
     }
@@ -592,7 +592,7 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
     override fun onPUseAPIAssetsChanged(value: Boolean) {
         programConfig.useAPIAssets = value
         if (value) {
-            programConfig.checkBuiltInAssets = false
+            programConfig.useBuiltInAssets = false
             programConfig.useRemoteAssets = false
             programConfig.cleanLocalAssets = false
         }

@@ -262,9 +262,9 @@ fun HomePage(modifier: Modifier = Modifier,
                     ) {
                         item {
                             IPSwitch(modifier = modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp),
-                                checked = programConfig.value.checkBuiltInAssets,
-                                text = stringResource(id = R.string.check_built_in_resource)
-                            ) { v -> context?.onPCheckBuiltInAssetsChanged(v) }
+                                checked = programConfig.value.useBuiltInAssets,
+                                text = stringResource(id = R.string.use_built_in_resource)
+                            ) { v -> context?.onPUseBuiltInAssetsChanged(v) }
                         }
                         item {
                             IPSwitch(modifier = modifier.padding(start = 8.dp, end = 8.dp),
