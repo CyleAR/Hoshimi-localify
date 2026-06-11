@@ -237,6 +237,12 @@ fun HomePage(modifier: Modifier = Modifier,
                             v -> context?.onReplaceFontChanged(v)
                     }
 
+                    IPSwitch(
+                        modifier,
+                        stringResource(R.string.use_runtime_korean_font),
+                        checked = config.value.useRuntimeKoreanFont
+                    ) { v -> context?.onUseRuntimeKoreanFontChanged(v) }
+
                     IPSwitch(modifier, stringResource(R.string.replace_images), checked = config.value.replaceImages) {
                             v -> context?.onReplaceImagesChanged(v)
                     }

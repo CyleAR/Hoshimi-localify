@@ -11,6 +11,7 @@ namespace HoshimiLocal::Config {
     bool enabled = true;
     bool lazyInit = true;
     bool replaceFont = true;
+    bool useRuntimeKoreanFont = false;
     bool replaceImages = true;
     bool forceExportResource = true;
     bool textTest = false;
@@ -68,6 +69,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enabled);
             GetConfigItem(lazyInit);
             GetConfigItem(replaceFont);
+            GetConfigItem(useRuntimeKoreanFont);
             GetConfigItem(replaceImages);
             GetConfigItem(forceExportResource);
             GetConfigItem(gameOrientation);
@@ -126,6 +128,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enabled);
             SetConfigItem(lazyInit);
             SetConfigItem(replaceFont);
+            SetConfigItem(useRuntimeKoreanFont);
             SetConfigItem(replaceImages);
             SetConfigItem(forceExportResource);
             SetConfigItem(gameOrientation);
