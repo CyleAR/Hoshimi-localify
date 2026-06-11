@@ -360,6 +360,92 @@ namespace HoshimiLocal::HookMain {
 
     void MarkReplacementAssetPersistent(void* obj);
     void InjectKoreanFallbackIntoObservedFonts(const char* source);
+    void* GetKoreanFontAsset();
+
+    std::string GetUnityObjectName(void* obj) {
+        if (!obj) return "<null>";
+        static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                      "UnityEngine", "Object", "get_name");
+        if (!get_name) return "<no get_name>";
+        auto nameStr = get_name->Invoke<Il2cppString*>(obj);
+        return nameStr ? nameStr->ToString() : "<null name>";
+    }
+
+    struct MaterialColor {
+        float r;
+        float g;
+        float b;
+        float a;
+    };
+
+    void CopyMaterialFloatProperty(void* srcMaterial, void* dstMaterial, const char* propName) {
+        static auto HasProperty = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                         "UnityEngine", "Material", "HasProperty",
+                                                         {"System.String"});
+        static auto GetFloat = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                      "UnityEngine", "Material", "GetFloat",
+                                                      {"System.String"});
+        static auto SetFloat = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                      "UnityEngine", "Material", "SetFloat",
+                                                      {"System.String", "System.Single"});
+        if (!srcMaterial || !dstMaterial || !HasProperty || !GetFloat || !SetFloat) return;
+        auto propStr = Il2cppString::New(propName);
+        if (!HasProperty->Invoke<bool>(srcMaterial, propStr) ||
+            !HasProperty->Invoke<bool>(dstMaterial, propStr)) {
+            return;
+        }
+        SetFloat->Invoke<void>(dstMaterial, propStr, GetFloat->Invoke<float>(srcMaterial, propStr));
+    }
+
+    void CopyMaterialColorProperty(void* srcMaterial, void* dstMaterial, const char* propName) {
+        static auto HasProperty = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                         "UnityEngine", "Material", "HasProperty",
+                                                         {"System.String"});
+        static auto GetColor = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                      "UnityEngine", "Material", "GetColor",
+                                                      {"System.String"});
+        static auto SetColor = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
+                                                      "UnityEngine", "Material", "SetColor",
+                                                      {"System.String", "UnityEngine.Color"});
+        if (!srcMaterial || !dstMaterial || !HasProperty || !GetColor || !SetColor) return;
+        auto propStr = Il2cppString::New(propName);
+        if (!HasProperty->Invoke<bool>(srcMaterial, propStr) ||
+            !HasProperty->Invoke<bool>(dstMaterial, propStr)) {
+            return;
+        }
+        SetColor->Invoke<void>(dstMaterial, propStr, GetColor->Invoke<MaterialColor>(srcMaterial, propStr));
+    }
+
+    void CopyRuntimeFontMaterialStyle(void* srcMaterial, void* dstMaterial) {
+        if (!srcMaterial || !dstMaterial || srcMaterial == dstMaterial) return;
+
+        // Keep atlas-bound properties on the runtime font material:
+        // _MainTex, _TextureWidth, _TextureHeight, _GradientScale, _ScaleRatioA/B/C.
+        const char* floatProps[] = {
+                "_FaceDilate", "_OutlineWidth", "_OutlineSoftness",
+                "_WeightNormal", "_WeightBold",
+                "_Bevel", "_BevelOffset", "_BevelWidth", "_BevelClamp", "_BevelRoundness",
+                "_LightAngle", "_SpecularPower", "_Reflectivity", "_Diffuse", "_Ambient",
+                "_BumpOutline", "_BumpFace",
+                "_GlowOffset", "_GlowInner", "_GlowOuter", "_GlowPower",
+                "_UnderlayOffsetX", "_UnderlayOffsetY", "_UnderlayDilate", "_UnderlaySoftness",
+                "_VertexOffsetX", "_VertexOffsetY",
+                "_MaskSoftnessX", "_MaskSoftnessY",
+                "_StencilComp", "_Stencil", "_StencilOp", "_StencilWriteMask", "_StencilReadMask", "_ColorMask"
+        };
+        for (const auto prop : floatProps) {
+            CopyMaterialFloatProperty(srcMaterial, dstMaterial, prop);
+        }
+
+        const char* colorProps[] = {
+                "_FaceColor", "_OutlineColor", "_SpecularColor", "_ReflectFaceColor",
+                "_ReflectOutlineColor", "_GlowColor", "_UnderlayColor", "_ClipRect"
+        };
+        for (const auto prop : colorProps) {
+            CopyMaterialColorProperty(srcMaterial, dstMaterial, prop);
+        }
+
+    }
 
     void ActivateKoreanFont() {
         if (Config::useRuntimeKoreanFont) return;
@@ -517,28 +603,39 @@ namespace HoshimiLocal::HookMain {
 
     bool ListContains(void* list, void* item) {
         if (!list || !item) return false;
-        static auto List_Contains = Il2cppUtils::GetMethod("mscorlib.dll", "System.Collections.Generic", "List`1", "Contains");
-        return List_Contains && List_Contains->Invoke<bool>(list, item);
+        Il2cppUtils::Tools::CSListEditor<void*> editor(list);
+        const auto count = editor.get_Count();
+        if (count <= 0) return false;
+        for (int i = 0; i < count; ++i) {
+            if (editor.get_Item(i) == item) return true;
+        }
+        return false;
     }
 
-    bool InsertKoreanFontFirst(void* list, const char* target) {
-        auto koFont = GetKoreanFontAsset();
-        if (!list || !koFont) return false;
-        if (ListContains(list, koFont)) return true;
+    bool InsertFontAssetFallback(void* list, void* fontAsset, const char* target, bool first) {
+        if (!list || !fontAsset) return false;
+        if (ListContains(list, fontAsset)) return true;
 
         static auto List_Insert = Il2cppUtils::GetMethod("mscorlib.dll", "System.Collections.Generic", "List`1", "Insert");
         static auto List_Add = Il2cppUtils::GetMethod("mscorlib.dll", "System.Collections.Generic", "List`1", "Add");
-        if (List_Insert) {
-            List_Insert->Invoke<void>(list, 0, koFont);
+        if (first && List_Insert) {
+            List_Insert->Invoke<void>(list, 0, fontAsset);
         } else if (List_Add) {
-            List_Add->Invoke<void>(list, koFont);
+            List_Add->Invoke<void>(list, fontAsset);
+        } else if (List_Insert) {
+            List_Insert->Invoke<void>(list, 0, fontAsset);
         } else {
             Log::ErrorFmt("[Font] List.Insert/Add not found for %s", target);
             return false;
         }
 
-        Log::InfoFmt("[Font] Korean font inserted into %s", target);
         return true;
+    }
+
+    bool InsertKoreanFontFirst(void* list, const char* target) {
+        auto koFont = GetKoreanFontAsset();
+        if (!list || !koFont) return false;
+        return InsertFontAssetFallback(list, koFont, target, true);
     }
 
     void RegisterKoreanFontFallback() {
@@ -644,6 +741,7 @@ namespace HoshimiLocal::HookMain {
     std::unordered_set<void*> updatedFontPtrs{};
     std::unordered_set<void*> forcedTextPtrs{};
     std::unordered_set<void*> strippedKoreanLookupFontPtrs{};
+    std::unordered_set<void*> runtimeFallbackOriginalFontPtrs{};
 
     void TrackObservedFontAsset(void* fontAsset) {
         if (!fontAsset) return;
@@ -729,6 +827,36 @@ namespace HoshimiLocal::HookMain {
         }
     }
 
+    void AddOriginalFontFallbackToRuntimeFont(void* originalFontAsset, const char* source) {
+        auto koFont = GetKoreanFontAsset();
+        if (!Config::replaceFont || !Config::useRuntimeKoreanFont ||
+            !koFont || !originalFontAsset || originalFontAsset == koFont) {
+            return;
+        }
+        if (runtimeFallbackOriginalFontPtrs.contains(originalFontAsset)) return;
+        if (runtimeFallbackOriginalFontPtrs.size() > 512) runtimeFallbackOriginalFontPtrs.clear();
+
+        static auto get_fallbackFontAssetTable = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro",
+                                                                        "TMP_FontAsset", "get_fallbackFontAssetTable");
+        static auto set_fallbackFontAssetTable = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro",
+                                                                        "TMP_FontAsset", "set_fallbackFontAssetTable");
+        if (!get_fallbackFontAssetTable || !set_fallbackFontAssetTable) return;
+
+        auto fallbackTable = get_fallbackFontAssetTable->Invoke<void*>(koFont);
+        if (!fallbackTable) {
+            static auto List_klass = Il2cppUtils::GetClass("mscorlib.dll", "System.Collections.Generic", "List`1");
+            static auto List_ctor = Il2cppUtils::GetMethod("mscorlib.dll", "System.Collections.Generic", "List`1", ".ctor");
+            if (!List_klass || !List_ctor) return;
+            fallbackTable = List_klass->New<void*>();
+            List_ctor->Invoke<void>(fallbackTable);
+            set_fallbackFontAssetTable->Invoke<void>(koFont, fallbackTable);
+        }
+
+        if (InsertFontAssetFallback(fallbackTable, originalFontAsset, source, false)) {
+            runtimeFallbackOriginalFontPtrs.emplace(originalFontAsset);
+        }
+    }
+
     void UpdateFont(void* TMP_Textself) {
         if (!Config::replaceFont) return;
 
@@ -747,6 +875,10 @@ namespace HoshimiLocal::HookMain {
                                                               "TMPro", "TMP_Text", "SetVerticesDirty");
         static auto SetMaterialDirty = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
                                                               "TMPro", "TMP_Text", "SetMaterialDirty");
+        static auto get_fontMaterial = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
+                                                              "TMPro", "TMP_Text", "get_fontMaterial");
+        static auto get_fontSharedMaterial = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll",
+                                                                    "TMPro", "TMP_Text", "get_fontSharedMaterial");
 
         auto fontAsset = get_font->Invoke<void*>(TMP_Textself);
         if (!fontAsset) return;
@@ -760,10 +892,40 @@ namespace HoshimiLocal::HookMain {
         if (fontAsset != koFont && !updatedFontPtrs.contains(fontAsset)) {
             InjectKoreanFallbackIntoFontAsset(fontAsset, "TMP_Text.font.fallbackFontAssetTable");
         }
-        if (fontAsset == koFont) return;
+        if (fontAsset == koFont) {
+            if (Config::useRuntimeKoreanFont) {
+                if (SetAllDirty) {
+                    SetAllDirty->Invoke<void>(TMP_Textself);
+                } else {
+                    if (SetVerticesDirty) SetVerticesDirty->Invoke<void>(TMP_Textself);
+                    if (SetMaterialDirty) SetMaterialDirty->Invoke<void>(TMP_Textself);
+                }
+            }
+            return;
+        }
 
         if (Config::useRuntimeKoreanFont && set_font) {
+            AddOriginalFontFallbackToRuntimeFont(fontAsset, "RuntimeKoreanFont.fallbackFontAssetTable");
+
+            void* originalMaterial = nullptr;
+            if (get_fontMaterial) {
+                originalMaterial = get_fontMaterial->Invoke<void*>(TMP_Textself);
+            }
+            if (!originalMaterial && get_fontSharedMaterial) {
+                originalMaterial = get_fontSharedMaterial->Invoke<void*>(TMP_Textself);
+            }
+
             set_font->Invoke<void>(TMP_Textself, koFont);
+
+            void* runtimeMaterial = nullptr;
+            if (get_fontMaterial) {
+                runtimeMaterial = get_fontMaterial->Invoke<void*>(TMP_Textself);
+            }
+            if (!runtimeMaterial && get_fontSharedMaterial) {
+                runtimeMaterial = get_fontSharedMaterial->Invoke<void*>(TMP_Textself);
+            }
+            CopyRuntimeFontMaterialStyle(originalMaterial, runtimeMaterial);
+
             if (SetAllDirty) {
                 SetAllDirty->Invoke<void>(TMP_Textself);
             } else {
@@ -773,7 +935,6 @@ namespace HoshimiLocal::HookMain {
 
             if (!forcedTextPtrs.contains(TMP_Textself)) {
                 forcedTextPtrs.emplace(TMP_Textself);
-                Log::InfoFmt("[Font] TMP_Text primary font forced to runtime Korean font");
             }
         }
     }
@@ -794,7 +955,9 @@ namespace HoshimiLocal::HookMain {
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
-            return TMP_Text_PopulateTextBackingArray_Orig(self, newText, 0, newText->length);
+            TMP_Text_PopulateTextBackingArray_Orig(self, newText, 0, newText->length);
+            UpdateFont(self);
+            return;
         }
 
         if (Config::textTest) {
@@ -818,7 +981,9 @@ namespace HoshimiLocal::HookMain {
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
-            return TMP_Text_set_text_Orig(self, newText, mtd);
+            TMP_Text_set_text_Orig(self, newText, mtd);
+            UpdateFont(self);
+            return;
         }
         if (Config::textTest) {
             TMP_Text_set_text_Orig(self, UnityResolve::UnityType::String::New("[TT]" + origText), mtd);
@@ -841,7 +1006,9 @@ namespace HoshimiLocal::HookMain {
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
-            return TMP_Text_SetText_1_Orig(self, newText, mtd);
+            TMP_Text_SetText_1_Orig(self, newText, mtd);
+            UpdateFont(self);
+            return;
         }
         if (Config::textTest) {
             TMP_Text_SetText_1_Orig(self, UnityResolve::UnityType::String::New("[T1]" + origText), mtd);
@@ -864,7 +1031,9 @@ namespace HoshimiLocal::HookMain {
 		if (hasTrans || finalStr != origText) {
 			const auto newText = UnityResolve::UnityType::String::New(finalStr);
 			UpdateFont(self);
-			return TMP_Text_SetText_2_Orig(self, newText, syncTextInputBox, mtd);
+			TMP_Text_SetText_2_Orig(self, newText, syncTextInputBox, mtd);
+            UpdateFont(self);
+            return;
 		}
 		if (Config::textTest) {
 			TMP_Text_SetText_2_Orig(self, UnityResolve::UnityType::String::New("[TS]" + sourceText->ToString()), syncTextInputBox, mtd);
@@ -913,10 +1082,6 @@ namespace HoshimiLocal::HookMain {
         TMP_FontAsset_Awake_Orig(self);
 
         if (!Config::replaceFont) return;
-        if (Config::useRuntimeKoreanFont) {
-            InjectKoreanFallbackIntoFontAsset(self, "TMP_FontAsset.Awake.after");
-            return;
-        }
 
         static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll",
                                                       "UnityEngine", "Object", "get_name");
@@ -935,6 +1100,10 @@ namespace HoshimiLocal::HookMain {
             solisFontAsset = self;
             Log::InfoFmt("[Font] Captured Solis-MK5 SDF as FaceInfo base");
             ActivateKoreanFont();
+        }
+
+        if (Config::useRuntimeKoreanFont) {
+            InjectKoreanFallbackIntoFontAsset(self, "TMP_FontAsset.Awake.after");
         }
     }
 
@@ -982,11 +1151,13 @@ namespace HoshimiLocal::HookMain {
                     if (hasTrans || finalStr != origText) {
                         UpdateFont(self);
                         TMP_Text_set_text_Orig(self, Il2cppString::New(finalStr), nullptr);
+                        UpdateFont(self);
                         return;
                     }
                     if (Config::textTest) {
                         UpdateFont(self);
                         TMP_Text_set_text_Orig(self, Il2cppString::New("[CA]" + origText), nullptr);
+                        UpdateFont(self);
                         return;
                     }
                 }
