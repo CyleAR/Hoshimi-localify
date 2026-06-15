@@ -239,7 +239,11 @@ fun HomePage(modifier: Modifier = Modifier,
 
                     IPSwitch(
                         modifier,
-                        stringResource(R.string.use_runtime_korean_font),
+                        if (config.value.useRuntimeKoreanFont) {
+                            stringResource(R.string.font_mode_runtime)
+                        } else {
+                            stringResource(R.string.font_mode_builtin)
+                        },
                         checked = config.value.useRuntimeKoreanFont
                     ) { v -> context?.onUseRuntimeKoreanFontChanged(v) }
 

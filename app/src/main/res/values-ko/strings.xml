@@ -4,6 +4,8 @@
     <string name="enable_plugin">플러그인 활성화 (재시작 필요)</string>
     <string name="replace_font">폰트 교체</string>
     <string name="use_runtime_korean_font">외부 한글 폰트 사용</string>
+    <string name="font_mode_builtin">폰트 모드: 내장 폰트</string>
+    <string name="font_mode_runtime">폰트 모드: 런타임 폰트</string>
     <string name="replace_images">이미지 교체</string>
     <string name="lazy_init">빠른 초기화 (지연 로딩)</string>
     <string name="enable_free_camera">자유 시점 카메라 활성화</string>

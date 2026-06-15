@@ -4,6 +4,8 @@
     <string name="enable_plugin">Enable Plugin (Not Hot Reloadable)</string>
     <string name="replace_font">Replace Font</string>
     <string name="use_runtime_korean_font">Use Runtime Korean Font</string>
+    <string name="font_mode_builtin">Font Mode: Built-in Font</string>
+    <string name="font_mode_runtime">Font Mode: Runtime Font</string>
     <string name="replace_images">Replace Images</string>
     <string name="lazy_init">Fast Initialization (Lazy loading)</string>
     <string name="enable_free_camera">Enable Free Camera</string>
