@@ -80,6 +80,12 @@ fun <T> T.loadConfig() where T : Activity, T : IHasConfigItems {
 }
 
 fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
+    val gamePackageName = TargetGamePackages.findInstalled(this)
+    if (gamePackageName == null) {
+        Toast.makeText(this, "Game package not found.", Toast.LENGTH_SHORT).show()
+        return
+    }
+
     val lastStartPluginVersionFile = File(filesDir, "lastStartPluginVersion.txt")
     val lastStartPluginVersion = if (lastStartPluginVersionFile.exists()) {
         lastStartPluginVersionFile.readText()
@@ -105,7 +111,7 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
 
     val intent = Intent().apply {
         setClassName(
-            "game.qualiarts.idolypride",
+            gamePackageName,
             "com.google.firebase.MessagingUnityPlayerActivity"
         )
         putExtra("iprData", getConfigContent())
@@ -138,11 +144,13 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
         )
         // intent.setDataAndType(dirUri, "resource/file")
 
-        grantUriPermission(
-            "game.qualiarts.idolypride",
-            dirUri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        )
+        TargetGamePackages.all.forEach {
+            grantUriPermission(
+                it,
+                dirUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
         intent.putExtra("resource_file", dirUri)
         // intent.clipData = ClipData.newRawUri("resource_file", dirUri)
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)

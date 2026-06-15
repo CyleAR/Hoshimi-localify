@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_scope">
+        <item>game.qualiarts.idolypride</item>
+        <item>game.qualiarts.idolypride_kr</item>
+    </string-array>
+</resources>

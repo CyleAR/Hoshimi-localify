@@ -46,7 +46,6 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
     private lateinit var modulePath: String
     private var nativeLibLoadSuccess: Boolean
     private var alreadyInitialized = false
-    private val targetPackageName = "game.qualiarts.idolypride"
     private val nativeLibName = "HoshimiLocalify"
 
     private var iprDataInited = false
@@ -70,7 +69,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
 //            )
 //        }
 
-        if (lpparam.packageName != targetPackageName) {
+        if (lpparam.packageName !in TargetGamePackages.all) {
             return
         }
 

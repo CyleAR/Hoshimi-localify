@@ -30,7 +30,7 @@
 
         <meta-data
             android:name="xposedscope"
-            android:value="game.qualiarts.idolypride" />
+            android:resource="@array/xposed_scope" />
 
         <activity
             android:name=".MainActivity"
