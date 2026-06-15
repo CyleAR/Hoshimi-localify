@@ -13,7 +13,7 @@ namespace HoshimiLocal::Config {
     bool replaceFont = true;
     bool useRuntimeKoreanFont = false;
     bool replaceImages = true;
-    bool forceExportResource = true;
+    bool forceExportResource = false;
     bool textTest = false;
     bool useMasterTrans = true;
     int gameOrientation = 0;

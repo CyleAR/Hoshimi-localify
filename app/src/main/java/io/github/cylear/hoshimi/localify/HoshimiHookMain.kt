@@ -315,6 +315,15 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         }
     }
 
+    private fun initStandaloneConfig(context: Context) {
+        if (iprDataInited) return
+
+        iprDataInited = true
+        FilesChecker.initAndCheck(context.filesDir, modulePath)
+        loadConfig(json.encodeToString(IdolyprideConfig.serializer(), IdolyprideConfig()))
+        Log.i(TAG, "Loaded default configuration in standalone mode.")
+    }
+
     private fun checkPluginVersion(activity: Activity, readVersion: String?) {
         val buildVersionName = BuildConfig.VERSION_NAME
         Log.i(TAG, "Checking Plugin Version: Build: $buildVersionName, Request: $readVersion")
@@ -432,13 +441,8 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
             activity.startActivity(intent)
         } catch (e: Exception) {
-            getConfigError = e
-            val fakeActivity = Activity().apply {
-                intent = Intent().apply {
-                    putExtra("iprData", "{}")
-                }
-            }
-            initIprConfig(fakeActivity)
+            Log.i(TAG, "Config activity unavailable. Falling back to standalone mode.", e)
+            initStandaloneConfig(activity)
         }
 
     }
