@@ -71,7 +71,7 @@ fun SettingsTabs(modifier: Modifier = Modifier,
                 .padding(bottom = 6.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    horizontalArrangement = Arrangement.End) {
                     FloatingActionButton(
                         onClick = { context?.onClickStartGame() },
                         //modifier = Modifier.align(Alignment.End),

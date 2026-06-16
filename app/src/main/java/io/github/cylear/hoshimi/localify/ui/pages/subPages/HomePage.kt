@@ -534,6 +534,25 @@ fun HomePage(modifier: Modifier = Modifier,
                 }
 
             }
+
+            Spacer(Modifier.height(6.dp))
+        }
+
+        item {
+            IPButton(
+                modifier = modifier
+                    .height(40.dp)
+                    .fillMaxWidth(),
+                text = stringResource(R.string.reset_settings),
+                onClick = {
+                    context?.mainUIConfirmStatUpdate(
+                        true,
+                        context.getString(R.string.reset_settings),
+                        context.getString(R.string.reset_settings_confirm),
+                        onConfirm = { context.resetSettings() }
+                    )
+                }
+            )
         }
 
         item {

@@ -56,6 +56,9 @@
     <string name="basic_settings">기본 설정</string>
     <string name="graphic_settings">그래픽 설정</string>
     <string name="camera_settings">카메라 설정</string>
+    <string name="reset_settings">설정 초기화</string>
+    <string name="reset_settings_confirm">플러그인 설정과 리소스 설정을 모두 기본값으로 초기화할까요?</string>
+    <string name="reset_settings_done">설정을 초기화했습니다.</string>
     <string name="test_mode_live">테스트 모드 - LIVE</string>
     <string name="debug_settings">디버그 설정</string>
     <string name="breast_param">바스트 파라미터</string>

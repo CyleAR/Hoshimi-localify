@@ -71,6 +71,16 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         configFile.writeText(json.encodeToString(programConfig))
     }
 
+    fun resetSettings() {
+        config = IdolyprideConfig()
+        programConfig = ProgramConfig().apply {
+            useAPIAssetsURL = getString(R.string.default_assets_check_api)
+        }
+        saveConfig()
+        saveProgramConfig()
+        showToast(getString(R.string.reset_settings_done))
+    }
+
     fun getVersion(): List<String> {
         var versionText = ""
         var resVersionText = "unknown"
