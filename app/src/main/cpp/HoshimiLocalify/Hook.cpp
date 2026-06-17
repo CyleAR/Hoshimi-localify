@@ -486,13 +486,6 @@ namespace HoshimiLocal::HookMain {
         if (ClearFontAssetData)
             ClearFontAssetData->Invoke<void>(sourceSansProAsset, reinterpret_cast<void*>(0));
         
-        // if (TryAddCharacters) {
-        //     auto koStr = Il2cppString::New(
-        //         "가각간갈감갑강개객거건걸검겁게격견결겸경계고곡골공과관광괄교구국군굴궁권귀규균그극근글금급긍기긴길김깊까깨꺼께껴꼭꼬꽃꾸꿈끄끝나낙난날남납낭내냉너넓넘네녀년념녀노농높뇨누눈뉴느늘늠능니님다닥달담답당대댁더덕덜덤도독돈돌동두둘뒤드득들등디따때떠또뚜뜨띠라락란랄람랍랑래냉러럭련렬렴례로록론롤롬롭롯료루룡류륙률름릉리릭린림립마막만말맑맘망매맥맨맬맵머먹멀멈멍메멘면명모목몰몸못무묵문물미민믿밀바박반발밝밟밤방배백뱀버번벌범법베변별병보복본볼봄봐부북분불비빌빔빗빛빠빨뿐사삭산살삼상새색생서석선설성세소속손솔솜쇄수숙순술쉬스습시식신실심싶싸쓰아악안알암압앞야약양어얼엄없에여역연열염영예오옥온올옳와완왕외요욕용우운울움웃원위유육윤율으은을음응의이익인일임입자작잔잘잠장재쟁저적전절점정제조족존졸종좋주죽준줄중쥐즐증지직진질집짓짜쪽차착찬찰창채책처척천철청체초촉촌총추축춘출충취치침카칸칼캐코콩쿠타탁탄탈탕태터턱털통투특파팔패퍼편평폐포품표풍피필하학한할함합항해핵행향허헌험헤현호혹혼홀홈환활황회획효후훈휴흑흔흘흡흥희히"
-        //     );
-        //     TryAddCharacters->Invoke<bool>(sourceSansProAsset, koStr, reinterpret_cast<void*>(0));
-        // }
-
         koPatchedFontAsset = sourceSansProAsset;
         fallbackRegistered = false;
         Log::InfoFmt("[Font] Korean font activation complete (SourceSansPro-Regular SDF)");
@@ -704,10 +697,12 @@ namespace HoshimiLocal::HookMain {
 
             if (tag == "[은/는]") replaceWith = hasBatchim ? "\xEC\x9D\x80" : "\xEB\x8A\x94"; // 은 : 는
             else if (tag == "[이/가]") replaceWith = hasBatchim ? "\xEC\x9D\xB4" : "\xEA\xB0\x80"; // 이 : 가
+            else if (tag == "[이/랑]" || tag == "[이랑/랑]") replaceWith = hasBatchim ? "\xEC\x9D\xB4\xEB\x9E\x91" : "\xEB\x9E\x91"; // 이랑 : 랑
+            else if (tag == "[이/라]" || tag == "[이라/라]") replaceWith = hasBatchim ? "\xEC\x9D\xB4\xEB\x9D\xBC" : "\xEB\x9D\xBC"; // 이라 : 라
             else if (tag == "[을/를]") replaceWith = hasBatchim ? "\xEC\x9D\x84" : "\xEB\xA5\xBC"; // 을 : 를
             else if (tag == "[와/과]") replaceWith = hasBatchim ? "\xEA\xB3\xBC" : "\xEC\x99\x80"; // 과 : 와
             else if (tag == "[아/야]") replaceWith = hasBatchim ? "\xEC\x95\x84" : "\xEC\x95\xBC"; // 아 : 야
-            else if (tag == "[으/로]") {
+            else if (tag == "[으/로]" || tag == "[으로/로]") {
                 // ㄹ 받침(8)인 경우 '로' 선택
                 if (batchim == 8) replaceWith = "\xEB\xA1\x9C"; // 로
                 else replaceWith = hasBatchim ? "\xEC\x9C\xBC\xEB\xA1\x9C" : "\xEB\xA1\x9C"; // 으로 : 로
