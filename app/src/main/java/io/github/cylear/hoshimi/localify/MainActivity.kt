@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.ViewModelProvider
-import io.github.cylear.hoshimi.localify.hookUtils.FileHotUpdater
 import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
 import io.github.cylear.hoshimi.localify.hookUtils.MainKeyEventDispatcher
 import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
@@ -83,16 +82,9 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
 
     fun getVersion(): List<String> {
         var versionText = ""
-        var resVersionText = "unknown"
+        var resVersionText = getCurrentResourceVersion()
 
         try {
-            val stream = assets.open("${FilesChecker.localizationFilesDir}/version.txt")
-            resVersionText = FilesChecker.convertToString(stream)
-
-            if (programConfig.useAPIAssets) {
-                RemoteAPIFilesChecker.getLocalVersion(this)?.let { resVersionText = it }
-            }
-
             val packInfo = packageManager.getPackageInfo(packageName, 0)
             val version = packInfo.versionName
             val versionCode = packInfo.longVersionCode
@@ -101,6 +93,39 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         catch (_: Exception) {}
 
         return listOf(versionText, resVersionText)
+    }
+
+    fun getBuiltInResourceVersion(): String {
+        return try {
+            assets.open("${FilesChecker.localizationFilesDir}/version.txt").use { stream ->
+                FilesChecker.convertToString(stream).trim().ifEmpty { getString(R.string.resource_version_none) }
+            }
+        }
+        catch (_: Exception) {
+            getString(R.string.resource_version_none)
+        }
+    }
+
+    fun getAPIResourceVersion(): String {
+        return try {
+            RemoteAPIFilesChecker.getLocalVersion(this) ?: getString(R.string.resource_version_none)
+        }
+        catch (_: Exception) {
+            getString(R.string.resource_version_none)
+        }
+    }
+
+    fun getInstalledResourceVersion(): String {
+        return programConfig.currentResourceVersion.trim().ifEmpty {
+            getString(R.string.resource_version_none)
+        }
+    }
+
+    fun getCurrentResourceVersion(): String {
+        return when {
+            programConfig.cleanLocalAssets -> getString(R.string.resource_version_delete_pending)
+            else -> getInstalledResourceVersion()
+        }
     }
 
     fun openUrl(url: String) {
@@ -135,7 +160,7 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         viewModel = ViewModelProvider(this, factory)[UserConfigViewModel::class.java]
 
         programConfigFactory = ProgramConfigViewModelFactory(programConfig,
-            FileHotUpdater.getZipResourceVersion(File(filesDir, "update_trans.zip").absolutePath).toString()
+            getString(R.string.resource_version_none)
         )
         programConfigViewModel = ViewModelProvider(this, programConfigFactory)[ProgramConfigViewModel::class.java]
 

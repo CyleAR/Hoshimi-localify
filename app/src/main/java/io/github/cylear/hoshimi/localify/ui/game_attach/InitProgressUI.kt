@@ -22,10 +22,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import io.github.cylear.hoshimi.localify.TAG
 import io.github.cylear.hoshimi.localify.models.NativeInitProgress
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 
 class InitProgressUI {
@@ -83,8 +79,8 @@ class InitProgressUI {
             max = 100
         }
 
-        assembliesProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FFF89400"))
-        classProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FFF89400"))
+        assembliesProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FF00A7C8"))
+        classProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FF00A7C8"))
 
         // Set up the text views
         titleText = TextView(context).apply {
@@ -132,20 +128,11 @@ class InitProgressUI {
     }
 
     @SuppressLint("SetTextI18n")
-    @OptIn(DelicateCoroutinesApi::class)
     fun finishLoad(context: Activity) {
         if (!uiCreated) return
         uiCreated = false
-        GlobalScope.launch {
-            context.runOnUiThread {
-                assembliesProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FF28B463"))
-                classProgressBar.progressTintList = ColorStateList.valueOf(Color.parseColor("#FF28B463"))
-                titleText.text = "Finished"
-            }
-            delay(1500L)
-            context.runOnUiThread {
-                rootView.removeView(container)
-            }
+        context.runOnUiThread {
+            rootView.removeView(container)
         }
     }
 

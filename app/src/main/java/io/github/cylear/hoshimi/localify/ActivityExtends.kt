@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
 import io.github.cylear.hoshimi.localify.mainUtils.json
 import io.github.cylear.hoshimi.localify.models.IdolyprideConfig
 import io.github.cylear.hoshimi.localify.models.ProgramConfig
@@ -77,6 +78,36 @@ fun <T> T.loadConfig() where T : Activity, T : IHasConfigItems {
     if (programConfig.useAPIAssetsURL.isEmpty()) {
         programConfig.useAPIAssetsURL = getString(R.string.default_assets_check_api)
     }
+    programConfig.useRemoteAssets = false
+    programConfig.transRemoteZipUrl = ""
+}
+
+fun <T> T.updateCurrentResourceVersionForGameStart() where T : Activity, T : IHasConfigItems {
+    val version = when {
+        programConfig.cleanLocalAssets -> ""
+        programConfig.useAPIAssets -> {
+            val versionFile = File(filesDir, "remote_files/version.txt")
+            if (versionFile.exists()) versionFile.readText().trim() else ""
+        }
+        programConfig.useBuiltInAssets -> {
+            try {
+                assets.open("${FilesChecker.localizationFilesDir}/version.txt").use {
+                    FilesChecker.convertToString(it).trim()
+                }
+            }
+            catch (_: Exception) {
+                ""
+            }
+        }
+        else -> programConfig.currentResourceVersion
+    }
+
+    programConfig.currentResourceVersion = version
+    File(filesDir, "localify-config.json").writeText(json.encodeToString(ProgramConfig.serializer(), programConfig))
+    if (this is MainActivity) {
+        programConfig.p = false
+        programConfigViewModel.configState.value = programConfig.copy(p = true)
+    }
 }
 
 fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
@@ -108,6 +139,7 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
             versionFile.delete()
         }
     }
+    updateCurrentResourceVersionForGameStart()
 
     val intent = Intent().apply {
         setClassName(
@@ -118,19 +150,15 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
         putExtra(
             "localData",
             getProgramConfigContent(listOf("transRemoteZipUrl", "useAPIAssetsURL",
-                "localAPIAssetsVersion", "p"), programConfig)
+                "localAPIAssetsVersion", "currentResourceVersion", "p"), programConfig)
         )
         putExtra("lVerName", version)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
     }
 
-    val updateFile = File(filesDir, "update_trans.zip")
     val updateAPIFile = File(filesDir, "remote_files/remote.zip")
     val targetFile = if (programConfig.useAPIAssets && updateAPIFile.exists()) {
         updateAPIFile
-    }
-    else if (programConfig.useRemoteAssets && updateFile.exists()) {
-        updateFile
     }
     else {
         null

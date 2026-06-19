@@ -28,7 +28,7 @@ fun IPProgressBar(modifier: Modifier = Modifier, progress: Float, isError: Boole
                     .weight(1f)
                     .clip(RoundedCornerShape(4.dp))
                     .height(8.dp),
-                color = if (isError) Color(0xFFE2041B) else Color(0xFFF9C114),
+                color = if (isError) Color(0xFFE2041B) else Color(0xFF00A7C8),
             )
         }
         else {
@@ -38,7 +38,7 @@ fun IPProgressBar(modifier: Modifier = Modifier, progress: Float, isError: Boole
                     .weight(1f)
                     .clip(RoundedCornerShape(4.dp))
                     .height(8.dp),
-                color = if (isError) Color(0xFFE2041B) else Color(0xFFF9C114),
+                color = if (isError) Color(0xFFE2041B) else Color(0xFF00A7C8),
             )
         }
 

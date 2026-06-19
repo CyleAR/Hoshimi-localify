@@ -43,9 +43,7 @@ import io.github.cylear.hoshimi.localify.getProgramConfigState
 import io.github.cylear.hoshimi.localify.getProgramDownloadAbleState
 import io.github.cylear.hoshimi.localify.getProgramDownloadErrorStringState
 import io.github.cylear.hoshimi.localify.getProgramDownloadState
-import io.github.cylear.hoshimi.localify.getProgramLocalResourceVersionState
 import io.github.cylear.hoshimi.localify.getProgramLocalAPIResourceVersionState
-import io.github.cylear.hoshimi.localify.hookUtils.FileHotUpdater
 import io.github.cylear.hoshimi.localify.mainUtils.FileDownloader
 import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
 import io.github.cylear.hoshimi.localify.mainUtils.TimeUtils
@@ -58,7 +56,6 @@ import io.github.cylear.hoshimi.localify.ui.components.IPProgressBar
 import io.github.cylear.hoshimi.localify.ui.components.IPRadio
 import io.github.cylear.hoshimi.localify.ui.components.IPSwitch
 import io.github.cylear.hoshimi.localify.ui.components.IPTextInput
-import java.io.File
 
 
 @Composable
@@ -72,7 +69,6 @@ fun HomePage(modifier: Modifier = Modifier,
 
     val downloadProgress by getProgramDownloadState(context)
     val downloadAble by getProgramDownloadAbleState(context)
-    val localResourceVersion by getProgramLocalResourceVersionState(context)
     val localAPIResourceVersion by getProgramLocalAPIResourceVersionState(context)
     val downloadErrorString by getProgramDownloadErrorStringState(context)
     var isFirstTimeInThisPage by rememberSaveable { mutableStateOf(true) }
@@ -85,115 +81,67 @@ fun HomePage(modifier: Modifier = Modifier,
     val resourceSettingsViewModel: ResourceCollapsibleBoxViewModel =
         viewModel(factory = ResourceCollapsibleBoxViewModelFactory(initiallyExpanded = false))
 
-
-    fun zipResourceDownload() {
-        val (_, newUrl) = FileDownloader.checkAndChangeDownloadURL(programConfig.value.transRemoteZipUrl)
-        context?.onPTransRemoteZipUrlChanged(newUrl, 0, 0, 0)
-        FileDownloader.downloadFile(
-            newUrl,
-            checkContentTypes = listOf("application/zip", "application/octet-stream"),
-            onDownload = { progress, _, _ ->
-                context?.mainPageAssetsViewDataUpdate(downloadProgressState = progress)
-            },
-
-            onSuccess = { byteArray ->
-                context?.mainPageAssetsViewDataUpdate(
-                    downloadAbleState = true,
-                    errorString = "",
-                    downloadProgressState = -1f
-                )
-                val file = File(context?.filesDir, "update_trans.zip")
-                file.writeBytes(byteArray)
-                val newFileVersion = FileHotUpdater.getZipResourceVersion(file.absolutePath)
-                if (newFileVersion != null) {
-                    context?.mainPageAssetsViewDataUpdate(
-                        localResourceVersionState = newFileVersion
-                    )
-                }
-                else {
-                    context?.mainPageAssetsViewDataUpdate(
-                        localResourceVersionState = context.getString(
-                            R.string.invalid_zip_file
-                        ),
-                        errorString = context.getString(R.string.invalid_zip_file_warn)
-                    )
-                }
-            },
-
-            onFailed = { code, reason ->
-                context?.mainPageAssetsViewDataUpdate(
-                    downloadAbleState = true,
-                    errorString = reason,
-                )
-            })
-    }
-
-    fun onClickDownload(isZipResource: Boolean, isHumanClick: Boolean = true) {
+    fun onClickDownload(isHumanClick: Boolean = true) {
         context?.mainPageAssetsViewDataUpdate(
             downloadAbleState = false,
             errorString = "",
             downloadProgressState = -1f
         )
-        if (isZipResource) {
-            zipResourceDownload()
-        }
-        else {
-            RemoteAPIFilesChecker.checkUpdateLocalAssets(context!!,
-                programConfig.value.useAPIAssetsURL,
-                onFailed = { _, reason ->
-                    context.mainPageAssetsViewDataUpdate(
-                        downloadAbleState = true,
-                        errorString = "",
-                        downloadProgressState = -1f
-                    )
-                    context.mainUIConfirmStatUpdate(true, "Error", reason)
-                },
-                onResult = { data, localVersion ->
-                    if (!isHumanClick) {
-                        if (data.tag_name == localVersion) {
-                            context.mainPageAssetsViewDataUpdate(
-                                downloadAbleState = true,
-                                errorString = "",
-                                downloadProgressState = -1f
-                            )
-                            return@checkUpdateLocalAssets
-                        }
-                    }
-                    context.mainUIConfirmStatUpdate(true, context.getString(R.string.translation_resource_update),
-                        "${data.name}\n$localVersion -> ${data.tag_name}\n${data.body}\n\n${TimeUtils.convertIsoToLocalTime(data.published_at)}",
-                        onConfirm = {
-                            resourceSettingsViewModel.expanded = true
-                            RemoteAPIFilesChecker.updateLocalAssets(context, programConfig.value.useAPIAssetsURL,
-                                onDownload = { progress, _, _ ->
-                                    context.mainPageAssetsViewDataUpdate(downloadProgressState = progress)
-                                },
-                                onFailed = { _, reason -> context.mainPageAssetsViewDataUpdate(
-                                    downloadAbleState = true,
-                                    errorString = reason,
-                                )},
-                                onSuccess = { saveFile, releaseVersion ->
-                                    context.mainPageAssetsViewDataUpdate(
-                                        downloadAbleState = true,
-                                        errorString = "",
-                                        downloadProgressState = -1f
-                                    )
-                                    context.mainPageAssetsViewDataUpdate(
-                                        localAPIResourceVersion = RemoteAPIFilesChecker.getLocalVersion(context)
-                                    )
-                                    context.saveProgramConfig()
-                                    Log.d(TAG, "saved: $releaseVersion $saveFile")
-                                })
-                        },
-                        onCancel = {
-                            context.mainPageAssetsViewDataUpdate(
-                                downloadAbleState = true,
-                                errorString = "",
-                                downloadProgressState = -1f
-                            )
-                        }
+        RemoteAPIFilesChecker.checkUpdateLocalAssets(context!!,
+            programConfig.value.useAPIAssetsURL,
+            onFailed = { _, reason ->
+                context.mainPageAssetsViewDataUpdate(
+                    downloadAbleState = true,
+                    errorString = "",
+                    downloadProgressState = -1f
+                )
+                context.mainUIConfirmStatUpdate(true, "Error", reason)
+            },
+            onResult = { data, localVersion ->
+                if (!isHumanClick) {
+                    if (data.tag_name == localVersion) {
+                        context.mainPageAssetsViewDataUpdate(
+                            downloadAbleState = true,
+                            errorString = "",
+                            downloadProgressState = -1f
                         )
-                })
-        }
+                        return@checkUpdateLocalAssets
+                    }
+                }
+                context.mainUIConfirmStatUpdate(true, context.getString(R.string.translation_resource_update),
+                    "${data.name}\n$localVersion -> ${data.tag_name}\n${data.body}\n\n${TimeUtils.convertIsoToLocalTime(data.published_at)}",
+                    onConfirm = {
+                        resourceSettingsViewModel.expanded = true
+                        RemoteAPIFilesChecker.updateLocalAssets(context, programConfig.value.useAPIAssetsURL,
+                            onDownload = { progress, _, _ ->
+                                context.mainPageAssetsViewDataUpdate(downloadProgressState = progress)
+                            },
+                            onFailed = { _, reason -> context.mainPageAssetsViewDataUpdate(
+                                downloadAbleState = true,
+                                errorString = reason,
+                            )},
+                            onSuccess = { saveFile, releaseVersion ->
+                                context.mainPageAssetsViewDataUpdate(
+                                    downloadAbleState = true,
+                                    errorString = "",
+                                    downloadProgressState = -1f
+                                )
+                                context.mainPageAssetsViewDataUpdate(
+                                    localAPIResourceVersion = RemoteAPIFilesChecker.getLocalVersion(context)
+                                )
+                                context.saveProgramConfig()
+                                Log.d(TAG, "saved: $releaseVersion $saveFile")
+                            })
+                    },
+                    onCancel = {
+                        context.mainPageAssetsViewDataUpdate(
+                            downloadAbleState = true,
+                            errorString = "",
+                            downloadProgressState = -1f
+                        )
+                    }
+                    )
+            })
     }
 
     LaunchedEffect(Unit) {
@@ -205,7 +153,7 @@ fun HomePage(modifier: Modifier = Modifier,
             )
             if (isFirstTimeInThisPage) {
                 if (programConfig.value.useAPIAssets && programConfig.value.useAPIAssetsURL.isNotEmpty()) {
-                    onClickDownload(false, false)
+                    onClickDownload(false)
                 }
             }
         }
@@ -271,7 +219,27 @@ fun HomePage(modifier: Modifier = Modifier,
                         // verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         item {
-                            IPSwitch(modifier = modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp),
+                            Column(
+                                modifier = modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = "${stringResource(R.string.built_in_resource_version)}: ${context?.getBuiltInResourceVersion() ?: "—"}",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                )
+                                Text(
+                                    text = "${stringResource(R.string.api_resource_version)}: ${context?.getAPIResourceVersion() ?: "—"}",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+
+                        item {
+                            IPSwitch(modifier = modifier.padding(start = 8.dp, end = 8.dp),
                                 checked = programConfig.value.useBuiltInAssets,
                                 text = stringResource(id = R.string.use_built_in_resource)
                             ) { v -> context?.onPUseBuiltInAssetsChanged(v) }
@@ -333,7 +301,7 @@ fun HomePage(modifier: Modifier = Modifier,
                                                     .height(40.dp)
                                                     .sizeIn(minWidth = 80.dp),
                                                     text = stringResource(R.string.check_update),
-                                                    onClick = { onClickDownload(false) })
+                                                    onClick = { onClickDownload() })
                                             }
                                             else {
                                                 IPButton(modifier = modifier
@@ -380,104 +348,6 @@ fun HomePage(modifier: Modifier = Modifier,
                             }
                         }
 
-                        item {
-                            HorizontalDivider(
-                                thickness = 1.dp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                            )
-                        }
-
-                        item {
-                            IPSwitch(modifier = modifier.padding(start = 8.dp, end = 8.dp),
-                                checked = programConfig.value.useRemoteAssets,
-                                text = stringResource(id = R.string.use_remote_zip_resource)
-                            ) { v -> context?.onPUseRemoteAssetsChanged(v) }
-
-                            CollapsibleBox(modifier = modifier.graphicsLayer(clip = false),
-                                expandState = programConfig.value.useRemoteAssets,
-                                collapsedHeight = 0.dp,
-                                innerPaddingLeftRight = 8.dp,
-                                showExpand = false
-                            ) {
-                                IPSwitch(modifier = modifier,
-                                    checked = programConfig.value.delRemoteAfterUpdate,
-                                    text = stringResource(id = R.string.del_remote_after_update)
-                                ) { v -> context?.onPDelRemoteAfterUpdateChanged(v) }
-
-                                LazyColumn(modifier = modifier
-                                    // .padding(8.dp)
-                                    .sizeIn(maxHeight = screenH),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    item {
-                                        Row(modifier = modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                            verticalAlignment = Alignment.CenterVertically) {
-
-                                            IPTextInput(modifier = modifier
-                                                .height(45.dp)
-                                                .padding(end = 8.dp)
-                                                .fillMaxWidth()
-                                                .weight(1f),
-                                                fontSize = 14f,
-                                                value = programConfig.value.transRemoteZipUrl,
-                                                onValueChange = { c -> context?.onPTransRemoteZipUrlChanged(c, 0, 0, 0)},
-                                                label = { Text(stringResource(id = R.string.resource_url)) }
-                                            )
-
-                                            if (downloadAble) {
-                                                IPButton(modifier = modifier
-                                                    .height(40.dp)
-                                                    .sizeIn(minWidth = 80.dp),
-                                                    text = stringResource(id = R.string.download),
-                                                    onClick = { onClickDownload(true) })
-                                            }
-                                            else {
-                                                IPButton(modifier = modifier
-                                                    .height(40.dp)
-                                                    .sizeIn(minWidth = 80.dp),
-                                                    text = stringResource(id = R.string.cancel), onClick = {
-                                                        FileDownloader.cancel()
-                                                    })
-                                            }
-
-                                        }
-                                    }
-
-                                    if (downloadProgress >= 0) {
-                                        item {
-                                            IPProgressBar(progress = downloadProgress, isError = downloadErrorString.isNotEmpty())
-                                        }
-                                    }
-
-                                    if (downloadErrorString.isNotEmpty()) {
-                                        item {
-                                            Text(text = downloadErrorString, color = Color(0xFFE2041B))
-                                        }
-                                    }
-
-                                    item {
-                                        Text(modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                val file =
-                                                    File(context?.filesDir, "update_trans.zip")
-                                                context?.mainPageAssetsViewDataUpdate(
-                                                    localResourceVersionState = FileHotUpdater
-                                                        .getZipResourceVersion(file.absolutePath)
-                                                        .toString()
-                                                )
-                                            }, text = "${stringResource(R.string.downloaded_resource_version)}: $localResourceVersion")
-                                    }
-
-                                    item {
-                                        Spacer(Modifier.height(0.dp))
-                                    }
-
-                                }
-
-                            }
-                        }
                     }
                 }
             }
