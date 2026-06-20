@@ -89,7 +89,6 @@
     <string name="api_resource_version">API Resource Version</string>
     <string name="resource_version_none">—</string>
     <string name="resource_version_delete_pending">delete pending</string>
-    <string name="del_remote_after_update">Delete Cache File After Update</string>
     <string name="warning">Warning</string>
     <string name="install">Install</string>
     <string name="installing">Installing</string>

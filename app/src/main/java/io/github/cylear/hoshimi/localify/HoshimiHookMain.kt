@@ -284,7 +284,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
 
             // 使用热更新文件
-            if ((programConfig?.useRemoteAssets == true) || (programConfig?.useAPIAssets == true)) {
+            if (programConfig?.useAPIAssets == true) {
                 // val dataUri = intent.data
                 val dataUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra("resource_file", Uri::class.java)
@@ -298,7 +298,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
                         externalFilesChecked = true
                         // Log.d(TAG, "dataUri: $dataUri")
                         FileHotUpdater.updateFilesFromZip(activity, dataUri, activity.filesDir,
-                            programConfig.delRemoteAfterUpdate)
+                            false)
         }
                 }
                 else if (programConfig.useAPIAssets) {

@@ -395,6 +395,7 @@ namespace HoshimiLocal::Local {
                     const auto& currFile = entry.path();
                     if (to_lower(currFile.extension().string()) == ".json") {
                         if (currFile.filename().string().ends_with(".split.json")) {  // split text file
+                            // Split files are also loaded into genericText below for direct-match fallback.
                             LoadJsonDataToMap(currFile, genericSplitText, true, false, true);
                         }
                         if (currFile.filename().string().ends_with(".fmt.json")) {  // fmt text file
@@ -553,17 +554,17 @@ namespace HoshimiLocal::Local {
 
     bool GetGenericText(const std::string& origText, std::string* newStr) {
         std::shared_lock<std::shared_mutex> lock(localDataMutex);
-        // 完全匹配
+        // 완전 일치
         if (const auto iter = genericText.find(origText); iter != genericText.end()) {
             *newStr = iter->second;
             return true;
         }
-        // 不翻译翻译过的文本
+        // 번역된 텍스트 필터링
         if (translatedText.contains(origText)) {
             return false;
         }
 
-        // 匹配升级卡名
+        // 카드 레벨 필터링
         if (auto plusPos = origText.find_last_not_of('+'); plusPos != std::string::npos) {
             const auto noPlusText = origText.substr(0, plusPos + 1);
 
@@ -574,7 +575,7 @@ namespace HoshimiLocal::Local {
             }
         }
 
-        // fmt 文本
+        // fmt 텍스트
         auto fmtText = StringParser::ParseItems::parse(origText, false);
         if (fmtText.isValid) {
             const auto fmtStr = fmtText.ToFmtString();
@@ -592,7 +593,7 @@ namespace HoshimiLocal::Local {
 
         auto ret = false;
 
-        // 分割匹配
+        // 분할 매칭
         std::vector<std::string> unTransResultRet;
         const auto splitTransStat = GetSplitTagsTranslationFull(origText, newStr, unTransResultRet);
         switch (splitTransStat) {
@@ -629,7 +630,7 @@ namespace HoshimiLocal::Local {
             for (const auto& i : unTransResultRet) {
                 DumpGenericText(i, DumpStrStat::SPLITTED);
             }
-            // 若未翻译部分长度为1，且未翻译文本等于原文本，则不 dump 到原文本文件
+            // 번역되지 않은 부분의 길이가 1이고, 원본 텍스트와 동일한 경우, 원본 텍스트 파일에 덤프하지 않음
             //if (unTransResultRet.size() != 1 || unTransResultRet[0] != origText) {
                 DumpGenericText(origText, DumpStrStat::SPLITTABLE_ORIG);
             //}

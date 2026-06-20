@@ -16,11 +16,8 @@ import kotlinx.serialization.json.jsonObject
 data class ProgramConfig(
     @SerialName("checkBuiltInAssets")
     var useBuiltInAssets: Boolean = true,
-    var transRemoteZipUrl: String = "",
-    var useRemoteAssets: Boolean = false,
     var useAPIAssets: Boolean = false,
     var useAPIAssetsURL: String = "",
-    var delRemoteAfterUpdate: Boolean = true,
     var cleanLocalAssets: Boolean = false,
     var currentResourceVersion: String = "",
 

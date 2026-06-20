@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <shared_mutex>
 #include <mutex>
+#include <vector>
 
 namespace HoshimiLocal::Local {
     extern std::shared_mutex localDataMutex;

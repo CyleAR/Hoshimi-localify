@@ -63,10 +63,7 @@ interface ConfigListener {
     fun onBUseScaleChanged(value: Boolean)
     fun onBClickPresetChanged(index: Int)
     fun onPUseBuiltInAssetsChanged(value: Boolean)
-    fun onPUseRemoteAssetsChanged(value: Boolean)
     fun onPCleanLocalAssetsChanged(value: Boolean)
-    fun onPDelRemoteAfterUpdateChanged(value: Boolean)
-    fun onPTransRemoteZipUrlChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun mainPageAssetsViewDataUpdate(downloadAbleState: Boolean? = null,
                                      downloadProgressState: Float? = null,
                                      localResourceVersionState: String? = null,
@@ -556,33 +553,12 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         saveProgramConfig()
     }
 
-    override fun onPUseRemoteAssetsChanged(value: Boolean) {
-        programConfig.useRemoteAssets = value
-        if (value) {
-            programConfig.useBuiltInAssets = false
-            programConfig.cleanLocalAssets = false
-            programConfig.useAPIAssets = false
-        }
-        saveProgramConfig()
-    }
-
     override fun onPCleanLocalAssetsChanged(value: Boolean) {
         programConfig.cleanLocalAssets = value
         if (value) {
-            programConfig.useRemoteAssets = false
             programConfig.useAPIAssets = false
             programConfig.useBuiltInAssets = false
         }
-        saveProgramConfig()
-    }
-
-    override fun onPDelRemoteAfterUpdateChanged(value: Boolean) {
-        programConfig.delRemoteAfterUpdate = value
-        saveProgramConfig()
-    }
-
-    override fun onPTransRemoteZipUrlChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        programConfig.transRemoteZipUrl = s.toString()
         saveProgramConfig()
     }
 
@@ -600,7 +576,6 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         programConfig.useAPIAssets = value
         if (value) {
             programConfig.useBuiltInAssets = false
-            programConfig.useRemoteAssets = false
             programConfig.cleanLocalAssets = false
         }
         saveProgramConfig()

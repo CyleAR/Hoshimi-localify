@@ -32,7 +32,9 @@ namespace
         }
 
         ~AndroidHookInstaller() override {
-            xdl_close(m_Il2CppLibrary);
+            if (m_Il2CppLibrary) {
+                xdl_close(m_Il2CppLibrary);
+            }
         }
 
         void* InstallHook(void* addr, void* hook, void** orig) override
@@ -65,10 +67,14 @@ Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_initHook(JNIEnv *env, jcl
     showToastMethodId = env->GetStaticMethodID(clazz, "showToast", "(Ljava/lang/String;)V");
 
     const auto targetLibraryPathChars = env->GetStringUTFChars(targetLibraryPath, nullptr);
+    if (!targetLibraryPathChars) return;
     const std::string targetLibraryPathStr = targetLibraryPathChars;
+    env->ReleaseStringUTFChars(targetLibraryPath, targetLibraryPathChars);
 
     const auto localizationFilesDirChars = env->GetStringUTFChars(localizationFilesDir, nullptr);
+    if (!localizationFilesDirChars) return;
     const std::string localizationFilesDirCharsStr = localizationFilesDirChars;
+    env->ReleaseStringUTFChars(localizationFilesDir, localizationFilesDirChars);
 
     auto& plugin = HoshimiLocal::Plugin::GetInstance();
     plugin.InstallHook(std::make_unique<AndroidHookInstaller>(targetLibraryPathStr, localizationFilesDirCharsStr));
@@ -113,7 +119,9 @@ JNIEXPORT void JNICALL
 Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_loadConfig(JNIEnv *env, jclass clazz,
                                                                    jstring config_json_str) {
     const auto configJsonStrChars = env->GetStringUTFChars(config_json_str, nullptr);
+    if (!configJsonStrChars) return;
     const std::string configJson = configJsonStrChars;
+    env->ReleaseStringUTFChars(config_json_str, configJsonStrChars);
     HoshimiLocal::Config::LoadConfig(configJson);
 }
 

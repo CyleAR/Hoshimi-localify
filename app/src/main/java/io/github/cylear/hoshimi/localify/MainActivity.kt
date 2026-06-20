@@ -87,8 +87,7 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         try {
             val packInfo = packageManager.getPackageInfo(packageName, 0)
             val version = packInfo.versionName
-            val versionCode = packInfo.longVersionCode
-            versionText = "$version ($versionCode)"
+            versionText = version ?: ""
         }
         catch (_: Exception) {}
 

@@ -89,7 +89,6 @@
     <string name="api_resource_version">API 리소스 버전</string>
     <string name="resource_version_none">—</string>
     <string name="resource_version_delete_pending">삭제 예정</string>
-    <string name="del_remote_after_update">업데이트 후 캐시 파일 삭제</string>
     <string name="warning">경고</string>
     <string name="install">설치</string>
     <string name="installing">설치 중</string>

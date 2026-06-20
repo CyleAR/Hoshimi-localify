@@ -78,8 +78,6 @@ fun <T> T.loadConfig() where T : Activity, T : IHasConfigItems {
     if (programConfig.useAPIAssetsURL.isEmpty()) {
         programConfig.useAPIAssetsURL = getString(R.string.default_assets_check_api)
     }
-    programConfig.useRemoteAssets = false
-    programConfig.transRemoteZipUrl = ""
 }
 
 fun <T> T.updateCurrentResourceVersionForGameStart() where T : Activity, T : IHasConfigItems {
@@ -149,8 +147,8 @@ fun <T> T.onClickStartGame() where T : Activity, T : IHasConfigItems {
         putExtra("iprData", getConfigContent())
         putExtra(
             "localData",
-            getProgramConfigContent(listOf("transRemoteZipUrl", "useAPIAssetsURL",
-                "localAPIAssetsVersion", "currentResourceVersion", "p"), programConfig)
+            getProgramConfigContent(listOf("useAPIAssetsURL", "localAPIAssetsVersion",
+                "currentResourceVersion", "p"), programConfig)
         )
         putExtra("lVerName", version)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK

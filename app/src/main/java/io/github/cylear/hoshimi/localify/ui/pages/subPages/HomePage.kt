@@ -270,11 +270,6 @@ fun HomePage(modifier: Modifier = Modifier,
                                 innerPaddingLeftRight = 8.dp,
                                 showExpand = false
                             ) {
-                                IPSwitch(modifier = modifier,
-                                    checked = programConfig.value.delRemoteAfterUpdate,
-                                    text = stringResource(id = R.string.del_remote_after_update)
-                                ) { v -> context?.onPDelRemoteAfterUpdateChanged(v) }
-
                                 LazyColumn(modifier = modifier
                                     // .padding(8.dp)
                                     .sizeIn(maxHeight = screenH),
