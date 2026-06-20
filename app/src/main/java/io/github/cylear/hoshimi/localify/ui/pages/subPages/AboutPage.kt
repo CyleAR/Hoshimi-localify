@@ -125,6 +125,19 @@ fun AboutPage(modifier: Modifier = Modifier,
                     }
 
                 }
+                item {
+                    Row(modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(0.dp, 8.dp, 8.dp, 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.all_translators), fontSize = 16.sp)
+                        IPButton(text = stringResource(R.string.translation_sheet), modifier = modifier.height(40.dp),
+                            onClick = {
+                                context?.openUrl("https://hoshimistation.cyle.me")
+                            })
+                    }
+                }
             }
         }
 
