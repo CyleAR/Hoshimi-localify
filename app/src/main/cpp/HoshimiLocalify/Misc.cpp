@@ -36,6 +36,23 @@ namespace HoshimiLocal::Misc {
         return ContainsHangul(ToUTF16(str));
     }
 
+    bool ContainsJapanese(const std::u16string_view& str) {
+        for (char16_t c : str) {
+            if ((c >= 0x3040 && c <= 0x309F) ||
+                (c >= 0x30A0 && c <= 0x30FF) ||
+                (c >= 0x31F0 && c <= 0x31FF) ||
+                (c >= 0x4E00 && c <= 0x9FFF) ||
+                (c >= 0xFF66 && c <= 0xFF9F)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool ContainsJapanese(const std::string_view& str) {
+        return ContainsJapanese(ToUTF16(str));
+    }
+
     JNIEnv* GetJNIEnv() {
         if (!g_javaVM) return nullptr;
         JNIEnv* env = nullptr;

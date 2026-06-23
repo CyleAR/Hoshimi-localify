@@ -510,12 +510,10 @@ namespace HoshimiLocal::Local {
     bool inDumpGeneric = false;
     void DumpGenericText(const std::string& origText, DumpStrStat stat = DumpStrStat::DEFAULT) {
         if (!Config::dumpText) return;
-        if (Misc::ContainsHangul(origText)) return;
+        if (!Misc::ContainsJapanese(origText)) return;
         
         {
             std::lock_guard<std::mutex> lock(dumpDataMutex);
-            if (translatedText.contains(origText)) return;
-
             std::array<std::reference_wrapper<std::vector<std::string>>, 4> targets = {
                     genericTextDumpData,
                     genericOrigTextDumpData,
@@ -552,6 +550,15 @@ namespace HoshimiLocal::Local {
         }).detach();
     }
 
+    void DumpRemainingJapaneseText(const std::string& text) {
+        DumpGenericText(text);
+
+        auto fmtText = StringParser::ParseItems::parse(text, false);
+        if (fmtText.isValid) {
+            DumpGenericText(fmtText.ToFmtString(), DumpStrStat::FMT);
+        }
+    }
+
     bool GetGenericText(const std::string& origText, std::string* newStr) {
         std::shared_lock<std::shared_mutex> lock(localDataMutex);
         // 완전 일치
@@ -586,9 +593,6 @@ namespace HoshimiLocal::Local {
                     return true;
                 }
             }
-            if (Config::dumpText) {
-                DumpGenericText(fmtStr, DumpStrStat::FMT);
-            }
         }
 
         auto ret = false;
@@ -598,7 +602,6 @@ namespace HoshimiLocal::Local {
         const auto splitTransStat = GetSplitTagsTranslationFull(origText, newStr, unTransResultRet);
         switch (splitTransStat) {
             case SplitTagsTranslationStat::FULL_TRANS: {
-                DumpGenericText(origText, DumpStrStat::SPLITTABLE_ORIG);
                 return true;
             } break;
 
@@ -619,22 +622,6 @@ namespace HoshimiLocal::Local {
             } break;
         }
 
-        if (!Config::dumpText) {
-            return ret;
-        }
-
-        if (unTransResultRet.empty() || (splitTransStat == SplitTagsTranslationStat::NO_SPLIT)) {
-            DumpGenericText(origText);
-        }
-        else {
-            for (const auto& i : unTransResultRet) {
-                DumpGenericText(i, DumpStrStat::SPLITTED);
-            }
-            // 번역되지 않은 부분의 길이가 1이고, 원본 텍스트와 동일한 경우, 원본 텍스트 파일에 덤프하지 않음
-            //if (unTransResultRet.size() != 1 || unTransResultRet[0] != origText) {
-                DumpGenericText(origText, DumpStrStat::SPLITTABLE_ORIG);
-            //}
-        }
 
         return ret;
     }

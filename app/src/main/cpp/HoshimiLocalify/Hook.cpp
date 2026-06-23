@@ -939,6 +939,12 @@ namespace HoshimiLocal::HookMain {
         }
     }
 
+    std::string MakeLocalizedText(const std::string& origText, const std::string& transText, bool hasTrans) {
+        auto finalStr = FixLigature(hasTrans ? transText : origText);
+        Local::DumpRemainingJapaneseText(finalStr);
+        return finalStr;
+    }
+
     DEFINE_HOOK(void, TMP_Text_PopulateTextBackingArray, (void* self, UnityResolve::UnityType::String* text, int start, int length)) {
         if (!text) {
             return TMP_Text_PopulateTextBackingArray_Orig(self, text, start, length);
@@ -950,7 +956,7 @@ namespace HoshimiLocal::HookMain {
         const std::string origText = Substring->Invoke<Il2cppString*>(text, start, length)->ToString();
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
-        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+        std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
@@ -976,7 +982,7 @@ namespace HoshimiLocal::HookMain {
         const std::string origText = value->ToString();
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
-        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+        std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
@@ -1001,7 +1007,7 @@ namespace HoshimiLocal::HookMain {
         const std::string origText = sourceText->ToString();
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
-        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+        std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
@@ -1026,7 +1032,7 @@ namespace HoshimiLocal::HookMain {
 		const std::string origText = sourceText->ToString();
 		std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
-        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+        std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
 		if (hasTrans || finalStr != origText) {
 			const auto newText = UnityResolve::UnityType::String::New(finalStr);
@@ -1056,7 +1062,7 @@ namespace HoshimiLocal::HookMain {
             //Log::InfoFmt("TextMeshProUGUI_Awake: %s", currText->ToString().c_str());
             std::string transText;
             bool hasTrans = Local::GetGenericText(currText->ToString(), &transText);
-            std::string finalStr = FixLigature(hasTrans ? transText : currText->ToString());
+            std::string finalStr = MakeLocalizedText(currText->ToString(), transText, hasTrans);
 
             if (hasTrans || finalStr != currText->ToString()) {
                 if (Config::textTest) {
@@ -1115,7 +1121,7 @@ namespace HoshimiLocal::HookMain {
         const std::string origText = value->ToString();
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
-        std::string finalStr = FixLigature(hasTrans ? transText : origText);
+        std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
         if (hasTrans || finalStr != origText) {
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
@@ -1146,7 +1152,7 @@ namespace HoshimiLocal::HookMain {
                     const std::string origText = Misc::ToUTF8(u16);
                     std::string transText;
                     bool hasTrans = Local::GetGenericText(origText, &transText);
-                    std::string finalStr = FixLigature(hasTrans ? transText : origText);
+                    std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
                     if (hasTrans || finalStr != origText) {
                         UpdateFont(self);
@@ -1170,8 +1176,12 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string transText;
             if (Local::GetGenericText(value->ToString(), &transText)) {
+                Local::DumpRemainingJapaneseText(transText);
                 return TextField_set_value_Orig(self, UnityResolve::UnityType::String::New(transText));
             }
+        }
+        if (value) {
+            Local::DumpRemainingJapaneseText(value->ToString());
         }
         TextField_set_value_Orig(self, value);
     }

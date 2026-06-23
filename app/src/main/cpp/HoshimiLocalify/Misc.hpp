@@ -16,6 +16,8 @@ namespace HoshimiLocal {
 
         bool ContainsHangul(const std::u16string_view& str);
         bool ContainsHangul(const std::string_view& str);
+        bool ContainsJapanese(const std::u16string_view& str);
+        bool ContainsJapanese(const std::string_view& str);
 
         JNIEnv* GetJNIEnv();
         

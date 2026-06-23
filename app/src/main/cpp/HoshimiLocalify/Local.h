@@ -20,6 +20,7 @@ namespace HoshimiLocal::Local {
     bool GetResourceText(const std::string& name, std::string* ret);
     bool GetResourceBytes(const std::string& name, std::vector<uint8_t>* ret);
     bool GetGenericText(const std::string& origText, std::string* newStr);
+    void DumpRemainingJapaneseText(const std::string& text);
 
     std::string OnKeyDown(int message, int key);
 }
