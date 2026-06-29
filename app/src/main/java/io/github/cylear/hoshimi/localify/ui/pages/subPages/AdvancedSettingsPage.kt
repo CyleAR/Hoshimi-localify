@@ -369,6 +369,10 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                             checked = config.value.unlockAllLive) {
                                 v -> context?.onUnlockAllLiveChanged(v)
                         }
+                        IPSwitch(modifier, stringResource(R.string.skip_live_to_result),
+                            checked = config.value.skipLiveToResult) {
+                                v -> context?.onSkipLiveToResultChanged(v)
+                        }
                         IPSwitch(modifier, stringResource(R.string.unlockAllLiveCostume),
                             checked = config.value.unlockAllLiveCostume) {
                                 v -> context?.onUnlockAllLiveCostumeChanged(v)

@@ -12,6 +12,7 @@
     <string name="start_game">Start Game / Hot Reload Config</string>
     <string name="setFpsTitle">Max FPS (0 is Use Original Settings)</string>
     <string name="unlockAllLive">Unlock All Live</string>
+    <string name="skip_live_to_result">Skip Live to Result</string>
     <string name="unlockAllLiveCostume">Unlock All Live Costume</string>
     <string name="unlockAllPhotoPose">Unlock All Photo Pose</string>
     <string name="liveUseCustomeDress">Live Custom Character</string>

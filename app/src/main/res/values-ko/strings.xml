@@ -12,6 +12,7 @@
     <string name="start_game">게임 시작 / 설정 새로고침</string>
     <string name="setFpsTitle">최대 FPS (0은 게임 내 설정값 사용)</string>
     <string name="unlockAllLive">모든 라이브 해금</string>
+    <string name="skip_live_to_result">라이브 결과로 바로 이동</string>
     <string name="unlockAllLiveCostume">모든 라이브 의상 해금</string>
     <string name="unlockAllPhotoPose">모든 사진 포즈 해금</string>
     <string name="liveUseCustomeDress">라이브 캐릭터 커스텀</string>

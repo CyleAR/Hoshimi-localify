@@ -72,6 +72,9 @@ namespace HoshimiLocal::HookMain {
                       source, assetName.c_str(), replaced ? 1 : 0, component);
     }
 
+    using LiveUtility_LoadLiveResult_Type = void(*)(void* data, void* method);
+    LiveUtility_LoadLiveResult_Type LiveUtility_LoadLiveResult_Call = nullptr;
+
     UnityResolve::UnityType::String* environment_get_stacktrace() {
         /*
         static auto mtd = Il2cppUtils::GetMethod("mscorlib.dll", "System",
@@ -2536,6 +2539,14 @@ namespace HoshimiLocal::HookMain {
         return emptyPoseTypes;
     }
 
+    DEFINE_HOOK(void, LiveUtility_LoadLiveScene_FullSkip, (void* data, bool isFullSkip, void* method)) {
+        if (Config::skipLiveToResult && data && LiveUtility_LoadLiveResult_Call) {
+            Log::InfoFmt("LiveSkip: skip live scene and load result, isFullSkip=%d", isFullSkip ? 1 : 0);
+            LiveUtility_LoadLiveResult_Call(data, nullptr);
+            return;
+        }
+        return LiveUtility_LoadLiveScene_FullSkip_Orig(data, isFullSkip, method);
+    }
     DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync, (int actionType, Il2cppString* photoActivityId,
         Il2cppString* photoMusicId, Il2cppString* photoStageId, void* characterIds, void* costumeIds,
         void* hairIds, void* ct, void* callOption, void* errorHandler, Il2cppString* requestIdForResponseCache,
@@ -3998,6 +4009,16 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(OnDownloadProgress_Invoke,
                  Il2cppUtils::GetMethodPointer("Octo.dll", "Octo",
                                                "OnDownloadProgress", "Invoke"));
+
+        
+        auto loadLiveResultPtr = Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
+                                                               "LiveUtility", "LoadLiveResult",
+                                                               {"Solis.Live.LiveStartTransitionData"});
+        LiveUtility_LoadLiveResult_Call = reinterpret_cast<LiveUtility_LoadLiveResult_Type>(loadLiveResultPtr);
+        ADD_HOOK(LiveUtility_LoadLiveScene_FullSkip,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
+                                               "LiveUtility", "LoadLiveScene",
+                                               {"Solis.Live.LiveStartTransitionData", "System.Boolean"}));
 
         auto Solis_UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
                                                                        "UserCostumeCollection");
