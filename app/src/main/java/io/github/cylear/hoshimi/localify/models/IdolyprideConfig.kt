@@ -13,6 +13,8 @@ data class IdolyprideConfig (
     var textTest: Boolean = false,
     var useMasterTrans: Boolean = true,
     var dumpText: Boolean = false,
+    var debugImageResourceLog: Boolean = false,
+    var debugMasterDbLog: Boolean = false,
     var gameOrientation: Int = 0,
     var forceExportResource: Boolean = false,
     var enableFreeCamera: Boolean = false,

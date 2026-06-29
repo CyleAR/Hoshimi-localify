@@ -42,6 +42,8 @@ interface ConfigListener {
     fun onLodQualityLevelChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onGameOrientationChanged(checkedId: Int)
     fun onDumpTextChanged(value: Boolean)
+    fun onDebugImageResourceLogChanged(value: Boolean)
+    fun onDebugMasterDbLogChanged(value: Boolean)
 
     fun onEnableBreastParamChanged(value: Boolean)
     fun onBDampingChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -158,6 +160,16 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onDumpTextChanged(value: Boolean) {
         config.dumpText = value
+        saveConfig()
+    }
+
+    override fun onDebugImageResourceLogChanged(value: Boolean) {
+        config.debugImageResourceLog = value
+        saveConfig()
+    }
+
+    override fun onDebugMasterDbLogChanged(value: Boolean) {
+        config.debugMasterDbLog = value
         saveConfig()
     }
 

@@ -14,6 +14,8 @@ namespace HoshimiLocal::Config {
     extern bool textTest;
     extern bool useMasterTrans;
     extern bool dumpText;
+    extern bool debugImageResourceLog;
+    extern bool debugMasterDbLog;
     extern bool enableFreeCamera;
     extern int targetFrameRate;
     extern bool unlockAllLive;

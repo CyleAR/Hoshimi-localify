@@ -66,6 +66,12 @@ void UnHookAll() {
 namespace HoshimiLocal::HookMain {
     using Il2cppString = UnityResolve::UnityType::String;
 
+    void LogImageResourceDebug(const char* source, void* component, const std::string& assetName, bool replaced) {
+        if (!Config::debugImageResourceLog || assetName.empty()) return;
+        Log::DebugFmt("ResourceDebug[%s]: asset=%s replaced=%d component=%p",
+                      source, assetName.c_str(), replaced ? 1 : 0, component);
+    }
+
     UnityResolve::UnityType::String* environment_get_stacktrace() {
         /*
         static auto mtd = Il2cppUtils::GetMethod("mscorlib.dll", "System",
@@ -276,9 +282,11 @@ namespace HoshimiLocal::HookMain {
     std::unordered_map<void*, std::string> loadHistory{};
 
     DEFINE_HOOK(void*, AssetBundle_LoadAssetAsync, (void* self, Il2cppString* name, void* type)) {
-        // Log::InfoFmt("AssetBundle_LoadAssetAsync: %s, type: %s", name->ToString().c_str());
+        if (Config::debugImageResourceLog && name) {
+            Log::DebugFmt("ResourceDebug[AssetBundle.LoadAssetAsync]: asset=%s", name->ToString().c_str());
+        }
         auto ret = AssetBundle_LoadAssetAsync_Orig(self, name, type);
-        loadHistory.emplace(ret, name->ToString());
+        if (ret && name) loadHistory.emplace(ret, name->ToString());
         return ret;
     }
 
@@ -288,16 +296,20 @@ namespace HoshimiLocal::HookMain {
             const auto name = iter->second;
             loadHistory.erase(iter);
 
-            // const auto assetClass = Il2cppUtils::get_class_from_instance(result);
-            // Log::InfoFmt("AssetBundleRequest_GetResult: %s, type: %s", name.c_str(), static_cast<Il2CppClassHead*>(assetClass)->name);
+            if (Config::debugImageResourceLog) {
+                const auto assetClass = Il2cppUtils::get_class_from_instance(result);
+                const char* typeName = assetClass ? static_cast<Il2cppUtils::Il2CppClassHead*>(assetClass)->name : "<null>";
+                Log::DebugFmt("ResourceDebug[AssetBundleRequest.GetResult]: asset=%s type=%s",
+                              name.c_str(), typeName);
+            }
         }
         return result;
     }
 
     DEFINE_HOOK(void*, Resources_Load, (Il2cppString* path, void* systemTypeInstance)) {
         auto ret = Resources_Load_Orig(path, systemTypeInstance);
-        if (path) {
-            // Log::DebugFmt("Resources_Load: %s", path->ToString().c_str());
+        if (Config::debugImageResourceLog && path) {
+            Log::DebugFmt("ResourceDebug[Resources.Load]: path=%s", path->ToString().c_str());
         }
         return ret;
     }
@@ -1199,8 +1211,14 @@ namespace HoshimiLocal::HookMain {
         if (message) {
             auto ret_klass = Il2cppUtils::get_class_from_instance(message);
             if (ret_klass) {
-                // Log::DebugFmt("LocalizeMasterItem: %s", ret_klass->name);
-                MasterLocal::LocalizeMasterItem(message, ret_klass->name);
+                const std::string tableName = ret_klass->name ? ret_klass->name : "<unknown>";
+                if (Config::debugMasterDbLog) {
+                    static std::unordered_set<std::string> loggedMasterTables;
+                    if (loggedMasterTables.insert(tableName).second) {
+                        Log::DebugFmt("ResourceDebug[MasterDB]: table=%s", tableName.c_str());
+                    }
+                }
+                MasterLocal::LocalizeMasterItem(message, tableName);
             }
         }
     }
@@ -1405,6 +1423,7 @@ namespace HoshimiLocal::HookMain {
             if (!sprite) return;
             std::string name = GetObjectName(sprite);
             if (auto replacementSprite = GetOrCreateReplacementSprite(name, true)) {
+                LogImageResourceDebug("Graphic.OnEnable.Image", self, name, true);
                 static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
                 applying_image_replacement = true;
                 set_sprite->Invoke<void>(self, replacementSprite);
@@ -1418,6 +1437,7 @@ namespace HoshimiLocal::HookMain {
             if (!texture) return;
             std::string name = GetObjectName(texture);
             if (auto replacementTexture = GetOrCreateReplacementTexture(name, true)) {
+                LogImageResourceDebug("Graphic.OnEnable.RawImage", self, name, true);
                 static auto set_texture = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "RawImage", "set_texture");
                 applying_image_replacement = true;
                 set_texture->Invoke<void>(self, replacementTexture);
@@ -1432,8 +1452,9 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                // Log::InfoFmt("Image_set_sprite: %s", name.c_str());
+                LogImageResourceDebug("Image.set_sprite", self, name, false);
                 if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
+                    LogImageResourceDebug("Image.set_sprite", self, name, true);
                     Image_set_sprite_Orig(self, replacementSprite, method);
                     SetImagePreserveAspect(self);
                     return;
@@ -1449,8 +1470,9 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                // Log::InfoFmt("Image_set_overrideSprite: %s", name.c_str());
+                LogImageResourceDebug("Image.set_overrideSprite", self, name, false);
                 if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
+                    LogImageResourceDebug("Image.set_overrideSprite", self, name, true);
                     Image_set_overrideSprite_Orig(self, replacementSprite, method);
                     SetImagePreserveAspect(self);
                     return;
@@ -1466,8 +1488,9 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
-                // Log::InfoFmt("RawImage_set_texture: %s", name.c_str());
+                LogImageResourceDebug("RawImage.set_texture", self, name, false);
                 if (auto replacementTexture = GetOrCreateReplacementTexture(name, false)) {
+                    LogImageResourceDebug("RawImage.set_texture", self, name, true);
                     return RawImage_set_texture_Orig(self, replacementTexture, method);
                 }
             }
@@ -1478,8 +1501,8 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, AssetBundle_LoadAsset, (void* self, Il2cppString* name, void* method)) {
         auto ret = AssetBundle_LoadAsset_Orig(self, name, method);
-        if (name) {
-            // Log::DebugFmt("AssetBundle_LoadAsset: %s", name->ToString().c_str());
+        if (Config::debugImageResourceLog && name) {
+            Log::DebugFmt("ResourceDebug[AssetBundle.LoadAsset]: asset=%s", name->ToString().c_str());
         }
         return ret;
     }

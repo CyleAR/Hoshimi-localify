@@ -61,6 +61,8 @@
     <string name="reset_settings_done">설정을 초기화했습니다.</string>
     <string name="test_mode_live">테스트 모드 - LIVE</string>
     <string name="debug_settings">디버그 설정</string>
+    <string name="debug_image_resource_log">이미지 리소스 디버그 로그</string>
+    <string name="debug_masterdb_log">마스터DB 디버그 로그</string>
     <string name="breast_param">바스트 파라미터</string>
     <string name="about">정보</string>
     <string name="home">홈</string>

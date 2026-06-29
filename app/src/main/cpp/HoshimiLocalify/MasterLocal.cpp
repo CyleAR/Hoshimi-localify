@@ -180,6 +180,26 @@ namespace HoshimiLocal::MasterLocal {
             return nullptr;
         }
 
+        bool ReadEnumIntField(const std::string& fieldName, int* outValue) {
+            if (!self || !outValue) return false;
+            auto get_mtd = GetGetSetMethodFromCache(fieldName, 0, fieldGetCache, "get_");
+            if (!get_mtd) return false;
+
+            auto returnClass = UnityResolve::Invoke<Il2cppUtils::Il2CppClassHead*>(
+                    "il2cpp_class_from_type",
+                    UnityResolve::Invoke<void*>("il2cpp_method_get_return_type", get_mtd)
+            );
+            if (!returnClass) return false;
+
+            auto isEnum = UnityResolve::Invoke<bool>("il2cpp_class_is_enum", returnClass);
+            if (!isEnum) return false;
+
+            *outValue = reinterpret_cast<int (*)(void*, void*)>(
+                    get_mtd->methodPointer
+            )(self, get_mtd);
+            return true;
+        }
+
         void SetStringField(const std::string& fieldName, const std::string& value) {
             if (!self) return;
             auto newString = Il2cppString::New(value);
@@ -705,54 +725,127 @@ namespace HoshimiLocal::MasterLocal {
         return {};
     }
 
+    void AppendUnique(std::vector<std::string>& values, const std::string& value) {
+        for (const auto& existing : values) {
+            if (existing == value) return;
+        }
+        values.push_back(value);
+    }
+
+    std::vector<std::string> AppendCandidateKeyParts(
+            const std::vector<std::string>& baseKeys,
+            const std::vector<std::string>& parts
+    ) {
+        std::vector<std::string> nextKeys;
+        for (const auto& baseKey : baseKeys) {
+            for (const auto& part : parts) {
+                auto nextKey = baseKey + part + "|";
+                AppendUnique(nextKeys, nextKey);
+            }
+        }
+        return nextKeys;
+    }
+
+    std::string JoinCandidateKeys(const std::vector<std::string>& keys) {
+        std::string joined;
+        for (const auto& key : keys) {
+            if (!joined.empty()) joined.append(",");
+            joined.append(key);
+        }
+        return joined;
+    }
+
+    std::string GetTransStringFromCandidates(
+            const std::vector<std::string>& baseKeys,
+            const std::string& suffix,
+            const TableLocalData& localData,
+            std::string* matchedKey
+    ) {
+        for (const auto& baseKey : baseKeys) {
+            auto key = baseKey + suffix;
+            auto value = GetTransString(key, localData);
+            if (!value.empty()) {
+                if (matchedKey && matchedKey->empty()) *matchedKey = key;
+                return value;
+            }
+        }
+        return {};
+    }
+
+    std::vector<std::string> GetTransArrayStringFromCandidates(
+            const std::vector<std::string>& baseKeys,
+            const std::string& suffix,
+            const TableLocalData& localData,
+            std::string* matchedKey
+    ) {
+        for (const auto& baseKey : baseKeys) {
+            auto key = baseKey + suffix;
+            auto value = GetTransArrayString(key, localData);
+            if (!value.empty()) {
+                if (matchedKey && matchedKey->empty()) *matchedKey = key;
+                return value;
+            }
+        }
+        return {};
+    }
+
     void LocalizeMasterItem(FieldController& fc, const std::string& tableName) {
         auto it = masterLocalData.find(tableName);
-        if (it == masterLocalData.end()) return;
-
-        static std::unordered_set<std::string> loggedTables;
-        if (!loggedTables.contains(tableName)) {
-            Log::DebugFmt("Localizing master table: %s", tableName.c_str());
-            loggedTables.insert(tableName);
+        static std::unordered_set<std::string> loggedNoDataTables;
+        if (it == masterLocalData.end()) {
+            if (Config::debugMasterDbLog && loggedNoDataTables.insert(tableName).second) {
+                Log::DebugFmt("ResourceDebug[MasterDB.Translate]: table=%s result=no_translation_data", tableName.c_str());
+            }
+            return;
         }
-        const auto& localData = it->second;
 
-        // 首先拼 BasePrimaryKey
-        std::string baseDataKey;  // p_card-00-acc-0_002|0|
+        const auto& localData = it->second;
+        std::vector<std::string> baseDataKeys { "" };
+
         for (auto& mainPk : localData.itemRule.mainPrimaryKey) {
             auto mainPkType = localData.GetMainKeyType(mainPk);
             switch (mainPkType) {
                 case JsonValueType::JVT_Int: {
                     auto readValue = std::to_string(fc.ReadIntField(mainPk));
-                    baseDataKey.append(readValue);
-                    baseDataKey.push_back('|');
+                    baseDataKeys = AppendCandidateKeyParts(baseDataKeys, { readValue });
                 } break;
                 case JsonValueType::JVT_String: {
+                    std::vector<std::string> keyParts;
                     auto readValue = fc.ReadStringField(mainPk);
                     if (!readValue) return;
-                    baseDataKey.append(readValue->ToString());
-                    baseDataKey.push_back('|');
+                    AppendUnique(keyParts, readValue->ToString());
+
+                    int enumValue = 0;
+                    if (fc.ReadEnumIntField(mainPk, &enumValue)) {
+                        AppendUnique(keyParts, std::to_string(enumValue));
+                    }
+
+                    baseDataKeys = AppendCandidateKeyParts(baseDataKeys, keyParts);
                 } break;
                 default:
                     break;
             }
         }
 
-        // 然后本地化 mainLocal
+        int appliedStringCount = 0;
+        int appliedArrayStringCount = 0;
+        std::string matchedKeyForLog;
+
         for (auto& mainLocal : localData.itemRule.mainLocalKey) {
-            std::string currSearchKey = baseDataKey;
-            currSearchKey.append(mainLocal);  // p_card-00-acc-0_002|0|name
             auto localVType = localData.GetMainKeyType(mainLocal);
             switch (localVType) {
                 case JsonValueType::JVT_String: {
-                    auto localValue = GetTransString(currSearchKey, localData);
+                    auto localValue = GetTransStringFromCandidates(baseDataKeys, mainLocal, localData, &matchedKeyForLog);
                     if (!localValue.empty()) {
                         fc.SetStringField(mainLocal, localValue);
+                        appliedStringCount++;
                     }
                 } break;
                 case JsonValueType::JVT_ArrayString: {
-                    auto localValue = GetTransArrayString(currSearchKey, localData);
+                    auto localValue = GetTransArrayStringFromCandidates(baseDataKeys, mainLocal, localData, &matchedKeyForLog);
                     if (!localValue.empty()) {
                         fc.SetStringListField(mainLocal, localValue);
+                        appliedArrayStringCount++;
                     }
                 } break;
                 default:
@@ -760,27 +853,26 @@ namespace HoshimiLocal::MasterLocal {
             }
         }
 
-        // 处理 sub
         for (const auto& [subParentKey, subLocalKeys] : localData.itemRule.subLocalKey) {
-            const auto subBaseSearchKey = baseDataKey + subParentKey;
-
             const auto subParentType = localData.GetMainKeyType(subParentKey);
             switch (subParentType) {
                 case JsonValueType::JVT_Object: {
                     auto subParentField = fc.CreateSubFieldController(subParentKey);
                     for (const auto& subLocalKey : subLocalKeys) {
-                        const auto currSearchKey = subBaseSearchKey + "." + subLocalKey;
+                        const auto suffix = subParentKey + "." + subLocalKey;
                         auto localKeyType = localData.GetSubKeyType(subParentKey, subLocalKey);
                         if (localKeyType == JsonValueType::JVT_String) {
-                            auto setData = GetTransString(currSearchKey, localData);
+                            auto setData = GetTransStringFromCandidates(baseDataKeys, suffix, localData, &matchedKeyForLog);
                             if (!setData.empty()) {
                                 subParentField.SetStringField(subLocalKey, setData);
+                                appliedStringCount++;
                             }
                         }
                         else if (localKeyType == JsonValueType::JVT_ArrayString) {
-                            auto setData = GetTransArrayString(currSearchKey, localData);
+                            auto setData = GetTransArrayStringFromCandidates(baseDataKeys, suffix, localData, &matchedKeyForLog);
                             if (!setData.empty()) {
                                 subParentField.SetStringListField(subLocalKey, setData);
+                                appliedArrayStringCount++;
                             }
                         }
                     }
@@ -788,7 +880,7 @@ namespace HoshimiLocal::MasterLocal {
                 case JsonValueType::JVT_ArrayObject: {
                     auto subArrField = fc.ReadObjectListField(subParentKey);
                     if (!subArrField) continue;
-                    
+
                     Il2cppUtils::Tools::CSListEditor<void*> subListEdit(subArrField);
                     if (!subListEdit.list_klass) {
                         Log::ErrorFmt("Failed to create CSListEditor for %s in %s", subParentKey.c_str(), tableName.c_str());
@@ -796,7 +888,7 @@ namespace HoshimiLocal::MasterLocal {
                     }
 
                     auto count = subListEdit.get_Count();
-                    if (count < 0 || count > 10000) { // 비정상적인 카운트 방지
+                    if (count < 0 || count > 10000) {
                         Log::ErrorFmt("Invalid count %d for %s in %s", count, subParentKey.c_str(), tableName.c_str());
                         continue;
                     }
@@ -806,31 +898,24 @@ namespace HoshimiLocal::MasterLocal {
                         if (!currItem) continue;
                         auto currFc = FieldController::CreateSubFieldController(currItem);
 
-                        std::string currSearchBaseKey = subBaseSearchKey;
-                        currSearchBaseKey.push_back('[');
-                        currSearchBaseKey.append(std::to_string(idx));
-                        currSearchBaseKey.append("].");
+                        const auto currSearchBaseKey = subParentKey + "[" + std::to_string(idx) + "].";
 
                         for (const auto& subLocalKey : subLocalKeys) {
-                            std::string currSearchKey = currSearchBaseKey + subLocalKey;  // p_card-00-acc-0_002|0|produceDescriptions|[0]|text
-
+                            const auto suffix = currSearchBaseKey + subLocalKey;
                             auto localKeyType = localData.GetSubKeyType(subParentKey, subLocalKey);
 
-                            /*
-                            if (tableName == "ProduceStepEventDetail") {
-                                Log::DebugFmt("localKeyType: %d currSearchKey: %s", localKeyType, currSearchKey.c_str());
-                            }*/
-
                             if (localKeyType == JsonValueType::JVT_String) {
-                                auto setData = GetTransString(currSearchKey, localData);
+                                auto setData = GetTransStringFromCandidates(baseDataKeys, suffix, localData, &matchedKeyForLog);
                                 if (!setData.empty()) {
                                     currFc.SetStringField(subLocalKey, setData);
+                                    appliedStringCount++;
                                 }
                             }
                             else if (localKeyType == JsonValueType::JVT_ArrayString) {
-                                auto setData = GetTransArrayString(currSearchKey, localData);
+                                auto setData = GetTransArrayStringFromCandidates(baseDataKeys, suffix, localData, &matchedKeyForLog);
                                 if (!setData.empty()) {
                                     currFc.SetStringListField(subLocalKey, setData);
+                                    appliedArrayStringCount++;
                                 }
                             }
                         }
@@ -842,6 +927,20 @@ namespace HoshimiLocal::MasterLocal {
             }
         }
 
+        if (Config::debugMasterDbLog) {
+            static std::unordered_set<std::string> loggedAppliedTables;
+            static std::unordered_set<std::string> loggedNoMatchTables;
+            if (appliedStringCount > 0 || appliedArrayStringCount > 0) {
+                if (loggedAppliedTables.insert(tableName).second) {
+                    Log::DebugFmt("ResourceDebug[MasterDB.Translate]: table=%s result=applied key=%s string=%d array=%d",
+                                  tableName.c_str(), matchedKeyForLog.c_str(), appliedStringCount, appliedArrayStringCount);
+                }
+            }
+            else if (loggedNoMatchTables.insert(tableName).second) {
+                Log::DebugFmt("ResourceDebug[MasterDB.Translate]: table=%s result=no_matching_key sampleKey=%s",
+                              tableName.c_str(), JoinCandidateKeys(baseDataKeys).c_str());
+            }
+        }
     }
 
     void LocalizeMasterItem(void* item, const std::string& tableName) {

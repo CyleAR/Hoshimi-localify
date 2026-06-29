@@ -87,6 +87,14 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                             v -> context?.onDumpTextChanged(v)
                     }
 
+                    IPSwitch(modifier, stringResource(R.string.debug_image_resource_log), checked = config.value.debugImageResourceLog) {
+                            v -> context?.onDebugImageResourceLogChanged(v)
+                    }
+
+                    IPSwitch(modifier, stringResource(R.string.debug_masterdb_log), checked = config.value.debugMasterDbLog) {
+                            v -> context?.onDebugMasterDbLogChanged(v)
+                    }
+
                     IPSwitch(modifier, stringResource(R.string.force_export_resource), checked = config.value.forceExportResource) {
                             v -> context?.onForceExportResourceChanged(v)
                     }

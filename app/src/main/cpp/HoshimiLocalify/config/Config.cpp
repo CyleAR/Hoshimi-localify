@@ -18,6 +18,8 @@ namespace HoshimiLocal::Config {
     bool useMasterTrans = true;
     int gameOrientation = 0;
     bool dumpText = false;
+    bool debugImageResourceLog = false;
+    bool debugMasterDbLog = false;
     bool enableFreeCamera = false;
     int targetFrameRate = 0;
     bool unlockAllLive = false;
@@ -76,6 +78,8 @@ namespace HoshimiLocal::Config {
             GetConfigItem(textTest);
             GetConfigItem(useMasterTrans);
             GetConfigItem(dumpText);
+            GetConfigItem(debugImageResourceLog);
+            GetConfigItem(debugMasterDbLog);
             GetConfigItem(targetFrameRate);
             GetConfigItem(enableFreeCamera);
             GetConfigItem(unlockAllLive);
@@ -135,6 +139,8 @@ namespace HoshimiLocal::Config {
             SetConfigItem(textTest);
             SetConfigItem(useMasterTrans);
             SetConfigItem(dumpText);
+            SetConfigItem(debugImageResourceLog);
+            SetConfigItem(debugMasterDbLog);
             SetConfigItem(targetFrameRate);
             SetConfigItem(enableFreeCamera);
             SetConfigItem(unlockAllLive);
