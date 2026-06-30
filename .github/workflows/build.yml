@@ -2,6 +2,13 @@ name: Build APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -30,7 +37,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Cache Android SDK components
+        id: cache-android-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms/android-34
+            /usr/local/lib/android/sdk/build-tools/34.0.0
+            /usr/local/lib/android/sdk/ndk/26.3.11579264
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: ${{ runner.os }}-android-sdk-34-26.3.11579264-3.22.1
+
       - name: Install Android build tools
+        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
         run: |
           sdkmanager --install \
             "platforms;android-34" \
@@ -56,37 +75,23 @@ jobs:
 
       - name: Rename APK
         run: |
-          mkdir -p artifacts
-          cp app/build/outputs/apk/release/app-release.apk "artifacts/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
+          mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: HoshimiLocalify-apk
-          path: artifacts/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk
-          if-no-files-found: error
-
-      - name: Create version tag
+      - name: Create or update version tag
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           tag_name="${{ steps.app_version.outputs.version_name }}"
           git fetch --tags
 
-          if git rev-parse "$tag_name" >/dev/null 2>&1; then
-            tagged_commit="$(git rev-list -n 1 "$tag_name")"
-            if [ "$tagged_commit" != "$GITHUB_SHA" ]; then
-              echo "Tag $tag_name already exists on commit $tagged_commit, not current commit $GITHUB_SHA" >&2
-              exit 1
-            fi
-          else
-            git tag "$tag_name" "$GITHUB_SHA"
-            git push origin "$tag_name"
-          fi
+          git tag -f "$tag_name" "$GITHUB_SHA"
+          git push -f origin "$tag_name"
 
       - name: Upload APK to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag_name="${{ steps.app_version.outputs.version_name }}"
-          apk_path="artifacts/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
+          apk_path="app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
           gh release view "$tag_name" >/dev/null 2>&1 || gh release create "$tag_name" --title "$tag_name" --notes ""
           gh release upload "$tag_name" "$apk_path" --clobber
