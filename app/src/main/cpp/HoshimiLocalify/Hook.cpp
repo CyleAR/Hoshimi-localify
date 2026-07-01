@@ -989,6 +989,21 @@ namespace HoshimiLocal::HookMain {
         auto transform = get_transform->Invoke<void*>(component);
         return GetUnityTransformPath(transform) + " [component=" + GetUnityObjectName(component) + "]";
     }
+
+    void ApplyPhoneSubtitleTimerLayout(void* textComponent) {
+        if (!textComponent || !IsNativeObjectAlive(textComponent)) return;
+        static std::unordered_set<void*> styledTimers{};
+        if (styledTimers.contains(textComponent)) return;
+
+        static auto set_alignment = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_alignment", {"TMPro.TextAlignmentOptions"});
+        static auto set_richText = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_richText", {"System.Boolean"});
+        if (set_alignment) {
+            // Bottom Center keeps the original MM:SS line pinned while subtitle lines grow upward.
+            set_alignment->Invoke<void>(textComponent, 1026);
+        }
+        if (set_richText) set_richText->Invoke<void>(textComponent, true);
+        styledTimers.emplace(textComponent);
+    }
     bool IsPhoneCallTimerText(const std::string& text) {
         return text.length() == 5 &&
                std::isdigit(static_cast<unsigned char>(text[0])) &&
@@ -997,7 +1012,6 @@ namespace HoshimiLocal::HookMain {
                std::isdigit(static_cast<unsigned char>(text[3])) &&
                std::isdigit(static_cast<unsigned char>(text[4]));
     }
-
     bool TryMakePhoneSubtitleTimerText(void* self, const std::string& origText, std::string* ret) {
         if (!Config::usePhoneSubtitles) return false;
         if (!ret || currentPhoneSubtitleText.empty()) return false;
@@ -1007,6 +1021,7 @@ namespace HoshimiLocal::HookMain {
         const bool isPhoneTalkTime = componentPath.find("Singleton/TelephoneManager/Canvas/Anchor/TalkTime") != std::string::npos;
         if (isPhoneTalkTime) {
             phoneSubtitleTimerOwner = self;
+            ApplyPhoneSubtitleTimerLayout(self);
         }
         if (Config::debugAudioLog) {
             Log::DebugFmt("ResourceDebug[PhoneSubtitle.CandidateTimerText]: object=%p path=%s text=%s subtitle=%s match=%d",
@@ -1018,23 +1033,14 @@ namespace HoshimiLocal::HookMain {
         }
         if (!isPhoneTalkTime) return false;
 
-        *ret = currentPhoneSubtitleText + "\n" + origText;
+        const bool singleLineSubtitle = currentPhoneSubtitleText.find('\n') == std::string::npos;
+        *ret = singleLineSubtitle
+            ? "<size=85%><voffset=0.45em>" + currentPhoneSubtitleText + "</voffset></size>\n" + origText
+            : "<size=85%>" + currentPhoneSubtitleText + "</size>\n" + origText;
         return true;
     }
-    std::string CleanPhoneSubtitlePollution(const std::string& text) {
-        const std::string sizeStart = "<size=70%>";
-        const std::string sizeEnd = "</size>";
-        const auto start = text.find(sizeStart);
-        if (start == std::string::npos) return text;
-        const auto valueStart = start + sizeStart.length();
-        const auto end = text.find(sizeEnd, valueStart);
-        if (end == std::string::npos) return text;
-        const auto candidate = text.substr(valueStart, end - valueStart);
-        return IsPhoneCallTimerText(candidate) ? candidate : text;
-    }
-
     std::string MakeLocalizedText(const std::string& origText, const std::string& transText, bool hasTrans) {
-        auto finalStr = CleanPhoneSubtitlePollution(FixLigature(hasTrans ? transText : origText));
+        auto finalStr = FixLigature(hasTrans ? transText : origText);
         Local::DumpRemainingJapaneseText(finalStr);
         return finalStr;
     }
@@ -1261,7 +1267,7 @@ namespace HoshimiLocal::HookMain {
         }
     }
 
-    // TMP_Text.SetCharArray(char[], int, int) — 礼物/邮件描述文字通过此路径设置
+    // TMP_Text.SetCharArray(char[], int, int) — 선물함 설명 문구는 이 경로를 통해 설정합니다.
     DEFINE_HOOK(void, TMP_Text_SetCharArray, (void* self, void* charArray, int start, int count, void* mtd)) {
         if (charArray && start >= 0 && count > 0) {
             // IL2CPP char[] elements are uint16_t (UTF-16)
@@ -1607,6 +1613,7 @@ namespace HoshimiLocal::HookMain {
 
         static auto set_fontSize = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_fontSize", {"System.Single"});
         static auto set_alignment = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_alignment", {"TMPro.TextAlignmentOptions"});
+        static auto set_richText = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_richText", {"System.Boolean"});
         static auto set_color = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_color", {"UnityEngine.Color"});
         static auto set_enableWordWrapping = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_enableWordWrapping", {"System.Boolean"});
         static auto set_raycastTarget = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Graphic", "set_raycastTarget", {"System.Boolean"});
