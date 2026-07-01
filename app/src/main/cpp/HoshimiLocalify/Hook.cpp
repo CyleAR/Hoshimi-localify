@@ -959,7 +959,36 @@ namespace HoshimiLocal::HookMain {
 
 
     std::string currentPhoneSubtitleText{};
+    void* phoneSubtitleTimerOwner = nullptr;
+    void ClearPhoneSubtitle();
 
+    std::string GetUnityTransformPath(void* transform, int maxDepth = 12) {
+        if (!transform) return "<no transform>";
+
+        static auto get_parent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "get_parent");
+        std::vector<std::string> names;
+        void* current = transform;
+        for (int depth = 0; current && IsNativeObjectAlive(current) && depth < maxDepth; ++depth) {
+            names.emplace_back(GetUnityObjectName(current));
+            if (!get_parent) break;
+            current = get_parent->Invoke<void*>(current);
+        }
+
+        std::string path;
+        for (auto it = names.rbegin(); it != names.rend(); ++it) {
+            if (!path.empty()) path += "/";
+            path += *it;
+        }
+        return path.empty() ? "<empty path>" : path;
+    }
+
+    std::string GetUnityComponentPath(void* component) {
+        if (!component) return "<null component>";
+        static auto get_transform = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Component", "get_transform");
+        if (!get_transform) return GetUnityObjectName(component);
+        auto transform = get_transform->Invoke<void*>(component);
+        return GetUnityTransformPath(transform) + " [component=" + GetUnityObjectName(component) + "]";
+    }
     bool IsPhoneCallTimerText(const std::string& text) {
         return text.length() == 5 &&
                std::isdigit(static_cast<unsigned char>(text[0])) &&
@@ -973,15 +1002,25 @@ namespace HoshimiLocal::HookMain {
         if (!Config::usePhoneSubtitles) return false;
         if (!ret || currentPhoneSubtitleText.empty()) return false;
         if (!IsPhoneCallTimerText(origText)) return false;
-        if (Config::debugAudioLog) {
-            Log::DebugFmt("ResourceDebug[PhoneSubtitle.CandidateTimerText]: object=%p text=%s subtitle=%s",
-                          self,
-                          origText.c_str(),
-                          currentPhoneSubtitleText.c_str());
-        }
-        return false;
-    }
 
+        const auto componentPath = GetUnityComponentPath(self);
+        const bool isPhoneTalkTime = componentPath.find("Singleton/TelephoneManager/Canvas/Anchor/TalkTime") != std::string::npos;
+        if (isPhoneTalkTime) {
+            phoneSubtitleTimerOwner = self;
+        }
+        if (Config::debugAudioLog) {
+            Log::DebugFmt("ResourceDebug[PhoneSubtitle.CandidateTimerText]: object=%p path=%s text=%s subtitle=%s match=%d",
+                          self,
+                          componentPath.c_str(),
+                          origText.c_str(),
+                          currentPhoneSubtitleText.c_str(),
+                          isPhoneTalkTime ? 1 : 0);
+        }
+        if (!isPhoneTalkTime) return false;
+
+        *ret = currentPhoneSubtitleText + "\n" + origText;
+        return true;
+    }
     std::string CleanPhoneSubtitlePollution(const std::string& text) {
         const std::string sizeStart = "<size=70%>";
         const std::string sizeEnd = "</size>";
@@ -1237,6 +1276,14 @@ namespace HoshimiLocal::HookMain {
                         reinterpret_cast<const char16_t*>(rawData + static_cast<uintptr_t>(start) * sizeof(char16_t)),
                         static_cast<size_t>(count));
                     const std::string origText = Misc::ToUTF8(u16);
+                    std::string phoneSubtitleText;
+                    if (TryMakePhoneSubtitleTimerText(self, origText, &phoneSubtitleText)) {
+                        UpdateFont(self);
+                        TMP_Text_set_text_Orig(self, Il2cppString::New(phoneSubtitleText), nullptr);
+                        UpdateFont(self);
+                        return;
+                    }
+
                     std::string transText;
                     bool hasTrans = Local::GetGenericText(origText, &transText);
                     std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
@@ -1362,6 +1409,12 @@ namespace HoshimiLocal::HookMain {
         return get_length->Invoke<float>(clip);
     }
 
+    float GetAudioSourceTime(void* source) {
+        if (!source || !IsUnityObjectAlive(source)) return -1.0f;
+        static auto get_time = Il2cppUtils::GetMethod("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "get_time");
+        if (!get_time) return -1.0f;
+        return get_time->Invoke<float>(source);
+    }
     void LogAudioDebug(const char* source, void* audioSource, void* clip, float volumeScale = -1.0f, float delay = -1.0f) {
         if (!Config::debugAudioLog) return;
         if (!clip) clip = GetAudioSourceClip(audioSource);
@@ -1618,16 +1671,19 @@ namespace HoshimiLocal::HookMain {
             return;
         }
 
-        const float elapsed = GetRealtimeSinceStartup() - activePhoneSubtitle.startTime;
-        if (elapsed < 0.0f) {
+        const float realtimeElapsed = GetRealtimeSinceStartup() - activePhoneSubtitle.startTime;
+        if (realtimeElapsed < 0.0f) {
             currentPhoneSubtitleText.clear();
             return;
         }
 
-        if (activePhoneSubtitle.clipLength > 0.0f && elapsed > activePhoneSubtitle.clipLength + 1.5f) {
+        if (activePhoneSubtitle.clipLength > 0.0f && realtimeElapsed > activePhoneSubtitle.clipLength + 1.5f) {
             ClearPhoneSubtitle();
             return;
         }
+
+        const float audioElapsed = GetAudioSourceTime(activePhoneSubtitle.source);
+        const float elapsed = audioElapsed >= 0.0f ? audioElapsed : realtimeElapsed;
 
         const auto& lines = it->second;
         int nextIndex = -1;
