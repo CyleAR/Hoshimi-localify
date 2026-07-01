@@ -9,6 +9,7 @@ namespace HoshimiLocal::Config {
     extern bool replaceFont;
     extern bool useRuntimeKoreanFont;
     extern bool replaceImages;
+    extern bool usePhoneSubtitles;
     extern bool forceExportResource;
     extern int gameOrientation;
     extern bool textTest;
@@ -16,6 +17,7 @@ namespace HoshimiLocal::Config {
     extern bool dumpText;
     extern bool debugImageResourceLog;
     extern bool debugMasterDbLog;
+    extern bool debugAudioLog;
     extern bool enableFreeCamera;
     extern int targetFrameRate;
     extern bool unlockAllLive;

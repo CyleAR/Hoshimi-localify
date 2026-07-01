@@ -23,6 +23,7 @@ interface ConfigListener {
     fun onReplaceFontChanged(value: Boolean)
     fun onUseRuntimeKoreanFontChanged(value: Boolean)
     fun onReplaceImagesChanged(value: Boolean)
+    fun onUsePhoneSubtitlesChanged(value: Boolean)
     fun onLazyInitChanged(value: Boolean)
     fun onEnableFreeCameraChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -45,6 +46,7 @@ interface ConfigListener {
     fun onDumpTextChanged(value: Boolean)
     fun onDebugImageResourceLogChanged(value: Boolean)
     fun onDebugMasterDbLogChanged(value: Boolean)
+    fun onDebugAudioLogChanged(value: Boolean)
 
     fun onEnableBreastParamChanged(value: Boolean)
     fun onBDampingChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -144,6 +146,12 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         pushKeyEvent(KeyEvent(1145, 30))
     }
 
+    override fun onUsePhoneSubtitlesChanged(value: Boolean) {
+        config.usePhoneSubtitles = value
+        saveConfig()
+        pushKeyEvent(KeyEvent(1145, 30))
+    }
+
     override fun onLazyInitChanged(value: Boolean) {
         config.lazyInit = value
         saveConfig()
@@ -171,6 +179,11 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onDebugMasterDbLogChanged(value: Boolean) {
         config.debugMasterDbLog = value
+        saveConfig()
+    }
+
+    override fun onDebugAudioLogChanged(value: Boolean) {
+        config.debugAudioLog = value
         saveConfig()
     }
 

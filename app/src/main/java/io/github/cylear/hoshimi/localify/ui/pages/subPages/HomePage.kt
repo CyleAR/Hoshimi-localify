@@ -199,6 +199,10 @@ fun HomePage(modifier: Modifier = Modifier,
                             v -> context?.onReplaceImagesChanged(v)
                     }
 
+                    IPSwitch(modifier, stringResource(R.string.use_phone_subtitles), checked = config.value.usePhoneSubtitles) {
+                            v -> context?.onUsePhoneSubtitlesChanged(v)
+                    }
+
                 }
             }
             Spacer(Modifier.height(6.dp))

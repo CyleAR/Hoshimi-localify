@@ -95,6 +95,10 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                             v -> context?.onDebugMasterDbLogChanged(v)
                     }
 
+                    IPSwitch(modifier, stringResource(R.string.debug_audio_log), checked = config.value.debugAudioLog) {
+                            v -> context?.onDebugAudioLogChanged(v)
+                    }
+
                     IPSwitch(modifier, stringResource(R.string.force_export_resource), checked = config.value.forceExportResource) {
                             v -> context?.onForceExportResourceChanged(v)
                     }

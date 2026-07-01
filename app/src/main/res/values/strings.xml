@@ -7,6 +7,7 @@
     <string name="font_mode_builtin">Font Mode: Built-in Font</string>
     <string name="font_mode_runtime">Font Mode: Runtime Font</string>
     <string name="replace_images">Replace Images</string>
+    <string name="use_phone_subtitles">Use Phone Subtitles</string>
     <string name="lazy_init">Fast Initialization (Lazy loading)</string>
     <string name="enable_free_camera">Enable Free Camera</string>
     <string name="start_game">Start Game / Hot Reload Config</string>
@@ -64,6 +65,7 @@
     <string name="debug_settings">Debug Settings</string>
     <string name="debug_image_resource_log">Image Resource Debug Log</string>
     <string name="debug_masterdb_log">MasterDB Debug Log</string>
+    <string name="debug_audio_log">Audio Debug Log</string>
     <string name="breast_param">Breast Parameters</string>
     <string name="about">About</string>
     <string name="home">Home</string>

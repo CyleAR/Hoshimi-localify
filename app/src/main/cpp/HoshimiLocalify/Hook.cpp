@@ -266,8 +266,11 @@ namespace HoshimiLocal::HookMain {
         return InternalSetOrientationAsync_Orig(self, type, c, tc, mtd);
     }
 
+    void UpdatePhoneSubtitleOverlay();
+
     DEFINE_HOOK(void, EndCameraRendering, (void* ctx, void* camera, void* method)) {
         EndCameraRendering_Orig(ctx, camera, method);
+        UpdatePhoneSubtitleOverlay();
 
         if (Config::enableFreeCamera && mainCameraCache) {
             Unity_set_fieldOfView_Orig(mainCameraCache, IPCamera::baseCamera.fov);
@@ -954,8 +957,45 @@ namespace HoshimiLocal::HookMain {
         }
     }
 
+
+    std::string currentPhoneSubtitleText{};
+
+    bool IsPhoneCallTimerText(const std::string& text) {
+        return text.length() == 5 &&
+               std::isdigit(static_cast<unsigned char>(text[0])) &&
+               std::isdigit(static_cast<unsigned char>(text[1])) &&
+               text[2] == ':' &&
+               std::isdigit(static_cast<unsigned char>(text[3])) &&
+               std::isdigit(static_cast<unsigned char>(text[4]));
+    }
+
+    bool TryMakePhoneSubtitleTimerText(void* self, const std::string& origText, std::string* ret) {
+        if (!Config::usePhoneSubtitles) return false;
+        if (!ret || currentPhoneSubtitleText.empty()) return false;
+        if (!IsPhoneCallTimerText(origText)) return false;
+        if (Config::debugAudioLog) {
+            Log::DebugFmt("ResourceDebug[PhoneSubtitle.CandidateTimerText]: object=%p text=%s subtitle=%s",
+                          self,
+                          origText.c_str(),
+                          currentPhoneSubtitleText.c_str());
+        }
+        return false;
+    }
+
+    std::string CleanPhoneSubtitlePollution(const std::string& text) {
+        const std::string sizeStart = "<size=70%>";
+        const std::string sizeEnd = "</size>";
+        const auto start = text.find(sizeStart);
+        if (start == std::string::npos) return text;
+        const auto valueStart = start + sizeStart.length();
+        const auto end = text.find(sizeEnd, valueStart);
+        if (end == std::string::npos) return text;
+        const auto candidate = text.substr(valueStart, end - valueStart);
+        return IsPhoneCallTimerText(candidate) ? candidate : text;
+    }
+
     std::string MakeLocalizedText(const std::string& origText, const std::string& transText, bool hasTrans) {
-        auto finalStr = FixLigature(hasTrans ? transText : origText);
+        auto finalStr = CleanPhoneSubtitlePollution(FixLigature(hasTrans ? transText : origText));
         Local::DumpRemainingJapaneseText(finalStr);
         return finalStr;
     }
@@ -969,6 +1009,14 @@ namespace HoshimiLocal::HookMain {
                                                        {"System.Int32", "System.Int32"});
 
         const std::string origText = Substring->Invoke<Il2cppString*>(text, start, length)->ToString();
+        std::string phoneSubtitleText;
+        if (TryMakePhoneSubtitleTimerText(self, origText, &phoneSubtitleText)) {
+            const auto newText = UnityResolve::UnityType::String::New(phoneSubtitleText);
+            UpdateFont(self);
+            TMP_Text_PopulateTextBackingArray_Orig(self, newText, 0, newText->length);
+            UpdateFont(self);
+            return;
+        }
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
@@ -995,6 +1043,14 @@ namespace HoshimiLocal::HookMain {
             return TMP_Text_set_text_Orig(self, value, mtd);
         }
         const std::string origText = value->ToString();
+        std::string phoneSubtitleText;
+        if (TryMakePhoneSubtitleTimerText(self, origText, &phoneSubtitleText)) {
+            const auto newText = UnityResolve::UnityType::String::New(phoneSubtitleText);
+            UpdateFont(self);
+            TMP_Text_set_text_Orig(self, newText, mtd);
+            UpdateFont(self);
+            return;
+        }
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
@@ -1020,6 +1076,14 @@ namespace HoshimiLocal::HookMain {
             return TMP_Text_SetText_1_Orig(self, sourceText, mtd);
         }
         const std::string origText = sourceText->ToString();
+        std::string phoneSubtitleText;
+        if (TryMakePhoneSubtitleTimerText(self, origText, &phoneSubtitleText)) {
+            const auto newText = UnityResolve::UnityType::String::New(phoneSubtitleText);
+            UpdateFont(self);
+            TMP_Text_SetText_1_Orig(self, newText, mtd);
+            UpdateFont(self);
+            return;
+        }
         std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
@@ -1045,6 +1109,14 @@ namespace HoshimiLocal::HookMain {
 			return TMP_Text_SetText_2_Orig(self, sourceText, syncTextInputBox, mtd);
 		}
 		const std::string origText = sourceText->ToString();
+        std::string phoneSubtitleText;
+        if (TryMakePhoneSubtitleTimerText(self, origText, &phoneSubtitleText)) {
+            const auto newText = UnityResolve::UnityType::String::New(phoneSubtitleText);
+            UpdateFont(self);
+            TMP_Text_SetText_2_Orig(self, newText, syncTextInputBox, mtd);
+            UpdateFont(self);
+            return;
+        }
 		std::string transText;
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
@@ -1276,6 +1348,331 @@ namespace HoshimiLocal::HookMain {
         return name;
     }
 
+    void* GetAudioSourceClip(void* source) {
+        if (!source || !IsUnityObjectAlive(source)) return nullptr;
+        static auto get_clip = Il2cppUtils::GetMethod("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "get_clip");
+        if (!get_clip) return nullptr;
+        return get_clip->Invoke<void*>(source);
+    }
+
+    float GetAudioClipLength(void* clip) {
+        if (!clip || !IsUnityObjectAlive(clip)) return 0.0f;
+        static auto get_length = Il2cppUtils::GetMethod("UnityEngine.AudioModule.dll", "UnityEngine", "AudioClip", "get_length");
+        if (!get_length) return 0.0f;
+        return get_length->Invoke<float>(clip);
+    }
+
+    void LogAudioDebug(const char* source, void* audioSource, void* clip, float volumeScale = -1.0f, float delay = -1.0f) {
+        if (!Config::debugAudioLog) return;
+        if (!clip) clip = GetAudioSourceClip(audioSource);
+
+        const auto sourceName = GetObjectName(audioSource);
+        const auto clipName = GetObjectName(clip);
+        const auto clipLength = GetAudioClipLength(clip);
+        Log::DebugFmt("ResourceDebug[Audio.%s]: source=%s clip=%s length=%.3f volume=%.3f delay=%.3f",
+                      source,
+                      sourceName.empty() ? "<unknown>" : sourceName.c_str(),
+                      clipName.empty() ? "<none>" : clipName.c_str(),
+                      clipLength,
+                      volumeScale,
+                      delay);
+    }
+
+    struct PhoneSubtitleLine {
+        int line{};
+        float time{};
+        std::string text{};
+    };
+
+    std::unordered_map<std::string, std::vector<PhoneSubtitleLine>> phoneSubtitles{};
+    bool phoneSubtitlesLoaded = false;
+
+    struct ActivePhoneSubtitleState {
+        bool active = false;
+        void* source = nullptr;
+        std::string clipName{};
+        float startTime = 0.0f;
+        float clipLength = 0.0f;
+        int currentIndex = -1;
+    } activePhoneSubtitle{};
+
+    void* subtitleCanvasObject = nullptr;
+    void* subtitleTextObject = nullptr;
+    void* subtitleTextComponent = nullptr;
+
+    std::string DecodeSubtitleText(std::string text) {
+        size_t pos = 0;
+        while ((pos = text.find("\\n", pos)) != std::string::npos) {
+            text.replace(pos, 2, "\n");
+            pos += 1;
+        }
+        return text;
+    }
+
+    void LoadPhoneSubtitles() {
+        if (phoneSubtitlesLoaded) return;
+        phoneSubtitlesLoaded = true;
+
+        const auto subtitlePath = Local::GetBasePath() / "local-files" / "phoneSubtitles.json";
+        try {
+            if (!std::filesystem::exists(subtitlePath)) {
+                Log::InfoFmt("PhoneSubtitle: %s not found", subtitlePath.string().c_str());
+                return;
+            }
+
+            std::ifstream file(subtitlePath);
+            std::string fileContent((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            const auto jsonData = nlohmann::json::parse(fileContent);
+            for (auto it = jsonData.begin(); it != jsonData.end(); ++it) {
+                if (!it.value().is_array()) continue;
+
+                std::vector<PhoneSubtitleLine> lines{};
+                for (const auto& item : it.value()) {
+                    if (!item.contains("time") || !item.contains("text")) continue;
+                    PhoneSubtitleLine line{};
+                    line.line = item.value("line", 0);
+                    line.time = item.value("time", 0.0f);
+                    line.text = DecodeSubtitleText(item.value("text", std::string{}));
+                    if (!line.text.empty()) lines.emplace_back(std::move(line));
+                }
+
+                std::sort(lines.begin(), lines.end(), [](const PhoneSubtitleLine& a, const PhoneSubtitleLine& b) {
+                    if (a.time == b.time) return a.line < b.line;
+                    return a.time < b.time;
+                });
+
+                if (!lines.empty()) phoneSubtitles.emplace(it.key(), std::move(lines));
+            }
+            Log::InfoFmt("PhoneSubtitle: %zu clips loaded", phoneSubtitles.size());
+        } catch (const std::exception& e) {
+            Log::ErrorFmt("PhoneSubtitle: failed to load %s: %s", subtitlePath.string().c_str(), e.what());
+        }
+    }
+
+    float GetRealtimeSinceStartup() {
+        static auto get_realtimeSinceStartup = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Time", "get_realtimeSinceStartup");
+        if (!get_realtimeSinceStartup) return 0.0f;
+        return get_realtimeSinceStartup->Invoke<float>();
+    }
+
+    void* GetSystemTypeObject(const char* assemblyName, const char* nameSpaceName, const char* className) {
+        auto klass = Il2cppUtils::GetClass(assemblyName, nameSpaceName, className);
+        if (!klass) return nullptr;
+        auto type = UnityResolve::Invoke<void*>("il2cpp_class_get_type", klass);
+        if (!type) return nullptr;
+        return UnityResolve::Invoke<void*>("il2cpp_type_get_object", type);
+    }
+
+    void* CreateGameObject(const std::string& name) {
+        auto klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "GameObject");
+        if (!klass) return nullptr;
+        auto obj = UnityResolve::Invoke<void*>("il2cpp_object_new", klass);
+        if (!obj) return nullptr;
+        UnityResolve::UnityType::GameObject::Create(static_cast<UnityResolve::UnityType::GameObject*>(obj), name);
+        return obj;
+    }
+
+    void* AddComponentByType(void* gameObject, const char* assemblyName, const char* nameSpaceName, const char* className) {
+        if (!gameObject) return nullptr;
+        static auto AddComponent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "GameObject", "AddComponent", {"System.Type"});
+        if (!AddComponent) return nullptr;
+        auto typeObject = GetSystemTypeObject(assemblyName, nameSpaceName, className);
+        if (!typeObject) return nullptr;
+        return AddComponent->Invoke<void*>(gameObject, typeObject);
+    }
+
+    void* GetGameObjectTransform(void* gameObject) {
+        if (!gameObject) return nullptr;
+        static auto get_transform = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "GameObject", "get_transform");
+        if (!get_transform) return nullptr;
+        return get_transform->Invoke<void*>(gameObject);
+    }
+
+    void SetGameObjectActive(void* gameObject, bool active) {
+        if (!gameObject || !IsUnityObjectAlive(gameObject)) return;
+        static auto set_active = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "GameObject", "SetActive", {"System.Boolean"});
+        if (set_active) set_active->Invoke<void>(gameObject, active);
+    }
+
+    void DontDestroyOnLoad(void* obj) {
+        if (!obj) return;
+        static auto DontDestroyOnLoadMethod = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "DontDestroyOnLoad", {"UnityEngine.Object"});
+        if (DontDestroyOnLoadMethod) DontDestroyOnLoadMethod->Invoke<void>(obj);
+    }
+
+    void SetRectTransform(void* transform, UnityResolve::UnityType::Vector2 anchorMin,
+                          UnityResolve::UnityType::Vector2 anchorMax, UnityResolve::UnityType::Vector2 pivot,
+                          UnityResolve::UnityType::Vector2 anchoredPosition, UnityResolve::UnityType::Vector2 sizeDelta) {
+        if (!transform) return;
+        static auto set_anchorMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMin", {"UnityEngine.Vector2"});
+        static auto set_anchorMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMax", {"UnityEngine.Vector2"});
+        static auto set_pivot = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_pivot", {"UnityEngine.Vector2"});
+        static auto set_anchoredPosition = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchoredPosition", {"UnityEngine.Vector2"});
+        static auto set_sizeDelta = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_sizeDelta", {"UnityEngine.Vector2"});
+        if (set_anchorMin) set_anchorMin->Invoke<void>(transform, anchorMin);
+        if (set_anchorMax) set_anchorMax->Invoke<void>(transform, anchorMax);
+        if (set_pivot) set_pivot->Invoke<void>(transform, pivot);
+        if (set_anchoredPosition) set_anchoredPosition->Invoke<void>(transform, anchoredPosition);
+        if (set_sizeDelta) set_sizeDelta->Invoke<void>(transform, sizeDelta);
+    }
+
+    bool EnsurePhoneSubtitleOverlay() {
+        if (subtitleCanvasObject && IsUnityObjectAlive(subtitleCanvasObject) &&
+            subtitleTextComponent && IsUnityObjectAlive(subtitleTextComponent)) {
+            return true;
+        }
+
+        subtitleCanvasObject = CreateGameObject("HoshimiPhoneSubtitleCanvas");
+        if (!subtitleCanvasObject) return false;
+        auto canvas = AddComponentByType(subtitleCanvasObject, "UnityEngine.UIModule.dll", "UnityEngine", "Canvas");
+        if (!canvas) return false;
+        AddComponentByType(subtitleCanvasObject, "UnityEngine.UI.dll", "UnityEngine.UI", "CanvasScaler");
+        AddComponentByType(subtitleCanvasObject, "UnityEngine.UI.dll", "UnityEngine.UI", "GraphicRaycaster");
+
+        static auto Canvas_set_renderMode = Il2cppUtils::GetMethod("UnityEngine.UIModule.dll", "UnityEngine", "Canvas", "set_renderMode", {"UnityEngine.RenderMode"});
+        static auto Canvas_set_sortingOrder = Il2cppUtils::GetMethod("UnityEngine.UIModule.dll", "UnityEngine", "Canvas", "set_sortingOrder", {"System.Int32"});
+        if (Canvas_set_renderMode) Canvas_set_renderMode->Invoke<void>(canvas, 0);
+        if (Canvas_set_sortingOrder) Canvas_set_sortingOrder->Invoke<void>(canvas, 32767);
+        DontDestroyOnLoad(subtitleCanvasObject);
+
+        subtitleTextObject = CreateGameObject("HoshimiPhoneSubtitleText");
+        if (!subtitleTextObject) return false;
+        subtitleTextComponent = AddComponentByType(subtitleTextObject, "Unity.TextMeshPro.dll", "TMPro", "TextMeshProUGUI");
+        if (!subtitleTextComponent) return false;
+
+        auto canvasTransform = GetGameObjectTransform(subtitleCanvasObject);
+        auto textTransform = GetGameObjectTransform(subtitleTextObject);
+        static auto Transform_SetParent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "SetParent", {"UnityEngine.Transform", "System.Boolean"});
+        if (Transform_SetParent && textTransform && canvasTransform) Transform_SetParent->Invoke<void>(textTransform, canvasTransform, false);
+
+        SetRectTransform(textTransform,
+                         UnityResolve::UnityType::Vector2(0.0f, 0.0f),
+                         UnityResolve::UnityType::Vector2(1.0f, 0.0f),
+                         UnityResolve::UnityType::Vector2(0.5f, 0.0f),
+                         UnityResolve::UnityType::Vector2(0.0f, 86.0f),
+                         UnityResolve::UnityType::Vector2(-160.0f, 190.0f));
+
+        static auto set_fontSize = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_fontSize", {"System.Single"});
+        static auto set_alignment = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_alignment", {"TMPro.TextAlignmentOptions"});
+        static auto set_color = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_color", {"UnityEngine.Color"});
+        static auto set_enableWordWrapping = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_enableWordWrapping", {"System.Boolean"});
+        static auto set_raycastTarget = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Graphic", "set_raycastTarget", {"System.Boolean"});
+        if (set_fontSize) set_fontSize->Invoke<void>(subtitleTextComponent, 30.0f);
+        if (set_alignment) set_alignment->Invoke<void>(subtitleTextComponent, 514);
+        if (set_color) set_color->Invoke<void>(subtitleTextComponent, UnityResolve::UnityType::Color(1.0f, 1.0f, 1.0f, 1.0f));
+        if (set_enableWordWrapping) set_enableWordWrapping->Invoke<void>(subtitleTextComponent, true);
+        if (set_raycastTarget) set_raycastTarget->Invoke<void>(subtitleTextComponent, false);
+        UpdateFont(subtitleTextComponent);
+        SetGameObjectActive(subtitleCanvasObject, false);
+        return true;
+    }
+
+    void SetPhoneSubtitleText(const std::string& text) {
+        if (!EnsurePhoneSubtitleOverlay()) return;
+        static auto set_text = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_text");
+        if (set_text) set_text->Invoke<void>(subtitleTextComponent, Il2cppString::New(text));
+        SetGameObjectActive(subtitleCanvasObject, !text.empty());
+    }
+
+    void ClearPhoneSubtitle() {
+        activePhoneSubtitle.active = false;
+        activePhoneSubtitle.currentIndex = -1;
+        currentPhoneSubtitleText.clear();
+    }
+
+    void TryStartPhoneSubtitle(void* audioSource, void* clip, float delaySeconds = 0.0f) {
+        if (!Config::usePhoneSubtitles) {
+            ClearPhoneSubtitle();
+            return;
+        }
+        if (!clip) clip = GetAudioSourceClip(audioSource);
+        const auto clipName = GetObjectName(clip);
+        if (!clipName.starts_with("sud_vo_phone")) return;
+
+        LoadPhoneSubtitles();
+        auto it = phoneSubtitles.find(clipName);
+        if (it == phoneSubtitles.end()) {
+            if (Config::debugAudioLog) Log::DebugFmt("ResourceDebug[PhoneSubtitle]: clip=%s result=no_subtitle_data", clipName.c_str());
+            ClearPhoneSubtitle();
+            return;
+        }
+
+        activePhoneSubtitle.active = true;
+        activePhoneSubtitle.source = audioSource;
+        activePhoneSubtitle.clipName = clipName;
+        activePhoneSubtitle.startTime = GetRealtimeSinceStartup() + std::max(0.0f, delaySeconds);
+        activePhoneSubtitle.clipLength = GetAudioClipLength(clip);
+        activePhoneSubtitle.currentIndex = -1;
+        if (Config::debugAudioLog) Log::DebugFmt("ResourceDebug[PhoneSubtitle]: clip=%s result=start lines=%zu", clipName.c_str(), it->second.size());
+    }
+
+    void UpdatePhoneSubtitleOverlay() {
+        if (!Config::usePhoneSubtitles) {
+            if (activePhoneSubtitle.active || !currentPhoneSubtitleText.empty()) ClearPhoneSubtitle();
+            return;
+        }
+        if (!activePhoneSubtitle.active) return;
+        auto it = phoneSubtitles.find(activePhoneSubtitle.clipName);
+        if (it == phoneSubtitles.end() || it->second.empty()) {
+            ClearPhoneSubtitle();
+            return;
+        }
+
+        const float elapsed = GetRealtimeSinceStartup() - activePhoneSubtitle.startTime;
+        if (elapsed < 0.0f) {
+            currentPhoneSubtitleText.clear();
+            return;
+        }
+
+        if (activePhoneSubtitle.clipLength > 0.0f && elapsed > activePhoneSubtitle.clipLength + 1.5f) {
+            ClearPhoneSubtitle();
+            return;
+        }
+
+        const auto& lines = it->second;
+        int nextIndex = -1;
+        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+            if (lines[i].time <= elapsed) nextIndex = i;
+            else break;
+        }
+
+        if (nextIndex < 0) {
+            currentPhoneSubtitleText.clear();
+            return;
+        }
+        if (nextIndex != activePhoneSubtitle.currentIndex) {
+            activePhoneSubtitle.currentIndex = nextIndex;
+            currentPhoneSubtitleText = lines[nextIndex].text;
+        }
+    }
+    DEFINE_HOOK(void, AudioSource_Play, (void* self)) {
+        LogAudioDebug("Play", self, nullptr);
+        TryStartPhoneSubtitle(self, nullptr);
+        AudioSource_Play_Orig(self);
+    }
+
+    DEFINE_HOOK(void, AudioSource_Play_UInt64, (void* self, uint64_t delay)) {
+        LogAudioDebug("PlayUInt64", self, nullptr, -1.0f, static_cast<float>(delay));
+        TryStartPhoneSubtitle(self, nullptr);
+        AudioSource_Play_UInt64_Orig(self, delay);
+    }
+
+    DEFINE_HOOK(void, AudioSource_PlayDelayed, (void* self, float delay)) {
+        LogAudioDebug("PlayDelayed", self, nullptr, -1.0f, delay);
+        TryStartPhoneSubtitle(self, nullptr, delay);
+        AudioSource_PlayDelayed_Orig(self, delay);
+    }
+
+    DEFINE_HOOK(void, AudioSource_PlayOneShot, (void* self, void* clip, float volumeScale)) {
+        LogAudioDebug("PlayOneShot", self, clip, volumeScale);
+        TryStartPhoneSubtitle(self, clip);
+        AudioSource_PlayOneShot_Orig(self, clip, volumeScale);
+    }
+
+    DEFINE_HOOK(void, AudioSource_set_clip, (void* self, void* clip)) {
+        LogAudioDebug("set_clip", self, clip);
+        AudioSource_set_clip_Orig(self, clip);
+    }
     void* CreateSpriteFromBytes(const std::vector<uint8_t>& bytes) {
         static auto byte_klass = Il2cppUtils::GetClass("mscorlib.dll", "System", "Byte");
         auto il2cpp_bytes = UnityResolve::UnityType::Array<uint8_t>::New(byte_klass, bytes.size());
@@ -4388,6 +4785,16 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Internal_Log, Il2cppUtils::il2cpp_resolve_icall(
                 "UnityEngine.DebugLogHandler::Internal_Log(UnityEngine.LogType,UnityEngine.LogOption,System.String,UnityEngine.Object)"));
 
+        ADD_HOOK(AudioSource_Play,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "Play"));
+        ADD_HOOK(AudioSource_Play_UInt64,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "Play", {"System.UInt64"}));
+        ADD_HOOK(AudioSource_PlayDelayed,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "PlayDelayed", {"System.Single"}));
+        ADD_HOOK(AudioSource_PlayOneShot,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "PlayOneShot", {"UnityEngine.AudioClip", "System.Single"}));
+        ADD_HOOK(AudioSource_set_clip,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.AudioModule.dll", "UnityEngine", "AudioSource", "set_clip"));
         // 双端
         ADD_HOOK(InternalSetOrientationAsync,
             Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",

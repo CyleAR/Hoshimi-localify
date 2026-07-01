@@ -13,6 +13,7 @@ namespace HoshimiLocal::Config {
     bool replaceFont = true;
     bool useRuntimeKoreanFont = false;
     bool replaceImages = true;
+    bool usePhoneSubtitles = false;
     bool forceExportResource = false;
     bool textTest = false;
     bool useMasterTrans = true;
@@ -20,6 +21,7 @@ namespace HoshimiLocal::Config {
     bool dumpText = false;
     bool debugImageResourceLog = false;
     bool debugMasterDbLog = false;
+    bool debugAudioLog = false;
     bool enableFreeCamera = false;
     int targetFrameRate = 0;
     bool unlockAllLive = false;
@@ -74,6 +76,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(replaceFont);
             GetConfigItem(useRuntimeKoreanFont);
             GetConfigItem(replaceImages);
+            GetConfigItem(usePhoneSubtitles);
             GetConfigItem(forceExportResource);
             GetConfigItem(gameOrientation);
             GetConfigItem(textTest);
@@ -81,6 +84,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(dumpText);
             GetConfigItem(debugImageResourceLog);
             GetConfigItem(debugMasterDbLog);
+            GetConfigItem(debugAudioLog);
             GetConfigItem(targetFrameRate);
             GetConfigItem(enableFreeCamera);
             GetConfigItem(unlockAllLive);
@@ -136,6 +140,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(replaceFont);
             SetConfigItem(useRuntimeKoreanFont);
             SetConfigItem(replaceImages);
+            SetConfigItem(usePhoneSubtitles);
             SetConfigItem(forceExportResource);
             SetConfigItem(gameOrientation);
             SetConfigItem(textTest);
@@ -143,6 +148,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(dumpText);
             SetConfigItem(debugImageResourceLog);
             SetConfigItem(debugMasterDbLog);
+            SetConfigItem(debugAudioLog);
             SetConfigItem(targetFrameRate);
             SetConfigItem(enableFreeCamera);
             SetConfigItem(unlockAllLive);
