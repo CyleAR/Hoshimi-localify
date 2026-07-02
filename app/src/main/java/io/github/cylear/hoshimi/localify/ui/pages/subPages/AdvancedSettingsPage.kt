@@ -75,10 +75,6 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
         item {
             IPGroupBox(modifier, stringResource(R.string.debug_settings)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IPSwitch(modifier, stringResource(R.string.useMasterDBTrans), checked = config.value.useMasterTrans) {
-                            v -> context?.onUseMasterTransChanged(v)
-                    }
-
                     IPSwitch(modifier, stringResource(R.string.text_hook_test_mode), checked = config.value.textTest) {
                             v -> context?.onTextTestChanged(v)
                     }
@@ -113,7 +109,8 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
         }
 
         item {
-            IPGroupBox(modifier, stringResource(R.string.breast_param),
+            if (config.value.dbgMode) {
+                IPGroupBox(modifier, stringResource(R.string.breast_param),
                 contentPadding = 0.dp,
                 onHeadClick = {
                     breastParamViewModel.expanded = !breastParamViewModel.expanded
@@ -361,6 +358,8 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                     }
                 }
             }
+        }
+
         }
 
         item {
