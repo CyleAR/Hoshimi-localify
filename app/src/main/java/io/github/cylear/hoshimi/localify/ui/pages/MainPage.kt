@@ -4,6 +4,7 @@ import android.content.res.Configuration.UI_MODE_NIGHT_NO
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -52,6 +53,7 @@ fun MainUI(modifier: Modifier = Modifier, context: MainActivity? = null,
     var versionInfo by remember {
         mutableStateOf(context?.getVersion() ?: listOf("", "Unknown"))
     }
+    var debugTapCount by remember { mutableStateOf(0) }
     // val config = getConfigState(context, previewData)
     val confirmState by getMainUIConfirmState(context, null)
     val programConfig by getProgramConfigState(context)
@@ -79,7 +81,17 @@ fun MainUI(modifier: Modifier = Modifier, context: MainActivity? = null,
                 .padding(10.dp, 10.dp, 10.dp, 0.dp),
             verticalArrangement = Arrangement.Top
         ) {
-            Text(text = "Hoshimi Localify ${versionInfo[0]}", fontSize = 18.sp)
+            Text(
+                text = "Hoshimi Localify ${versionInfo[0]}",
+                fontSize = 18.sp,
+                modifier = Modifier.clickable {
+                    debugTapCount++
+                    if (debugTapCount >= 7) {
+                        debugTapCount = 0
+                        context?.toggleDebugMode()
+                    }
+                }
+            )
             Text(text = "${stringResource(R.string.current_resource_version)}: ${versionInfo[1]}", fontSize = 13.sp)
 
             SettingsTabs(modifier, listOf(stringResource(R.string.about), stringResource(R.string.home),

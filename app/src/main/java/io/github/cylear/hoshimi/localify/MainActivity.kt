@@ -14,7 +14,6 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.ViewModelProvider
 import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
-import io.github.cylear.hoshimi.localify.hookUtils.MainKeyEventDispatcher
 import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
 
 import io.github.cylear.hoshimi.localify.mainUtils.json
@@ -137,16 +136,16 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         return dispatchKeyEvent(event)
     }
 
+    fun toggleDebugMode() {
+        val origDbg = config.dbgMode
+        config.dbgMode = !origDbg
+        checkConfigAndUpdateView()
+        saveConfig()
+        showToast("TestMode: ${!origDbg}")
+    }
+
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Log.d(TAG, "${event.keyCode}, ${event.action}")
-        if (MainKeyEventDispatcher.checkDbgKey(event.keyCode, event.action)) {
-            val origDbg = config.dbgMode
-            config.dbgMode = !origDbg
-            checkConfigAndUpdateView()
-            saveConfig()
-            showToast("TestMode: ${!origDbg}")
-        }
         return if (event.action == 1145) true else super.dispatchKeyEvent(event)
     }
 
