@@ -64,6 +64,49 @@ namespace HoshimiLocal::MasterLocal {
 
     static std::unordered_map<std::string, TableLocalData> masterLocalData;
 
+    bool IsFlatArrayStringLocalKey(const std::string& tableName, const std::string& parent, const std::string& child) {
+        return tableName == "Tutorial" && parent == "stepInfo" && child == "texts";
+    }
+
+    bool IsFlatArrayStringDataKey(const std::string& tableName, const std::string& key) {
+        if (tableName != "Tutorial") return false;
+        auto pipePos = key.find('|');
+        if (pipePos == std::string::npos) return false;
+        auto suffix = key.substr(pipePos + 1);
+        return suffix.rfind("stepInfo[", 0) == 0 && suffix.size() >= 6 &&
+               suffix.compare(suffix.size() - 6, 6, ".texts") == 0;
+    }
+
+    std::vector<std::string> SplitTutorialTextMarkers(const std::string& value) {
+        static const std::string firstMarker = "[LA_F]";
+        static const std::string nextMarker = "[LA_N_F]";
+        std::vector<std::string> ret;
+        size_t pos = 0;
+
+        while (pos < value.size()) {
+            if (value.compare(pos, firstMarker.size(), firstMarker) == 0) {
+                pos += firstMarker.size();
+                continue;
+            }
+            if (value.compare(pos, nextMarker.size(), nextMarker) == 0) {
+                pos += nextMarker.size();
+                continue;
+            }
+
+            auto firstPos = value.find(firstMarker, pos);
+            auto nextPos = value.find(nextMarker, pos);
+            auto endPos = std::min(firstPos == std::string::npos ? value.size() : firstPos,
+                                   nextPos == std::string::npos ? value.size() : nextPos);
+            auto part = value.substr(pos, endPos - pos);
+            if (!part.empty()) ret.push_back(part);
+            pos = endPos;
+        }
+
+        if (ret.empty() && value.find(firstMarker) == std::string::npos && value.find(nextMarker) == std::string::npos) {
+            ret.push_back(value);
+        }
+        return ret;
+    }
     class FieldController {
         void* self;
         std::string self_klass_name;
@@ -208,24 +251,25 @@ namespace HoshimiLocal::MasterLocal {
 
         void SetStringListField(const std::string& fieldName, const std::vector<std::string>& data) {
             if (!self) return;
-            static auto List_String_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
-                    "System.Collections.Generic.List`1[System.String]"
-            );
-            static auto List_String_ctor_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
-                    List_String_klass, ".ctor", 0
-            );
-            static auto List_String_ctor = reinterpret_cast<void (*)(void*, void*)>(
-                    List_String_ctor_mtd->methodPointer
-            );
+            auto targetList = ReadObjectField(fieldName);
+            if (!targetList) {
+                Log::ErrorFmt("SetStringListField failed: %s has no existing collection", fieldName.c_str());
+                return;
+            }
 
-            auto newList = UnityResolve::Invoke<void*>("il2cpp_object_new", List_String_klass);
-            List_String_ctor(newList, List_String_ctor_mtd);
+            auto listKlass = Il2cppUtils::get_class_from_instance(targetList);
+            auto clearMtd = listKlass ? Il2cppUtils::il2cpp_class_get_method_from_name(listKlass, "Clear", 0) : nullptr;
+            if (!clearMtd) {
+                Log::ErrorFmt("SetStringListField failed: %s collection has no Clear method", fieldName.c_str());
+                return;
+            }
 
-            Il2cppUtils::Tools::CSListEditor<Il2cppString*> newListEditor(newList);
+            reinterpret_cast<void (*)(void*, void*)>(clearMtd->methodPointer)(targetList, clearMtd);
+
+            Il2cppUtils::Tools::CSListEditor<Il2cppString*> newListEditor(targetList);
             for (auto& s : data) {
                 newListEditor.Add(Il2cppString::New(s));
             }
-            SetField(fieldName, newList);
         }
 
         void* ReadObjectField(const std::string& fieldName) {
@@ -645,7 +689,7 @@ namespace HoshimiLocal::MasterLocal {
                                     if (tableLocalData.mainKeyType.find(parent) == tableLocalData.mainKeyType.end()) {
                                         tableLocalData.mainKeyType[parent] = JsonValueType::JVT_Object;
                                     }
-                                    tableLocalData.subKeyType[parent][child] = JsonValueType::JVT_String;
+                                    tableLocalData.subKeyType[parent][child] = IsFlatArrayStringLocalKey(tableName, parent, child) ? JsonValueType::JVT_ArrayString : JsonValueType::JVT_String;
                                 }
                             } else {
                                 currRule.mainLocalKey.push_back(localKey);
@@ -656,7 +700,11 @@ namespace HoshimiLocal::MasterLocal {
                         // 번역 데이터 직접 매핑
                         for (auto& [k, v] : j["data"].items()) {
                             if (v.is_string()) {
-                                tableLocalData.transData.emplace(k, v);
+                                if (IsFlatArrayStringDataKey(tableName, k)) {
+                                    tableLocalData.transStrListData.emplace(k, SplitTutorialTextMarkers(v.get<std::string>()));
+                                } else {
+                                    tableLocalData.transData.emplace(k, v);
+                                }
                                 if (k.find('[') != std::string::npos) {
                                     auto pipePos = k.find('|');
                                     auto dotPos = k.find('.');
@@ -669,6 +717,15 @@ namespace HoshimiLocal::MasterLocal {
                                     }
                                 }
                                 Local::translatedText.emplace(v);
+                            } else if (v.is_array() && IsFlatArrayStringDataKey(tableName, k)) {
+                                std::vector<std::string> splitTexts;
+                                for (const auto& item : v) {
+                                    if (!item.is_string()) continue;
+                                    auto parts = SplitTutorialTextMarkers(item.get<std::string>());
+                                    splitTexts.insert(splitTexts.end(), parts.begin(), parts.end());
+                                    Local::translatedText.emplace(item);
+                                }
+                                tableLocalData.transStrListData.emplace(k, splitTexts);
                             }
                         }
                         tableLocalData.itemRule = std::move(currRule);
