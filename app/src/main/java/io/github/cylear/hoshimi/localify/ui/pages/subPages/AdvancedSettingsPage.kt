@@ -61,18 +61,6 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
-            IPGroupBox(modifier, stringResource(R.string.camera_settings)) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IPSwitch(modifier, stringResource(R.string.enable_free_camera), checked = config.value.enableFreeCamera) {
-                            v -> context?.onEnableFreeCameraChanged(v)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-        }
-
-        item {
             IPGroupBox(modifier, stringResource(R.string.debug_settings)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     IPSwitch(modifier, stringResource(R.string.text_hook_test_mode), checked = config.value.textTest) {
@@ -106,6 +94,21 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
             }
 
             Spacer(Modifier.height(6.dp))
+        }
+
+
+        item {
+            if (config.value.dbgMode) {
+                IPGroupBox(modifier, stringResource(R.string.camera_settings)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IPSwitch(modifier, stringResource(R.string.enable_free_camera), checked = config.value.enableFreeCamera) {
+                                v -> context?.onEnableFreeCameraChanged(v)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+            }
         }
 
         item {
