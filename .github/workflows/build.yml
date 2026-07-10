@@ -70,7 +70,20 @@ jobs:
       - name: Grant execute permission for Gradle wrapper
         run: chmod +x gradlew
 
+      - name: Restore release keystore
+        env:
+          HOSHIMI_RELEASE_KEYSTORE_BASE64: ${{ secrets.HOSHIMI_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$HOSHIMI_RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$HOSHIMI_RELEASE_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          fi
+
       - name: Build APK
+        env:
+          HOSHIMI_RELEASE_STORE_FILE: release.keystore
+          HOSHIMI_RELEASE_STORE_PASSWORD: ${{ secrets.HOSHIMI_RELEASE_STORE_PASSWORD }}
+          HOSHIMI_RELEASE_KEY_ALIAS: ${{ secrets.HOSHIMI_RELEASE_KEY_ALIAS }}
+          HOSHIMI_RELEASE_KEY_PASSWORD: ${{ secrets.HOSHIMI_RELEASE_KEY_PASSWORD }}
         run: ./gradlew clean assembleRelease
 
       - name: Rename APK
