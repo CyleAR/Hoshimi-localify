@@ -1045,6 +1045,25 @@ namespace HoshimiLocal::HookMain {
         return finalStr;
     }
 
+    bool HasTextLayoutMarker(const std::string& text) {
+        return text.starts_with("[center]");
+    }
+
+    void ApplyCenterTextLayout(void* textComponent) {
+        if (!textComponent) return;
+        static auto set_alignment = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_alignment", {"TMPro.TextAlignmentOptions"});
+        static auto set_richText = Il2cppUtils::GetMethod("Unity.TextMeshPro.dll", "TMPro", "TMP_Text", "set_richText", {"System.Boolean"});
+        if (set_richText) set_richText->Invoke<void>(textComponent, true);
+        if (set_alignment) set_alignment->Invoke<void>(textComponent, 514);
+    }
+
+    bool ApplyTextLayoutMarkers(void* textComponent, std::string& text) {
+        if (!textComponent || !HasTextLayoutMarker(text)) return false;
+        text.erase(0, 8);
+        ApplyCenterTextLayout(textComponent);
+        return true;
+    }
+
     DEFINE_HOOK(void, TMP_Text_PopulateTextBackingArray, (void* self, UnityResolve::UnityType::String* text, int start, int length)) {
         if (!text) {
             return TMP_Text_PopulateTextBackingArray_Orig(self, text, start, length);
@@ -1066,7 +1085,8 @@ namespace HoshimiLocal::HookMain {
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
-        if (hasTrans || finalStr != origText) {
+        if (hasTrans || finalStr != origText || HasTextLayoutMarker(finalStr)) {
+            ApplyTextLayoutMarkers(self, finalStr);
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             TMP_Text_PopulateTextBackingArray_Orig(self, newText, 0, newText->length);
@@ -1100,7 +1120,8 @@ namespace HoshimiLocal::HookMain {
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
-        if (hasTrans || finalStr != origText) {
+        if (hasTrans || finalStr != origText || HasTextLayoutMarker(finalStr)) {
+            ApplyTextLayoutMarkers(self, finalStr);
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             TMP_Text_set_text_Orig(self, newText, mtd);
@@ -1133,7 +1154,8 @@ namespace HoshimiLocal::HookMain {
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
-        if (hasTrans || finalStr != origText) {
+        if (hasTrans || finalStr != origText || HasTextLayoutMarker(finalStr)) {
+            ApplyTextLayoutMarkers(self, finalStr);
             const auto newText = UnityResolve::UnityType::String::New(finalStr);
             UpdateFont(self);
             TMP_Text_SetText_1_Orig(self, newText, mtd);
@@ -1166,7 +1188,8 @@ namespace HoshimiLocal::HookMain {
         bool hasTrans = Local::GetGenericText(origText, &transText);
         std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
-		if (hasTrans || finalStr != origText) {
+		if (hasTrans || finalStr != origText || HasTextLayoutMarker(finalStr)) {
+            ApplyTextLayoutMarkers(self, finalStr);
 			const auto newText = UnityResolve::UnityType::String::New(finalStr);
 			UpdateFont(self);
 			TMP_Text_SetText_2_Orig(self, newText, syncTextInputBox, mtd);
@@ -1189,6 +1212,7 @@ namespace HoshimiLocal::HookMain {
                                                                      "TMPro", "TMP_Text");
         const auto get_Text_method = TMP_Text_klass->Get<UnityResolve::Method>("get_text");
         const auto set_Text_method = TMP_Text_klass->Get<UnityResolve::Method>("set_text");
+        bool centerAfterAwake = false;
         const auto currText = get_Text_method->Invoke<UnityResolve::UnityType::String*>(self);
         if (currText) {
             //Log::InfoFmt("TextMeshProUGUI_Awake: %s", currText->ToString().c_str());
@@ -1196,7 +1220,8 @@ namespace HoshimiLocal::HookMain {
             bool hasTrans = Local::GetGenericText(currText->ToString(), &transText);
             std::string finalStr = MakeLocalizedText(currText->ToString(), transText, hasTrans);
 
-            if (hasTrans || finalStr != currText->ToString()) {
+            if (hasTrans || finalStr != currText->ToString() || HasTextLayoutMarker(finalStr)) {
+                centerAfterAwake = ApplyTextLayoutMarkers(self, finalStr);
                 if (Config::textTest) {
                     set_Text_method->Invoke<void>(self, UnityResolve::UnityType::String::New("[TA]" + finalStr));
                 }
@@ -1209,6 +1234,7 @@ namespace HoshimiLocal::HookMain {
         // set_font->Invoke<void>(self, font);
         UpdateFont(self);
         TextMeshProUGUI_Awake_Orig(self, method);
+        if (centerAfterAwake) ApplyCenterTextLayout(self);
     }
 
     // TMP_FontAsset.Awake: UABEA로 교체한 'SourceSansPro-Regular' 에셋 캡처
@@ -1294,7 +1320,8 @@ namespace HoshimiLocal::HookMain {
                     bool hasTrans = Local::GetGenericText(origText, &transText);
                     std::string finalStr = MakeLocalizedText(origText, transText, hasTrans);
 
-                    if (hasTrans || finalStr != origText) {
+                    if (hasTrans || finalStr != origText || HasTextLayoutMarker(finalStr)) {
+                        ApplyTextLayoutMarkers(self, finalStr);
                         UpdateFont(self);
                         TMP_Text_set_text_Orig(self, Il2cppString::New(finalStr), nullptr);
                         UpdateFont(self);
