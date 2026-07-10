@@ -89,6 +89,35 @@ namespace HoshimiLocal::Local {
         NO_SPLIT_AND_EMPTY
     };
 
+    void InsertJsonStringDataToMap(const nlohmann::json& data, std::unordered_map<std::string, std::string>& dict,
+                                   const bool insertToTranslated, const bool needCheckSplitPrefix) {
+        if (!data.is_object()) return;
+
+        for (auto& i : data.items()) {
+            const auto& key = i.key();
+            const auto& jsonValue = i.value();
+
+            if (jsonValue.is_object()) {
+                InsertJsonStringDataToMap(jsonValue, dict, insertToTranslated, needCheckSplitPrefix);
+                continue;
+            }
+            if (!jsonValue.is_string()) {
+                continue;
+            }
+
+            const std::string value = jsonValue;
+            if (needCheckSplitPrefix && key.starts_with(splitTextPrefix) && value.starts_with(splitTextPrefix)) {
+                static const auto splitTextPrefixLength = splitTextPrefix.size();
+                const auto splitValue = value.substr(splitTextPrefixLength);
+                genericSplitText[key.substr(splitTextPrefixLength)] = splitValue;
+                if (insertToTranslated) translatedText.emplace(splitValue);
+            }
+            else {
+                dict[key] = value;
+                if (insertToTranslated) translatedText.emplace(value);
+            }
+        }
+    }
     void LoadJsonDataToMap(const std::filesystem::path& filePath, std::unordered_map<std::string, std::string>& dict,
                            const bool insertToTranslated = false, const bool needClearDict = true,
                            const bool needCheckSplitPrefix = false) {
@@ -105,20 +134,7 @@ namespace HoshimiLocal::Local {
             std::string fileContent((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
             file.close();
             auto fileData = nlohmann::json::parse(fileContent);
-            for (auto& i : fileData.items()) {
-                const auto& key = i.key();
-                const std::string value = i.value();
-                if (needCheckSplitPrefix && key.starts_with(splitTextPrefix) && value.starts_with(splitTextPrefix)) {
-                    static const auto splitTextPrefixLength = splitTextPrefix.size();
-                    const auto splitValue = value.substr(splitTextPrefixLength);
-                    genericSplitText[key.substr(splitTextPrefixLength)] = splitValue;
-                    if (insertToTranslated) translatedText.emplace(splitValue);
-                }
-                else {
-                    dict[key] = value;
-                    if (insertToTranslated) translatedText.emplace(value);
-                }
-            }
+            InsertJsonStringDataToMap(fileData, dict, insertToTranslated, needCheckSplitPrefix);
         }
         catch (std::exception& e) {
             Log::ErrorFmt("Load %s failed: %s\n", filePath.string().c_str(), e.what());
