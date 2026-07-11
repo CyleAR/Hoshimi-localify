@@ -4485,6 +4485,17 @@ namespace HoshimiLocal::HookMain {
                                                "OctoResourceLoader", "LoadFromCacheOrDownload",
                                                {"System.String", "System.Action<System.String,Octo.LoadError>", "Octo.OnDownloadProgress"}));
 
+        ADD_HOOK(Image_set_sprite,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
+                                               "Image", "set_sprite", {"UnityEngine.Sprite"}));
+
+        ADD_HOOK(Image_set_overrideSprite,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
+                                               "Image", "set_overrideSprite", {"UnityEngine.Sprite"}));
+
+        ADD_HOOK(RawImage_set_texture,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
+                                               "RawImage", "set_texture", {"UnityEngine.Texture"}));
 
         ADD_HOOK(Graphic_OnEnable,
                  Il2cppUtils::GetMethodPointer("UnityEngine.UI.dll", "UnityEngine.UI",
