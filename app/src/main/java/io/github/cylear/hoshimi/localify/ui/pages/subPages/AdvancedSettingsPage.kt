@@ -75,6 +75,10 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                             v -> context?.onDebugImageResourceLogChanged(v)
                     }
 
+                    IPSwitch(modifier, stringResource(R.string.force_image_preserve_aspect), checked = config.value.forceImagePreserveAspect) {
+                            v -> context?.onForceImagePreserveAspectChanged(v)
+                    }
+
                     IPSwitch(modifier, stringResource(R.string.debug_masterdb_log), checked = config.value.debugMasterDbLog) {
                             v -> context?.onDebugMasterDbLogChanged(v)
                     }

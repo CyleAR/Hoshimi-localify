@@ -15,6 +15,7 @@ data class IdolyprideConfig (
     var useMasterTrans: Boolean = true,
     var dumpText: Boolean = false,
     var debugImageResourceLog: Boolean = false,
+    var forceImagePreserveAspect: Boolean = true,
     var debugMasterDbLog: Boolean = false,
     var debugAudioLog: Boolean = false,
     var gameOrientation: Int = 0,

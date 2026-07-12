@@ -104,4 +104,5 @@
 
     <string name="about_contributors_asset_file">about_contributors_en.json</string>
     <string name="default_assets_check_api">https://api.github.com/repos/CyleAR/Idolypride-Translation-Data-KR/releases/latest</string>
+    <string name="force_image_preserve_aspect">&#51060;&#48120;&#51648; &#48708;&#50984; &#50976;&#51648; &#44053;&#51228;</string>
 </resources>

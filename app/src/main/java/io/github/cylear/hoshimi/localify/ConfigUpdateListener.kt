@@ -45,6 +45,7 @@ interface ConfigListener {
     fun onGameOrientationChanged(checkedId: Int)
     fun onDumpTextChanged(value: Boolean)
     fun onDebugImageResourceLogChanged(value: Boolean)
+    fun onForceImagePreserveAspectChanged(value: Boolean)
     fun onDebugMasterDbLogChanged(value: Boolean)
     fun onDebugAudioLogChanged(value: Boolean)
 
@@ -174,6 +175,11 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onDebugImageResourceLogChanged(value: Boolean) {
         config.debugImageResourceLog = value
+        saveConfig()
+    }
+
+    override fun onForceImagePreserveAspectChanged(value: Boolean) {
+        config.forceImagePreserveAspect = value
         saveConfig()
     }
 

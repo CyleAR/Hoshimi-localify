@@ -16,6 +16,7 @@ namespace HoshimiLocal::Config {
     extern bool useMasterTrans;
     extern bool dumpText;
     extern bool debugImageResourceLog;
+    extern bool forceImagePreserveAspect;
     extern bool debugMasterDbLog;
     extern bool debugAudioLog;
     extern bool enableFreeCamera;

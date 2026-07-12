@@ -20,6 +20,7 @@ namespace HoshimiLocal::Config {
     int gameOrientation = 0;
     bool dumpText = false;
     bool debugImageResourceLog = false;
+    bool forceImagePreserveAspect = true;
     bool debugMasterDbLog = false;
     bool debugAudioLog = false;
     bool enableFreeCamera = false;
@@ -83,6 +84,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(useMasterTrans);
             GetConfigItem(dumpText);
             GetConfigItem(debugImageResourceLog);
+            GetConfigItem(forceImagePreserveAspect);
             GetConfigItem(debugMasterDbLog);
             GetConfigItem(debugAudioLog);
             GetConfigItem(targetFrameRate);
@@ -147,6 +149,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(useMasterTrans);
             SetConfigItem(dumpText);
             SetConfigItem(debugImageResourceLog);
+            SetConfigItem(forceImagePreserveAspect);
             SetConfigItem(debugMasterDbLog);
             SetConfigItem(debugAudioLog);
             SetConfigItem(targetFrameRate);

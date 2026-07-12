@@ -64,6 +64,7 @@
     <string name="test_mode_live">Test Mode - LIVE</string>
     <string name="debug_settings">Debug Settings</string>
     <string name="debug_image_resource_log">Image Resource Debug Log</string>
+    <string name="force_image_preserve_aspect">Force Image Aspect Ratio</string>
     <string name="debug_masterdb_log">MasterDB Debug Log</string>
     <string name="debug_audio_log">Audio Debug Log</string>
     <string name="breast_param">Breast Parameters</string>

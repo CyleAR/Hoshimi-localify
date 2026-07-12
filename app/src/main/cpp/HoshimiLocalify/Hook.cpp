@@ -72,6 +72,120 @@ namespace HoshimiLocal::HookMain {
                       source, assetName.c_str(), replaced ? 1 : 0, component);
     }
 
+    struct ImageDebugRect {
+        float x;
+        float y;
+        float width;
+        float height;
+    };
+
+    struct ImageDebugVector2 {
+        float x;
+        float y;
+    };
+
+    struct ImageDebugVector4 {
+        float x;
+        float y;
+        float z;
+        float w;
+    };
+
+    struct ImageColor32 {
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+        uint8_t a;
+    };
+
+    void LogSpriteReplacementDebug(const char* source, void* component, const std::string& assetName,
+                                   void* originalSprite, void* replacementSprite) {
+        if (!Config::debugImageResourceLog || !originalSprite || !replacementSprite) return;
+
+        using GetRectInjected = void(*)(void*, ImageDebugRect*, void*);
+        using GetVector2Injected = void(*)(void*, ImageDebugVector2*, void*);
+        using GetVector4Injected = void(*)(void*, ImageDebugVector4*, void*);
+
+        static auto getRect = reinterpret_cast<GetRectInjected>(Il2cppUtils::GetMethodPointer(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_rect_Injected", {"UnityEngine.Rect&"}));
+        static auto getPivot = reinterpret_cast<GetVector2Injected>(Il2cppUtils::GetMethodPointer(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_pivot_Injected", {"UnityEngine.Vector2&"}));
+        static auto getBorder = reinterpret_cast<GetVector4Injected>(Il2cppUtils::GetMethodPointer(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_border_Injected", {"UnityEngine.Vector4&"}));
+        static auto getPixelsPerUnit = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_pixelsPerUnit");
+        static auto getTexture = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_texture");
+        static auto getTextureRect = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_textureRect");
+        static auto getWidth = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_width");
+        static auto getHeight = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_height");
+        static auto getRectTransform = Il2cppUtils::GetMethod(
+                "UnityEngine.UI.dll", "UnityEngine.UI", "Graphic", "get_rectTransform");
+        static auto getUiRect = reinterpret_cast<GetRectInjected>(Il2cppUtils::GetMethodPointer(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_rect_Injected", {"UnityEngine.Rect&"}));
+
+        ImageDebugRect originalRect{};
+        ImageDebugRect replacementRect{};
+        ImageDebugRect originalTextureRect{};
+        ImageDebugRect replacementTextureRect{};
+        ImageDebugRect uiRect{};
+        ImageDebugVector2 originalPivot{};
+        ImageDebugVector2 replacementPivot{};
+        ImageDebugVector4 originalBorder{};
+        ImageDebugVector4 replacementBorder{};
+
+        if (getRect) {
+            getRect(originalSprite, &originalRect, nullptr);
+            getRect(replacementSprite, &replacementRect, nullptr);
+        }
+        if (getPivot) {
+            getPivot(originalSprite, &originalPivot, nullptr);
+            getPivot(replacementSprite, &replacementPivot, nullptr);
+        }
+        if (getBorder) {
+            getBorder(originalSprite, &originalBorder, nullptr);
+            getBorder(replacementSprite, &replacementBorder, nullptr);
+        }
+
+        float originalPpu = getPixelsPerUnit ? getPixelsPerUnit->Invoke<float>(originalSprite) : 0.0f;
+        float replacementPpu = getPixelsPerUnit ? getPixelsPerUnit->Invoke<float>(replacementSprite) : 0.0f;
+        if (getTextureRect) {
+            originalTextureRect = getTextureRect->Invoke<ImageDebugRect>(originalSprite);
+            replacementTextureRect = getTextureRect->Invoke<ImageDebugRect>(replacementSprite);
+        }
+        void* originalTexture = getTexture ? getTexture->Invoke<void*>(originalSprite) : nullptr;
+        void* replacementTexture = getTexture ? getTexture->Invoke<void*>(replacementSprite) : nullptr;
+        int originalTextureWidth = originalTexture && getWidth ? getWidth->Invoke<int>(originalTexture) : 0;
+        int originalTextureHeight = originalTexture && getHeight ? getHeight->Invoke<int>(originalTexture) : 0;
+        int replacementTextureWidth = replacementTexture && getWidth ? getWidth->Invoke<int>(replacementTexture) : 0;
+        int replacementTextureHeight = replacementTexture && getHeight ? getHeight->Invoke<int>(replacementTexture) : 0;
+
+        if (component && getRectTransform && getUiRect) {
+            auto rectTransform = getRectTransform->Invoke<void*>(component);
+            if (rectTransform) getUiRect(rectTransform, &uiRect, nullptr);
+        }
+
+        Log::DebugFmt(
+                "SpriteDebug[%s]: asset=%s originalRect=%.1fx%.1f replacementRect=%.1fx%.1f "
+                "originalTextureRect=%.1fx%.1f replacementTextureRect=%.1fx%.1f "
+                "originalTexture=%dx%d replacementTexture=%dx%d originalPPU=%.2f replacementPPU=%.2f "
+                "originalPivot=(%.1f,%.1f) replacementPivot=(%.1f,%.1f) "
+                "originalBorder=(%.1f,%.1f,%.1f,%.1f) replacementBorder=(%.1f,%.1f,%.1f,%.1f) uiRect=%.1fx%.1f",
+                source, assetName.c_str(), originalRect.width, originalRect.height,
+                replacementRect.width, replacementRect.height,
+                originalTextureRect.width, originalTextureRect.height,
+                replacementTextureRect.width, replacementTextureRect.height,
+                originalTextureWidth, originalTextureHeight,
+                replacementTextureWidth, replacementTextureHeight, originalPpu, replacementPpu,
+                originalPivot.x, originalPivot.y, replacementPivot.x, replacementPivot.y,
+                originalBorder.x, originalBorder.y, originalBorder.z, originalBorder.w,
+                replacementBorder.x, replacementBorder.y, replacementBorder.z, replacementBorder.w,
+                uiRect.width, uiRect.height);
+    }
+
     using LiveUtility_LoadLiveResult_Type = void(*)(void* data, void* method);
     LiveUtility_LoadLiveResult_Type LiveUtility_LoadLiveResult_Call = nullptr;
 
@@ -1786,7 +1900,6 @@ namespace HoshimiLocal::HookMain {
                 load_success = load_image->Invoke<bool>(nullptr, tex, il2cpp_bytes);
             }
         }
-        // Log::InfoFmt("LoadImage success: %d", load_success);
 
         static auto sprite_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Sprite");
         static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {"UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2"});
@@ -1802,21 +1915,13 @@ namespace HoshimiLocal::HookMain {
                 if (get_width) w = get_width->Invoke<int>(tex);
                 if (get_height) h = get_height->Invoke<int>(tex);
             }
-            // Log::InfoFmt("CreateSpriteFromBytes parsed w=%d, h=%d", w, h);
 
-            struct Rect { float x, y, width, height; } rect { 0, 0, (float)w, (float)h };
-            struct Vector2 { float x, y; } pivot { 0.5f, 0.5f };
-
-            if (sprite_create) {
-                void* args[3] = { tex, &rect, &pivot };
-                auto sprite = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
-                MarkReplacementAssetPersistent(sprite);
-                return sprite;
-            } else {
-                // Log::InfoFmt("Failed to find Sprite.Create MethodInfo");
-            }
-        } else {
-            // Log::InfoFmt("Failed to resolve Sprite.Create method!");
+            ImageDebugRect rect{0, 0, static_cast<float>(w), static_cast<float>(h)};
+            ImageDebugVector2 pivot{0.5f, 0.5f};
+            void* args[3] = {tex, &rect, &pivot};
+            auto sprite = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
+            MarkReplacementAssetPersistent(sprite);
+            return sprite;
         }
         return nullptr;
     }
@@ -1857,6 +1962,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     void SetImagePreserveAspect(void* self) {
+        if (!Config::forceImagePreserveAspect) return;
         static auto set_preserve_aspect = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_preserveAspect", {"System.Boolean"});
         if (set_preserve_aspect) set_preserve_aspect->Invoke<void>(self, true);
     }
@@ -1914,6 +2020,7 @@ namespace HoshimiLocal::HookMain {
             std::string name = GetObjectName(sprite);
             if (auto replacementSprite = GetOrCreateReplacementSprite(name, true)) {
                 LogImageResourceDebug("Graphic.OnEnable.Image", self, name, true);
+                LogSpriteReplacementDebug("Graphic.OnEnable.Image", self, name, sprite, replacementSprite);
                 static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
                 applying_image_replacement = true;
                 set_sprite->Invoke<void>(self, replacementSprite);
@@ -1945,6 +2052,7 @@ namespace HoshimiLocal::HookMain {
                 LogImageResourceDebug("Image.set_sprite", self, name, false);
                 if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
                     LogImageResourceDebug("Image.set_sprite", self, name, true);
+                    LogSpriteReplacementDebug("Image.set_sprite", self, name, value, replacementSprite);
                     Image_set_sprite_Orig(self, replacementSprite, method);
                     SetImagePreserveAspect(self);
                     return;
@@ -1963,6 +2071,7 @@ namespace HoshimiLocal::HookMain {
                 LogImageResourceDebug("Image.set_overrideSprite", self, name, false);
                 if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
                     LogImageResourceDebug("Image.set_overrideSprite", self, name, true);
+                    LogSpriteReplacementDebug("Image.set_overrideSprite", self, name, value, replacementSprite);
                     Image_set_overrideSprite_Orig(self, replacementSprite, method);
                     SetImagePreserveAspect(self);
                     return;
