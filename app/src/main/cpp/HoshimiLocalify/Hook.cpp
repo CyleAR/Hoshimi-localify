@@ -1877,6 +1877,11 @@ namespace HoshimiLocal::HookMain {
         LogAudioDebug("set_clip", self, clip);
         AudioSource_set_clip_Orig(self, clip);
     }
+    void SetTextureClamp(void* texture) {
+        static auto set_wrap_mode = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "set_wrapMode", {"UnityEngine.TextureWrapMode"});
+        if (set_wrap_mode) set_wrap_mode->Invoke<void>(texture, 1);
+    }
+
     void* CreateSpriteFromBytes(const std::vector<uint8_t>& bytes) {
         static auto byte_klass = Il2cppUtils::GetClass("mscorlib.dll", "System", "Byte");
         auto il2cpp_bytes = UnityResolve::UnityType::Array<uint8_t>::New(byte_klass, bytes.size());
@@ -1900,6 +1905,8 @@ namespace HoshimiLocal::HookMain {
                 load_success = load_image->Invoke<bool>(nullptr, tex, il2cpp_bytes);
             }
         }
+        if (!load_success) return nullptr;
+        SetTextureClamp(tex);
 
         static auto sprite_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Sprite");
         static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {"UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2"});
@@ -1958,6 +1965,7 @@ namespace HoshimiLocal::HookMain {
         if (!load_success && load_image_2) {
             load_success = load_image_2->Invoke<bool>(nullptr, tex, il2cpp_bytes);
         }
+        if (load_success) SetTextureClamp(tex);
         return load_success ? tex : nullptr;
     }
 
