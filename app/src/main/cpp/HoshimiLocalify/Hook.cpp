@@ -19,6 +19,7 @@
 #include <set>
 #include <sstream>
 #include <fstream>
+#include <chrono>
 #include <nlohmann/json.hpp>
 
 std::unordered_set<void*> hookedStubs{};
@@ -489,7 +490,7 @@ namespace HoshimiLocal::HookMain {
     void* koPatchedFontAsset = nullptr;
     void* runtimeKoreanFontAsset = nullptr;
     void* runtimeKoreanFontBundle = nullptr;
-    bool runtimeKoreanFontLoadTried = false;
+    std::chrono::steady_clock::time_point runtimeKoreanFontNextLoadAttempt{};
     bool fallbackRegistered = false;
     void* solisFontAsset = nullptr;
     void* sourceSansProAsset = nullptr;
@@ -633,8 +634,10 @@ namespace HoshimiLocal::HookMain {
             if (runtimeKoreanFontAsset && IsNativeObjectAlive(runtimeKoreanFontAsset)) {
                 return runtimeKoreanFontAsset;
             }
-            if (runtimeKoreanFontLoadTried) return nullptr;
-            runtimeKoreanFontLoadTried = true;
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now < runtimeKoreanFontNextLoadAttempt) return nullptr;
+            runtimeKoreanFontNextLoadAttempt = now + std::chrono::seconds(5);
 
             const auto bundlePath = Local::GetBasePath() / "local-files" / "koreanfont";
             std::ifstream file(bundlePath, std::ios::binary);
@@ -709,6 +712,7 @@ namespace HoshimiLocal::HookMain {
                 if (!asset) continue;
                 runtimeKoreanFontAsset = asset;
                 MarkReplacementAssetPersistent(runtimeKoreanFontAsset);
+                runtimeKoreanFontNextLoadAttempt = {};
                 fallbackRegistered = false;
                 Log::InfoFmt("[Font] Runtime Korean TMP_FontAsset loaded from bundle: %s", name);
                 InjectKoreanFallbackIntoObservedFonts("RuntimeKoreanFontBundle.LoadAsset");
@@ -872,7 +876,6 @@ namespace HoshimiLocal::HookMain {
 
     std::unordered_set<void*> updatedFontPtrs{};
     std::unordered_set<void*> forcedTextPtrs{};
-    std::unordered_set<void*> strippedKoreanLookupFontPtrs{};
     std::unordered_set<void*> runtimeFallbackOriginalFontPtrs{};
 
     void TrackObservedFontAsset(void* fontAsset) {
@@ -880,47 +883,6 @@ namespace HoshimiLocal::HookMain {
         if (std::find(observedFontAssets.begin(), observedFontAssets.end(), fontAsset) != observedFontAssets.end()) return;
         if (observedFontAssets.size() > 512) observedFontAssets.erase(observedFontAssets.begin());
         observedFontAssets.emplace_back(fontAsset);
-    }
-
-    void StripKoreanCharactersFromFontAsset(void* fontAsset) {
-        auto koFont = GetKoreanFontAsset();
-        if (!fontAsset || !koFont || fontAsset == koFont) return;
-        if (strippedKoreanLookupFontPtrs.contains(fontAsset)) return;
-        if (strippedKoreanLookupFontPtrs.size() > 512) strippedKoreanLookupFontPtrs.clear();
-
-        static auto tmpFontKlass = Il2cppUtils::GetClass("Unity.TextMeshPro.dll", "TMPro", "TMP_FontAsset");
-        static int characterLookupOffset = -1;
-        if (characterLookupOffset < 0 && tmpFontKlass) {
-            auto field = tmpFontKlass->Get<UnityResolve::Field>("m_CharacterLookupDictionary");
-            if (field) characterLookupOffset = field->offset;
-        }
-        if (characterLookupOffset <= 0) return;
-
-        auto characterLookup = *reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(fontAsset) + characterLookupOffset);
-        if (!characterLookup) return;
-
-        static auto Dictionary_Remove = Il2cppUtils::GetMethod("mscorlib.dll", "System.Collections.Generic", "Dictionary`2", "Remove");
-        if (!Dictionary_Remove) return;
-
-        int removed = 0;
-        auto removeRange = [&](uint32_t begin, uint32_t end) {
-            for (uint32_t code = begin; code <= end; ++code) {
-                if (Dictionary_Remove->Invoke<bool>(characterLookup, code)) {
-                    removed++;
-                }
-            }
-        };
-
-        removeRange(0x1100, 0x11FF);
-        removeRange(0x3130, 0x318F);
-        removeRange(0xA960, 0xA97F);
-        removeRange(0xAC00, 0xD7A3);
-        removeRange(0xD7B0, 0xD7FF);
-
-        strippedKoreanLookupFontPtrs.emplace(fontAsset);
-        if (removed > 0) {
-            Log::InfoFmt("[Font] Removed %d Korean character lookups from primary font to force fallback", removed);
-        }
     }
 
     void InjectKoreanFallbackIntoFontAsset(void* fontAsset, const char* source) {
@@ -945,9 +907,6 @@ namespace HoshimiLocal::HookMain {
         }
 
         if (InsertKoreanFontFirst(fallbackTable, source)) {
-            if (Config::useRuntimeKoreanFont) {
-                StripKoreanCharactersFromFontAsset(fontAsset);
-            }
             updatedFontPtrs.emplace(fontAsset);
         }
     }
@@ -1345,9 +1304,8 @@ namespace HoshimiLocal::HookMain {
             }
         }
 
-        // set_font->Invoke<void>(self, font);
-        UpdateFont(self);
         TextMeshProUGUI_Awake_Orig(self, method);
+        UpdateFont(self);
         if (centerAfterAwake) ApplyCenterTextLayout(self);
     }
 
