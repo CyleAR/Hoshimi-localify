@@ -610,12 +610,12 @@ namespace HoshimiLocal::HookMain {
         }
         
         if (faceInfoOffset > 0) {
-            // 문자열 ref 16바이트 건너뛰고 숫자 필드 68바이트만 복사
-            constexpr int strSize  = 16;
-            constexpr int numSize  = 68;
-            auto* src = (char*)solisFontAsset + faceInfoOffset + strSize;
-            auto* dst = (char*)sourceSansProAsset + faceInfoOffset + strSize;
-            std::memcpy(dst, src, numSize);
+            // Preserve managed string references and copy only numeric FaceInfo metrics.
+            constexpr int metricOffset = 0x18;
+            constexpr int metricSize = 0x60 - metricOffset;
+            auto* src = reinterpret_cast<char*>(solisFontAsset) + faceInfoOffset + metricOffset;
+            auto* dst = reinterpret_cast<char*>(sourceSansProAsset) + faceInfoOffset + metricOffset;
+            std::memcpy(dst, src, metricSize);
             Log::InfoFmt("[Font] Matched Korean font size to Solis via FaceInfo memcpy");
         }
 
