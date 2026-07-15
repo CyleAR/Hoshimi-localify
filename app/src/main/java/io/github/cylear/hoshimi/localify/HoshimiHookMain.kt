@@ -22,8 +22,10 @@ import de.robv.android.xposed.IXposedHookZygoteInit
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
+import android.content.res.XModuleResources
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
+import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
 import io.github.cylear.hoshimi.localify.models.IdolyprideConfig
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -312,7 +314,45 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
             loadConfig(iprData)
             Log.d(TAG, "iprData: $iprData")
+            checkTranslationUpdate(activity)
         }
+    }
+
+    private fun checkTranslationUpdate(activity: Activity) {
+        val preferences = activity.getSharedPreferences(
+            "hoshimi_local_update_check",
+            Context.MODE_PRIVATE
+        )
+        val currentTime = System.currentTimeMillis()
+        val lastCheckTime = preferences.getLong("last_check_time", 0L)
+        if (currentTime - lastCheckTime < 60 * 60 * 1000L) return
+
+        val installedVersion = FilesChecker.getInstalledVersion().trim()
+        if (installedVersion.isEmpty() || installedVersion == "0.0") return
+
+        val apiUrl = runCatching {
+            XModuleResources.createInstance(modulePath, null)
+                .getString(R.string.default_assets_check_api)
+        }.getOrElse {
+            Log.e(TAG, "Failed to load translation update API URL.", it)
+            return
+        }
+
+        preferences.edit().putLong("last_check_time", currentTime).apply()
+        RemoteAPIFilesChecker.checkUpdateLocalAssets(
+            activity.applicationContext,
+            apiUrl,
+            onFailed = { _, reason ->
+                Log.w(TAG, "Translation update check failed: $reason")
+            },
+            onResult = { release, _ ->
+                val latestVersion = release.tag_name.trim()
+                Log.i(TAG, "Translation update check: installed=$installedVersion latest=$latestVersion")
+                if (latestVersion.isNotEmpty() && latestVersion != installedVersion) {
+                    showToast("신규 번역 데이터가 있습니다. 한패 앱에서 'API를 통해 리소스 업데이트'를 체크해 업데이트해 주세요.")
+                }
+            }
+        )
     }
 
     private fun initStandaloneConfig(context: Context) {
