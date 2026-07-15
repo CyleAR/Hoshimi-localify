@@ -209,6 +209,16 @@ fun HomePage(modifier: Modifier = Modifier,
                             v -> context?.onUsePhoneSubtitlesChanged(v)
                     }
 
+                    IPTextInput(
+                        modifier = modifier
+                            .height(45.dp)
+                            .fillMaxWidth(),
+                        fontSize = 14f,
+                        value = config.value.displayUserName,
+                        onValueChange = { value -> context?.onDisplayUserNameChanged(value, 0, 0, 0) },
+                        label = { Text(stringResource(R.string.display_user_name), fontSize = 12.sp) }
+                    )
+
                 }
             }
             Spacer(Modifier.height(6.dp))

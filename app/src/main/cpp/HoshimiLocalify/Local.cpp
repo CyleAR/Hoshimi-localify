@@ -431,7 +431,7 @@ namespace HoshimiLocal::Local {
     bool GetI18n(const std::string& key, std::string* ret) {
         std::shared_lock<std::shared_mutex> lock(localDataMutex);
         if (const auto iter = i18nData.find(key); iter != i18nData.end()) {
-            *ret = iter->second;
+            *ret = Config::ReplaceDisplayUserName(iter->second);
             return true;
         }
         return false;
@@ -472,7 +472,7 @@ namespace HoshimiLocal::Local {
             // Log::DebugFmt("GetResourceText: %s", targetFilePath.c_str());
             if (exists(targetFilePath)) {
                 auto readStr = readFileToString(targetFilePath.string());
-                *ret = ReplaceParentheses(readStr);
+                *ret = Config::ReplaceDisplayUserName(ReplaceParentheses(readStr));
                 return true;
             }
         }

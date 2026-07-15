@@ -868,7 +868,10 @@ namespace HoshimiLocal::HookMain {
             pos += 3;
         }
 
-        // 2. 한국어 조사 처리 추가
+        // 2. 사용자 닉네임을 먼저 치환해 받침 기준으로 조사를 선택
+        text = Config::ReplaceDisplayUserName(std::move(text));
+
+        // 3. 한국어 조사 처리 추가
         text = ResolveJosa(text);
 
         return text;
@@ -1106,10 +1109,11 @@ namespace HoshimiLocal::HookMain {
         }
         if (!isPhoneTalkTime) return false;
 
-        const bool singleLineSubtitle = currentPhoneSubtitleText.find('\n') == std::string::npos;
+        const auto localizedSubtitle = FixLigature(currentPhoneSubtitleText);
+        const bool singleLineSubtitle = localizedSubtitle.find('\n') == std::string::npos;
         *ret = singleLineSubtitle
-            ? "<size=85%><voffset=0.45em>" + currentPhoneSubtitleText + "</voffset></size>\n" + origText
-            : "<size=85%>" + currentPhoneSubtitleText + "</size>\n" + origText;
+            ? "<size=85%><voffset=0.45em>" + localizedSubtitle + "</voffset></size>\n" + origText
+            : "<size=85%>" + localizedSubtitle + "</size>\n" + origText;
         return true;
     }
     std::string MakeLocalizedText(const std::string& origText, const std::string& transText, bool hasTrans) {
@@ -1415,6 +1419,7 @@ namespace HoshimiLocal::HookMain {
         if (value) {
             std::string transText;
             if (Local::GetGenericText(value->ToString(), &transText)) {
+                transText = FixLigature(std::move(transText));
                 Local::DumpRemainingJapaneseText(transText);
                 return TextField_set_value_Orig(self, UnityResolve::UnityType::String::New(transText));
             }

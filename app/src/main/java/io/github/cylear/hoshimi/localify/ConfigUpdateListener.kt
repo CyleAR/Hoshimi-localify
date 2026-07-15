@@ -24,6 +24,7 @@ interface ConfigListener {
     fun onUseRuntimeKoreanFontChanged(value: Boolean)
     fun onReplaceImagesChanged(value: Boolean)
     fun onUsePhoneSubtitlesChanged(value: Boolean)
+    fun onDisplayUserNameChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onLazyInitChanged(value: Boolean)
     fun onEnableFreeCameraChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -151,6 +152,11 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         config.usePhoneSubtitles = value
         saveConfig()
         pushKeyEvent(KeyEvent(1145, 30))
+    }
+
+    override fun onDisplayUserNameChanged(s: CharSequence, start: Int, before: Int, count: Int) {
+        config.displayUserName = s.toString()
+        saveConfig()
     }
 
     override fun onLazyInitChanged(value: Boolean) {

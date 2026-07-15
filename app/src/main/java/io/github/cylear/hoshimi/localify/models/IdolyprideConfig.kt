@@ -11,6 +11,7 @@ data class IdolyprideConfig (
     var useRuntimeKoreanFont: Boolean = false,
     var replaceImages: Boolean = true,
     var usePhoneSubtitles: Boolean = true,
+    var displayUserName: String = "",
     var textTest: Boolean = false,
     var useMasterTrans: Boolean = true,
     var dumpText: Boolean = false,

@@ -245,7 +245,7 @@ namespace HoshimiLocal::MasterLocal {
 
         void SetStringField(const std::string& fieldName, const std::string& value) {
             if (!self) return;
-            auto newString = Il2cppString::New(value);
+            auto newString = Il2cppString::New(Config::ReplaceDisplayUserName(value));
             SetField(fieldName, newString);
         }
 
@@ -268,7 +268,7 @@ namespace HoshimiLocal::MasterLocal {
 
             Il2cppUtils::Tools::CSListEditor<Il2cppString*> newListEditor(targetList);
             for (auto& s : data) {
-                newListEditor.Add(Il2cppString::New(s));
+                newListEditor.Add(Il2cppString::New(Config::ReplaceDisplayUserName(s)));
             }
         }
 

@@ -10,6 +10,7 @@ namespace HoshimiLocal::Config {
     extern bool useRuntimeKoreanFont;
     extern bool replaceImages;
     extern bool usePhoneSubtitles;
+    extern std::string displayUserName;
     extern bool forceExportResource;
     extern int gameOrientation;
     extern bool textTest;
@@ -62,6 +63,7 @@ namespace HoshimiLocal::Config {
 
     extern bool dmmUnlockSize;
 
+    std::string ReplaceDisplayUserName(std::string text);
     void LoadConfig(const std::string& configStr);
     void SaveConfig(const std::string& configPath);
 }

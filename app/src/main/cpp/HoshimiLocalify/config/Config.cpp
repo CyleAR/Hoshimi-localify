@@ -14,6 +14,7 @@ namespace HoshimiLocal::Config {
     bool useRuntimeKoreanFont = false;
     bool replaceImages = true;
     bool usePhoneSubtitles = true;
+    std::string displayUserName = "";
     bool forceExportResource = false;
     bool textTest = false;
     bool useMasterTrans = true;
@@ -65,6 +66,19 @@ namespace HoshimiLocal::Config {
 
     bool dmmUnlockSize = false;
 
+    std::string ReplaceDisplayUserName(std::string text) {
+        if (text.empty() || displayUserName.empty()) return text;
+
+        constexpr const char* placeholder = "{user}";
+        constexpr size_t placeholderLength = 6;
+        size_t pos = 0;
+        while ((pos = text.find(placeholder, pos)) != std::string::npos) {
+            text.replace(pos, placeholderLength, displayUserName);
+            pos += displayUserName.length();
+        }
+        return text;
+    }
+
     void LoadConfig(const std::string& configStr) {
         try {
             const auto config = nlohmann::json::parse(configStr);
@@ -78,6 +92,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(useRuntimeKoreanFont);
             GetConfigItem(replaceImages);
             GetConfigItem(usePhoneSubtitles);
+            GetConfigItem(displayUserName);
             GetConfigItem(forceExportResource);
             GetConfigItem(gameOrientation);
             GetConfigItem(textTest);
@@ -143,6 +158,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(useRuntimeKoreanFont);
             SetConfigItem(replaceImages);
             SetConfigItem(usePhoneSubtitles);
+            SetConfigItem(displayUserName);
             SetConfigItem(forceExportResource);
             SetConfigItem(gameOrientation);
             SetConfigItem(textTest);

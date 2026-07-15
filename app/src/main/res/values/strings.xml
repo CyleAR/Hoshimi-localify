@@ -8,6 +8,7 @@
     <string name="font_mode_runtime">Font Mode: Runtime Font</string>
     <string name="replace_images">Replace Images</string>
     <string name="use_phone_subtitles">Use Phone Subtitles</string>
+    <string name="display_user_name">Display Name (empty uses the in-game name)</string>
     <string name="lazy_init">Fast Initialization (Lazy loading)</string>
     <string name="enable_free_camera">Enable Free Camera</string>
     <string name="start_game">Start Game / Hot Reload Config</string>
