@@ -846,6 +846,61 @@ namespace HoshimiLocal::MasterLocal {
         return {};
     }
 
+    void ReplaceDisplayUserNameInStringField(FieldController& fc, const std::string& fieldName) {
+        auto currentValue = fc.ReadStringField(fieldName);
+        if (!currentValue) return;
+
+        auto currentText = currentValue->ToString();
+        auto replacedText = Config::ReplaceDisplayUserName(currentText);
+        if (replacedText != currentText) {
+            fc.SetStringField(fieldName, replacedText);
+        }
+    }
+
+    void ReplaceDisplayUserNameInMasterItem(FieldController& fc, const TableLocalData& localData) {
+        if (Config::displayUserName.empty()) return;
+
+        for (const auto& mainLocalKey : localData.itemRule.mainLocalKey) {
+            if (localData.GetMainKeyType(mainLocalKey) == JsonValueType::JVT_String) {
+                ReplaceDisplayUserNameInStringField(fc, mainLocalKey);
+            }
+        }
+
+        for (const auto& [subParentKey, subLocalKeys] : localData.itemRule.subLocalKey) {
+            const auto subParentType = localData.GetMainKeyType(subParentKey);
+            if (subParentType == JsonValueType::JVT_Object) {
+                auto subField = fc.CreateSubFieldController(subParentKey);
+                for (const auto& subLocalKey : subLocalKeys) {
+                    if (localData.GetSubKeyType(subParentKey, subLocalKey) == JsonValueType::JVT_String) {
+                        ReplaceDisplayUserNameInStringField(subField, subLocalKey);
+                    }
+                }
+            }
+            else if (subParentType == JsonValueType::JVT_ArrayObject) {
+                auto subList = fc.ReadObjectListField(subParentKey);
+                if (!subList) continue;
+
+                Il2cppUtils::Tools::CSListEditor<void*> subListEditor(subList);
+                if (!subListEditor.list_klass) continue;
+
+                auto count = subListEditor.get_Count();
+                if (count < 0 || count > 10000) continue;
+
+                for (int index = 0; index < count; index++) {
+                    auto subItem = subListEditor.get_Item(index);
+                    if (!subItem) continue;
+
+                    auto subField = FieldController::CreateSubFieldController(subItem);
+                    for (const auto& subLocalKey : subLocalKeys) {
+                        if (localData.GetSubKeyType(subParentKey, subLocalKey) == JsonValueType::JVT_String) {
+                            ReplaceDisplayUserNameInStringField(subField, subLocalKey);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     void LocalizeMasterItem(FieldController& fc, const std::string& tableName) {
         auto it = masterLocalData.find(tableName);
         static std::unordered_set<std::string> loggedNoDataTables;
@@ -883,6 +938,8 @@ namespace HoshimiLocal::MasterLocal {
                     break;
             }
         }
+
+        ReplaceDisplayUserNameInMasterItem(fc, localData);
 
         int appliedStringCount = 0;
         int appliedArrayStringCount = 0;

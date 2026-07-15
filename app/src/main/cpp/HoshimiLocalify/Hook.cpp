@@ -877,6 +877,28 @@ namespace HoshimiLocal::HookMain {
         return text;
     }
 
+    DEFINE_HOOK(Il2cppString*, ADVEnginePresenterBase_get_UserName, (void* self, void* mtd)) {
+        auto originalName = ADVEnginePresenterBase_get_UserName_Orig(self, mtd);
+        if (Config::displayUserName.empty()) return originalName;
+        return Il2cppString::New(Config::displayUserName);
+    }
+
+    DEFINE_HOOK(Il2cppString*, MessageDetail_GetReplacedMessage,
+                (void* self, Il2cppString* userName, void* mtd)) {
+        if (!Config::displayUserName.empty()) {
+            userName = Il2cppString::New(Config::displayUserName);
+        }
+        return MessageDetail_GetReplacedMessage_Orig(self, userName, mtd);
+    }
+
+    DEFINE_HOOK(Il2cppString*, MessageDetail_GetNotificationText,
+                (void* self, Il2cppString* userName, void* mtd)) {
+        if (!Config::displayUserName.empty()) {
+            userName = Il2cppString::New(Config::displayUserName);
+        }
+        return MessageDetail_GetNotificationText_Orig(self, userName, mtd);
+    }
+
     std::unordered_set<void*> updatedFontPtrs{};
     std::unordered_set<void*> forcedTextPtrs{};
     std::unordered_set<void*> runtimeFallbackOriginalFontPtrs{};
@@ -4494,6 +4516,24 @@ namespace HoshimiLocal::HookMain {
                                                                      "I18nHelper", "SetUpI18n"));
         ADD_HOOK(I18nHelper_SetValue, Il2cppUtils::GetMethodPointer("quaunity-ui.Runtime.dll", "Qua.UI",
                                                                      "I18n", "SetValue"));
+
+        auto advPresenterClass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.OutGame",
+                                                       "ADVEnginePresenter");
+        auto advUserNameMethod = advPresenterClass
+                ? Il2cppUtils::il2cpp_class_get_method_from_name(advPresenterClass->address,
+                                                                 "get_UserName", 0)
+                : nullptr;
+        if (advUserNameMethod) {
+            ADD_HOOK(ADVEnginePresenterBase_get_UserName, advUserNameMethod->methodPointer);
+        } else {
+            Log::Error("ADVEnginePresenterBase.get_UserName not found");
+        }
+        ADD_HOOK(MessageDetail_GetReplacedMessage, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Common.Proto.Master", "MessageDetail",
+                "GetReplacedMessage"));
+        ADD_HOOK(MessageDetail_GetNotificationText, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Common.Proto.Master", "MessageDetail",
+                "GetNotificationText"));
 
         //ADD_HOOK(UI_I18n_GetOrDefault, Il2cppUtils::GetMethodPointer("quaunity-ui.Runtime.dll", "Qua.UI",
         //                                                             "I18n", "GetOrDefault"));

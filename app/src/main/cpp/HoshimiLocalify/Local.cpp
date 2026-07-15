@@ -472,7 +472,11 @@ namespace HoshimiLocal::Local {
             // Log::DebugFmt("GetResourceText: %s", targetFilePath.c_str());
             if (exists(targetFilePath)) {
                 auto readStr = readFileToString(targetFilePath.string());
-                *ret = Config::ReplaceDisplayUserName(ReplaceParentheses(readStr));
+                auto localizedText = ReplaceParentheses(readStr);
+                if (!name.starts_with("adv_love_")) {
+                    localizedText = Config::ReplaceDisplayUserName(std::move(localizedText));
+                }
+                *ret = std::move(localizedText);
                 return true;
             }
         }
