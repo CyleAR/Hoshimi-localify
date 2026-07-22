@@ -325,7 +325,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         )
         val currentTime = System.currentTimeMillis()
         val lastCheckTime = preferences.getLong("last_check_time", 0L)
-        if (currentTime - lastCheckTime < 60 * 60 * 1000L) return
+        if (currentTime - lastCheckTime < 30 * 60 * 1000L) return
 
         val installedVersion = FilesChecker.getInstalledVersion().trim()
         if (installedVersion.isEmpty() || installedVersion == "0.0") return
