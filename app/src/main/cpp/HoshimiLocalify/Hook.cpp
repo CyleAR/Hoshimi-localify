@@ -809,6 +809,38 @@ namespace HoshimiLocal::HookMain {
             return (code - 0xAC00) % 28;
         };
 
+        auto get_special_batchim = [&text](size_t endPos) -> int {
+            if (endPos == 0) return -1;
+
+            const char lastByte = text[endPos - 1];
+            if (lastByte >= '0' && lastByte <= '9') {
+                static constexpr int digitBatchim[] = {
+                        21, 8, 0, 16, 0, 0, 1, 8, 8, 0
+                };
+                return digitBatchim[lastByte - '0'];
+            }
+
+            size_t wordStart = endPos;
+            while (wordStart > 0) {
+                const char current = text[wordStart - 1];
+                const bool isAsciiLetter = (current >= 'a' && current <= 'z') ||
+                                           (current >= 'A' && current <= 'Z');
+                if (!isAsciiLetter) break;
+                wordStart--;
+            }
+            if (wordStart == endPos) return -1;
+
+            std::string word = text.substr(wordStart, endPos - wordStart);
+            std::transform(word.begin(), word.end(), word.begin(), [](unsigned char character) {
+                if (character >= 'A' && character <= 'Z') return static_cast<char>(character + ('a' - 'A'));
+                return static_cast<char>(character);
+            });
+
+            if (word == "fran") return 21; // 프랑
+            if (word == "miho" || word == "kana") return 0; // 미호, 카나
+            return -1;
+        };
+
         size_t pos = 0;
         while ((pos = text.find("[", pos)) != std::string::npos) {
             size_t endPos = text.find("]", pos);
@@ -833,7 +865,8 @@ namespace HoshimiLocal::HookMain {
                 }
             }
 
-            int batchim = get_batchim(lastChar);
+            int batchim = get_special_batchim(pos);
+            if (batchim < 0) batchim = get_batchim(lastChar);
             bool hasBatchim = (pos == 0) ? true : (batchim > 0);
 
             if (tag == "[은/는]") replaceWith = hasBatchim ? "\xEC\x9D\x80" : "\xEB\x8A\x94"; // 은 : 는
@@ -1890,7 +1923,7 @@ namespace HoshimiLocal::HookMain {
         if (set_wrap_mode) set_wrap_mode->Invoke<void>(texture, 1);
     }
 
-    void* CreateSpriteFromBytes(const std::vector<uint8_t>& bytes) {
+    void* CreateSpriteFromBytes(const std::vector<uint8_t>& bytes, void* originalSprite) {
         static auto byte_klass = Il2cppUtils::GetClass("mscorlib.dll", "System", "Byte");
         auto il2cpp_bytes = UnityResolve::UnityType::Array<uint8_t>::New(byte_klass, bytes.size());
         std::memcpy(reinterpret_cast<void*>(il2cpp_bytes->GetData()), bytes.data(), bytes.size());
@@ -1917,7 +1950,9 @@ namespace HoshimiLocal::HookMain {
         SetTextureClamp(tex);
 
         static auto sprite_klass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "Sprite");
-        static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {"UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2"});
+        static auto sprite_create = sprite_klass->Get<UnityResolve::Method>("Create", {
+                "UnityEngine.Texture2D", "UnityEngine.Rect", "UnityEngine.Vector2", "System.Single",
+                "System.UInt32", "UnityEngine.SpriteMeshType", "UnityEngine.Vector4"});
 
         if (sprite_create) {
             int w = 0, h = 0;
@@ -1931,9 +1966,37 @@ namespace HoshimiLocal::HookMain {
                 if (get_height) h = get_height->Invoke<int>(tex);
             }
 
+            ImageDebugRect originalRect{};
+            ImageDebugVector2 originalPivot{};
+            ImageDebugVector4 border{};
+            float pixelsPerUnit = 100.0f;
+            if (originalSprite) {
+                using GetRectInjected = void(*)(void*, ImageDebugRect*, void*);
+                using GetVector2Injected = void(*)(void*, ImageDebugVector2*, void*);
+                using GetVector4Injected = void(*)(void*, ImageDebugVector4*, void*);
+                static auto getRect = reinterpret_cast<GetRectInjected>(Il2cppUtils::GetMethodPointer(
+                        "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_rect_Injected", {"UnityEngine.Rect&"}));
+                static auto getPivot = reinterpret_cast<GetVector2Injected>(Il2cppUtils::GetMethodPointer(
+                        "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_pivot_Injected", {"UnityEngine.Vector2&"}));
+                static auto getBorder = reinterpret_cast<GetVector4Injected>(Il2cppUtils::GetMethodPointer(
+                        "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_border_Injected", {"UnityEngine.Vector4&"}));
+                static auto getPixelsPerUnit = Il2cppUtils::GetMethod(
+                        "UnityEngine.CoreModule.dll", "UnityEngine", "Sprite", "get_pixelsPerUnit");
+                if (getRect) getRect(originalSprite, &originalRect, nullptr);
+                if (getPivot) getPivot(originalSprite, &originalPivot, nullptr);
+                if (getBorder) getBorder(originalSprite, &border, nullptr);
+                if (getPixelsPerUnit) pixelsPerUnit = getPixelsPerUnit->Invoke<float>(originalSprite);
+            }
+
             ImageDebugRect rect{0, 0, static_cast<float>(w), static_cast<float>(h)};
             ImageDebugVector2 pivot{0.5f, 0.5f};
-            void* args[3] = {tex, &rect, &pivot};
+            if (originalRect.width > 0.0f && originalRect.height > 0.0f) {
+                pivot.x = originalPivot.x / originalRect.width;
+                pivot.y = originalPivot.y / originalRect.height;
+            }
+            uint32_t extrude = 0;
+            int32_t meshType = 0;
+            void* args[7] = {tex, &rect, &pivot, &pixelsPerUnit, &extrude, &meshType, &border};
             auto sprite = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", sprite_create->address, nullptr, args, nullptr);
             MarkReplacementAssetPersistent(sprite);
             return sprite;
@@ -1988,7 +2051,7 @@ namespace HoshimiLocal::HookMain {
         return Local::GetResourceBytes(name + ".png", bytes) || Local::GetResourceBytes(name, bytes);
     }
 
-    void* GetOrCreateReplacementSprite(const std::string& name, bool rememberMiss) {
+    void* GetOrCreateReplacementSprite(const std::string& name, void* originalSprite, bool rememberMiss) {
         if (name.empty()) return nullptr;
         if (rememberMiss && sprite_negative_cache.contains(name)) return nullptr;
         if (auto cachedSprite = GetAliveCachedAsset(sprite_cache, name)) return cachedSprite;
@@ -1999,7 +2062,7 @@ namespace HoshimiLocal::HookMain {
             return nullptr;
         }
 
-        auto newSprite = CreateSpriteFromBytes(bytes);
+        auto newSprite = CreateSpriteFromBytes(bytes, originalSprite);
         if (newSprite) sprite_cache[name] = newSprite;
         return newSprite;
     }
@@ -2034,7 +2097,7 @@ namespace HoshimiLocal::HookMain {
             auto sprite = get_sprite->Invoke<void*>(self);
             if (!sprite) return;
             std::string name = GetObjectName(sprite);
-            if (auto replacementSprite = GetOrCreateReplacementSprite(name, true)) {
+            if (auto replacementSprite = GetOrCreateReplacementSprite(name, sprite, true)) {
                 LogImageResourceDebug("Graphic.OnEnable.Image", self, name, true);
                 LogSpriteReplacementDebug("Graphic.OnEnable.Image", self, name, sprite, replacementSprite);
                 static auto set_sprite = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "Image", "set_sprite");
@@ -2066,7 +2129,7 @@ namespace HoshimiLocal::HookMain {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
                 LogImageResourceDebug("Image.set_sprite", self, name, false);
-                if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
+                if (auto replacementSprite = GetOrCreateReplacementSprite(name, value, false)) {
                     LogImageResourceDebug("Image.set_sprite", self, name, true);
                     LogSpriteReplacementDebug("Image.set_sprite", self, name, value, replacementSprite);
                     Image_set_sprite_Orig(self, replacementSprite, method);
@@ -2085,7 +2148,7 @@ namespace HoshimiLocal::HookMain {
             std::string name = GetObjectName(value);
             if (!name.empty()) {
                 LogImageResourceDebug("Image.set_overrideSprite", self, name, false);
-                if (auto replacementSprite = GetOrCreateReplacementSprite(name, false)) {
+                if (auto replacementSprite = GetOrCreateReplacementSprite(name, value, false)) {
                     LogImageResourceDebug("Image.set_overrideSprite", self, name, true);
                     LogSpriteReplacementDebug("Image.set_overrideSprite", self, name, value, replacementSprite);
                     Image_set_overrideSprite_Orig(self, replacementSprite, method);
