@@ -1,0 +1,15 @@
+--- !tapi-tbd-v3
+archs: [ arm64 ]
+platform: ios
+install-name: /usr/lib/libSystem.B.dylib
+current-version: 1
+compatibility-version: 1
+exports:
+  - archs: [ arm64 ]
+    symbols: [ _getenv, _fopen, _fclose, _fread, _fseek, _ftell, _fflush, _fprintf, _vfprintf,
+               _snprintf, _strstr, _strcmp, _strlen, _memcpy, _memmove, _memcmp, _malloc, _free, _flockfile, _funlockfile,
+               _dladdr, _dlopen, _dlsym, _dlclose, __dyld_register_func_for_add_image,
+               _pthread_create, _pthread_detach, _sleep,
+               _dispatch_get_main_queue, _dispatch_async_f,
+               dyld_stub_binder ]
+...
