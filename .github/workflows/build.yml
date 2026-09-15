@@ -20,36 +20,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
-      - name: Cache Android SDK components
-        id: cache-android-sdk
-        uses: actions/cache@v4
-        with:
-          path: |
-            /usr/local/lib/android/sdk/platforms/android-34
-            /usr/local/lib/android/sdk/build-tools/34.0.0
-            /usr/local/lib/android/sdk/ndk/26.3.11579264
-            /usr/local/lib/android/sdk/cmake/3.22.1
-          key: ${{ runner.os }}-android-sdk-34-26.3.11579264-3.22.1
-
-      - name: Install Android build tools
-        if: steps.cache-android-sdk.outputs.cache-hit != 'true'
+      - name: Install Android SDK components
         run: |
           sdkmanager --install \
             "platforms;android-34" \
@@ -88,15 +73,17 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
+          mv app/build/outputs/apk/release/app-release.apk \
+            "app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
 
       - name: Create or update version tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          tag_name="${{ steps.app_version.outputs.version_name }}"
-          git fetch --tags
 
+          tag_name="${{ steps.app_version.outputs.version_name }}"
+
+          git fetch --tags
           git tag -f "$tag_name" "$GITHUB_SHA"
           git push -f origin "$tag_name"
 
@@ -106,5 +93,11 @@ jobs:
         run: |
           tag_name="${{ steps.app_version.outputs.version_name }}"
           apk_path="app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
-          gh release view "$tag_name" >/dev/null 2>&1 || gh release create "$tag_name" --title "$tag_name" --notes ""
+
+          gh release view "$tag_name" >/dev/null 2>&1 || \
+            gh release create "$tag_name" \
+              --title "$tag_name" \
+              --notes ""
+
           gh release upload "$tag_name" "$apk_path" --clobber
+
