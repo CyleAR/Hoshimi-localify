@@ -15,12 +15,14 @@ This guide provides instructions for building and deploying the project.
 Before building, use a clean release build:
 
 ```powershell
+chcp 65001 > $null
 $env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
 .\gradlew clean assembleRelease
 ```
 
 For local debug-only work, use:
 ```powershell
+chcp 65001 > $null
 $env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
 .\gradlew assembleDebug
 ```
@@ -49,9 +51,15 @@ If the tag already exists on a different commit, the workflow fails instead of o
 ### Install APK
 
 ```powershell
+chcp 65001 > $null
 .\platform-tools\adb.exe -s 127.0.0.1:16384 install -r "app\build\outputs\apk\release\app-release.apk"
 ```
 or
 ```powershell
+chcp 65001 > $null
 .\platform-tools\adb.exe -s emulator-5556 install -r "app\build\outputs\apk\release\app-release.apk"
 ```
+
+## Repository layout
+
+This repository contains the Android implementation. iOS is maintained separately at `../hoshimi-localify-ios`. Use UTF-8 for PowerShell and text files. Do not modify the sibling iOS repository unless requested.
