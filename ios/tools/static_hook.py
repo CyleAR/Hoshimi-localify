@@ -225,7 +225,12 @@ def patch(data, expected_plan):
     master_code = bytes.fromhex(actual["master_gateway_hex"])
     output[master_cave:master_cave + len(master_code)] = master_code
     output[MASTER_TARGET:MASTER_TARGET + 4] = bytes.fromhex(actual["master_patched_entry_hex"])
-    # Text APIs are installed at runtime by the bundled arm64 Dobby library.
-    # Keep their original prologues intact; stacking static gateways at every
-    # nested TMP level duplicated numeric HUD strings on the device.
+    # Offline gateways keep executable pages unchanged at runtime (no JIT).
+    for name in ("tmp_set_text", "tmp_populate", "tmp_settext_bool",
+                 "tmp_setchararray", "textfield", "ui_text"):
+        cave = actual[f"{name}_cave_rva"]
+        code = bytes.fromhex(actual[f"{name}_gateway_hex"])
+        target = actual[f"{name}_target_rva"]
+        output[cave:cave + len(code)] = code
+        output[target:target + 4] = bytes.fromhex(actual[f"{name}_patched_entry_hex"])
     return bytes(output)

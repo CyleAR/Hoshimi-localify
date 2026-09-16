@@ -2,9 +2,9 @@
 
 2026-09-15: 사용자가 SideStore + iLoader로 복호화된 IDOLY PRIDE 6.0.2의 설치와 실행에 성공했다. 기존 Android의 IL2CPP 번역 훅·JSON 데이터와 폰트 자산 교체를 이식한다. AstralParty/프로토버프 방식은 사용하지 않는다.
 
-## 현재 결과물: Hook v23
+## 현재 결과물: Hook v29
 
-사용자 기기에서 v18의 화면·폰트·ADV 번역이 확인됐다. v23은 ADV 원문 파일에는 괄호 치환만 적용하고, Android와 같은 generic 텍스트 보정 단계에서 조사·대시·문장부호를 처리한다. 검증된 `Google.Protobuf.MessageExtensions.MergeFrom` 뒤에서 MasterDB의 직접 필드와 중첩 객체·배열을 모두 적용한다. 정적 폰트 경로는 교체한 `SourceSansPro-Regular`를 런타임에서 찾아 Android 방식으로 활성화하고, 모든 TMP 폰트의 폴백 목록에 등록한다. v23~v25에서 iOS 정적 텍스트 게이트웨이가 숫자 HUD를 중복시킨 사실을 확인했다. v26은 dyld 콜백에서 Dobby를 실행해 종료됐고, v27은 메인 큐 전달 직후 종료됐다. v28은 큐 전달을 제거하고 첫 관리형 `I18n.SetValue`가 끝난 자리에서 `TMP_Text.set_text` 하나만 Dobby로 설치해 제공된 바이너리의 실행 호환성을 분리 검사한다.
+사용자 기기에서 v18의 화면·폰트·ADV 번역이 확인됐다. v23은 ADV 원문 파일에는 괄호 치환만 적용하고, Android와 같은 generic 텍스트 보정 단계에서 조사·대시·문장부호를 처리한다. 검증된 `Google.Protobuf.MessageExtensions.MergeFrom` 뒤에서 MasterDB의 직접 필드와 중첩 객체·배열을 모두 적용한다. 정적 폰트 경로는 교체한 `SourceSansPro-Regular`를 런타임에서 찾아 Android 방식으로 활성화하고, 모든 TMP 폰트의 폴백 목록에 등록한다. v29는 generic 분할 검색이 원문을 출력한 뒤 호출자가 다시 원문을 붙이던 중복 버그를 수정했다. 정적 게이트웨이 자체가 원인이라는 이전 판단은 잘못이었다. 제공된 Dobby는 디버거 스크립트가 처리하는 BRK 명령을 포함하므로 일반 IPA 실행 경로에서 제거했다. 여섯 텍스트 훅은 정적 게이트웨이로 연결하며, 부분 문자열도 Android처럼 지정 범위만 번역한다. 2026-09-16 사용자가 v29 설치 후 정상 실행과 문제없음을 확인했다. 이후 기능 추가의 성공 기준선으로 보존한다.
 
 - Android와 같은 `localization.json`의 키 → 번역 문자열 4,185개를 내장한다. 빌드 때 UTF-16 검색 테이블로 변환하므로 별도의 JSON 파일 복사가 필요 없다.
 - 실제 Android 훅 대상인 인스턴스 메서드 `Qua.UI.I18n.SetValue`에 연결한다. v1에서 찾은 정적 메서드 `I18nHelper.SetValue`는 이 메서드를 호출하는 래퍼다. 두 함수의 인자 배치를 구분하고 숨은 `MethodInfo` 인자도 보존한다.
@@ -12,7 +12,7 @@
 - 설정 → 앱 → 아이프라의 `한글패치 사용` 스위치로 다음 실행부터 번역과 폰트 활성화를 켜고 끈다. 기본값은 켜짐이다.
 - IPA의 `HoshimiLocal/local-files/resource/adv`에서 같은 이름의 파일을 찾고, Android 구현과 같이 괄호를 전각 괄호로 바꿔 원래 완료 콜백에 전달한다. 파일이 없거나 콜백을 해석하지 못하면 원본 로더를 호출한다.
 - MasterDB JSON은 패키징 때 Android의 flat rule 전체를 검증 가능한 `master.bin` 검색 인덱스로 변환한다. 현재 서브레포 기준 90개 테이블·290개 필드·220,902개 문자열이며 `levels[0].description`, `contents[0].text`, `stepInfo[0].texts` 같은 중첩 객체·배열도 포함한다.
-- 루트와 `genericTrans` 아래의 `generic.json`·`generic.split.json`은 Android의 exact·format·split 맵과 `translatedText` 제외 목록을 그대로 컴파일한 `generic.bin`으로 내장한다. 현재 데이터는 완전일치 1,097개·형식문 242개·분할문 8개·이미 번역된 문자열 100,263개다. v26은 Dobby로 `TMP_Text.set_text`, `SetText(String,bool)`, `PopulateTextBackingArray`, `SetCharArray`, Legacy UI.Text, UIElements TextField를 연결하고 조사·문장부호·`[center]` 보정도 텍스트 단위로 수행한다.
+- 루트와 `genericTrans` 아래의 `generic.json`·`generic.split.json`은 Android의 exact·format·split 맵과 `translatedText` 제외 목록을 그대로 컴파일한 `generic.bin`으로 내장한다. 현재 데이터는 완전일치 1,097개·형식문 242개·분할문 8개·이미 번역된 문자열 100,263개다. v29는 정적 게이트웨이로 `TMP_Text.set_text`, `SetText(String,bool)`, `PopulateTextBackingArray`, `SetCharArray`, Legacy UI.Text, UIElements TextField를 연결하고 조사·문장부호·`[center]` 보정도 텍스트 단위로 수행한다.
 
 ### 기기에서 확인할 것
 
@@ -29,7 +29,7 @@
 ```powershell
 chcp 65001 > $null
 ./ios/build-hook.ps1
-python ios/tools/package_probe.py --ipa dump/ios/game.qualiarts.idolypride-6.0.2-Decrypted.ipa --dylib ios/build/hook-v2/HoshimiLocalify.dylib --dobby ios/hook/libdobby.dylib --hook-plan ios/build/hook-v2/hook-plan.json --font-file ios/PretendardJP-SemiBold.otf --local-data-root app/src/main/assets/hoshimi-local --include-adv --include-master --patch-revision 28 --output ios/build/IdolyPride-6.0.2-HoshimiHook-v28.ipa
+python ios/tools/package_probe.py --ipa dump/ios/game.qualiarts.idolypride-6.0.2-Decrypted.ipa --dylib ios/build/hook-v2/HoshimiLocalify.dylib --hook-plan ios/build/hook-v2/hook-plan.json --font-file ios/PretendardJP-SemiBold.otf --local-data-root app/src/main/assets/hoshimi-local --include-adv --include-master --patch-revision 29 --output ios/build/IdolyPride-6.0.2-HoshimiHook-v29.ipa
 ```
 
 출력 IPA가 이미 있으면 새 이름을 지정한다. 원본 IPA는 변경하지 않는다.
@@ -62,7 +62,7 @@ python ios/tools/package_probe.py --ipa dump/ios/game.qualiarts.idolypride-6.0.2
 
 패키징 시 대상 함수의 첫 4바이트를 분기로 바꾸고, 모든 선언된 섹션 뒤의 검증된 실행 세그먼트 여유 공간에 게이트웨이를 넣는다. 데이터 포인터는 기존 객체 영역 밖에 있는 쓰기 가능한 세그먼트의 zero-fill 끝 여유 공간을 사용한다. 실행 중에는 이 포인터만 연결하며 코드 페이지 쓰기나 JIT를 사용하지 않는다. 포인터가 연결되기 전에는 원본 함수로 진행한다. `--font-file`을 지정하면 별도로 `sharedassets0.assets`의 `SourceSansPro-Regular` Font 데이터도 교체한다.
 
-ARM64 에뮬레이션으로 I18n·폰트·ADV·MasterDB·generic 게이트웨이의 원본 함수 복귀, 연결 전후 인자 보존, 주소 재배치(ASLR)를 확인했다. 패키징과 두 인덱스 검증을 포함한 **32개 테스트가 통과**했다. 이는 iPad에서 전체 게임을 실행한 검증을 대신하지 않는다.
+ARM64 에뮬레이션으로 I18n·폰트·ADV·MasterDB·generic 게이트웨이의 원본 함수 복귀, 연결 전후 인자 보존, 주소 재배치(ASLR)를 확인했다. 패키징과 두 인덱스 검증을 포함한 **34개 테스트가 통과**했다. 이는 iPad에서 전체 게임을 실행한 검증을 대신하지 않는다.
 
 ```powershell
 chcp 65001 > $null

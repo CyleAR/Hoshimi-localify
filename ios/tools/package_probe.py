@@ -213,8 +213,6 @@ def package(source, dylib, output, bundle_id, hook_plan_path=None, font_path=Non
         raise ValueError("Input SHA-256 differs from the verified decrypted 6.0.2 IPA")
     lib = dylib.read_bytes()
     dobby = dobby_path.read_bytes() if dobby_path else None
-    if hook_plan_path and not dobby:
-        raise ValueError("--dobby is required for the runtime text hooks")
     if dobby:
         # This prebuilt uses valid 4-byte-aligned LC_RPATH commands (44/28
         # bytes), while the game binaries use the stricter 8-byte layout.

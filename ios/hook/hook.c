@@ -53,12 +53,6 @@ static TmpSetTextBool original_tmp_settext_bool;
 static TmpSetCharArray original_tmp_setchararray;
 static UiSetText original_textfield_set_value;
 static UiSetText original_ui_text_set_text;
-typedef int (*DobbyHookFunction)(void *, void *, void **);
-typedef int (*DobbyDestroyFunction)(void *);
-static uintptr_t dobby_unity_base;
-static int dobby_install_state;
-static int install_dobby_text_hooks(uintptr_t base);
-static void ensure_dobby_after_managed_call(void);
 static int append_managed_utf8(char *output, size_t capacity, size_t *used, void *value);
 static void *method_entry(const void *method);
 #endif
@@ -724,9 +718,6 @@ static void set_value_hook(void *self, void *key, void *value, const void *metho
             /* Preserve the hidden MethodInfo argument as well as self/key.
              * The new managed string stays on the current managed-call stack. */
             original(self, key, translated, method);
-#ifndef HOSHIMI_TEXT_ONLY
-            ensure_dobby_after_managed_call();
-#endif
             return;
         }
         record("WARN: managed string allocation returned null; keeping original value");
@@ -737,9 +728,6 @@ static void set_value_hook(void *self, void *key, void *value, const void *metho
         record("ORIGINAL call=%u key=%s", call, key_text);
     }
     original(self, key, value, method);
-#ifndef HOSHIMI_TEXT_ONLY
-    ensure_dobby_after_managed_call();
-#endif
 }
 
 #ifndef HOSHIMI_TEXT_ONLY
@@ -1263,10 +1251,18 @@ static char *generic_translate_utf8(const char *input, size_t length,
             }
         }
         if (!match) {
+            selected_length = 0;
+            selected[0] = 0;
             int split_changed = generic_split_translate(header, input, length, selected,
                                                         capacity, &selected_length);
             if (split_changed > 0) { did_translate = 1; match = (const struct GenericEntry *)1; }
-            else if (!split_changed) generic_append(selected, capacity, &selected_length, input, length);
+            else if (!split_changed) {
+                /* Split lookup can write the unchanged input before returning 0.
+                 * Replace that tentative output instead of appending it twice. */
+                selected_length = 0;
+                selected[0] = 0;
+                generic_append(selected, capacity, &selected_length, input, length);
+            }
             else { free(key); free(selected); return 0; }
         }
         free(key);
@@ -1408,10 +1404,15 @@ static __attribute__((unused)) void tmp_populate_text_hook(
     int changed = 0, translated = 0;
     void *localized = value;
     int32_t original_length = value && string_length ? string_length(value) : -1;
-    if (start == 0 && length >= 0 && original_length == length)
-        localized = localized_managed_string(self, value, 1, 1, &changed, &translated);
+    void *source = value;
+    if (value && start >= 0 && length >= 0 && start <= original_length &&
+        length <= original_length - start && string_new && string_chars) {
+        if (start != 0 || length != original_length)
+            source = string_new(string_chars(value) + start, length);
+        localized = localized_managed_string(self, source, 1, 1, &changed, &translated);
+    }
     record_generic_call(value, localized, translated, "TMP_Text.PopulateTextBackingArray");
-    if (localized != value && localized && string_length)
+    if (changed && localized && string_length)
         original_tmp_populate_text(self, localized, 0, string_length(localized), method);
     else
         original_tmp_populate_text(self, value, start, length, method);
@@ -1438,7 +1439,7 @@ static __attribute__((unused)) void tmp_setchararray_hook(
         if (localized != source) {
             record_generic_call(source, localized, translated, "TMP_Text.SetCharArray");
             if (original_tmp_set_text) {
-                original_tmp_set_text(self, localized, method);
+                original_tmp_set_text(self, localized, 0);
                 return;
             }
         }
@@ -1762,60 +1763,7 @@ static void master_merge_hook(void *message, void *span, void *method) {
     localize_master(message);
 }
 
-static int install_dobby_text_hooks(uintptr_t base) {
-    void *dobby = dlopen("@loader_path/libdobby.dylib", RTLD_NOW);
-    DobbyHookFunction hook = dobby ? (DobbyHookFunction)dlsym(dobby, "DobbyHook") : 0;
-    DobbyDestroyFunction destroy = dobby ? (DobbyDestroyFunction)dlsym(dobby, "DobbyDestroy") : 0;
-    if (!dobby || !hook || !destroy) {
-        record("DOBBY FAIL: libdobby.dylib or required exports unavailable");
-        return 0;
-    }
-    struct DobbySite {
-        uintptr_t target;
-        void *replacement;
-        void *original_storage;
-        const char *name;
-    } sites[] = {
-        {base + HOSHIMI_TMP_SET_TEXT_TARGET_RVA, (void *)tmp_set_text_hook,
-         &original_tmp_set_text, "TMP_Text.set_text"},
-    };
-    size_t installed = 0;
-    for (size_t i = 0; i < sizeof(sites) / sizeof(sites[0]); ++i) {
-        void *trampoline = 0;
-        int status = hook((void *)sites[i].target, sites[i].replacement, &trampoline);
-        if (status || !trampoline) {
-            record("DOBBY FAIL: site=%s status=%d; rolling back %llu hooks",
-                   sites[i].name, status, (unsigned long long)installed);
-            while (installed) destroy((void *)sites[--installed].target);
-            original_tmp_set_text = 0;
-            original_tmp_populate_text = 0;
-            original_tmp_settext_bool = 0;
-            original_tmp_setchararray = 0;
-            original_textfield_set_value = 0;
-            original_ui_text_set_text = 0;
-            return 0;
-        }
-        memcpy(sites[i].original_storage, &trampoline, sizeof(trampoline));
-        ++installed;
-        record("DOBBY ARMED %s rva=0x%llx", sites[i].name,
-               (unsigned long long)(sites[i].target - base));
-    }
-    record("DOBBY OK: compatibility probe 1/6 active");
-    return 1;
-}
 
-static void ensure_dobby_after_managed_call(void) {
-    int expected = 0;
-    if (!__atomic_compare_exchange_n(&dobby_install_state, &expected, 1, 0,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return;
-    record("DOBBY SYNC: managed runtime ready; installing compatibility probe 1/6");
-    if (dobby_unity_base && install_dobby_text_hooks(dobby_unity_base))
-        __atomic_store_n(&dobby_install_state, 2, __ATOMIC_RELEASE);
-    else {
-        __atomic_store_n(&dobby_install_state, -1, __ATOMIC_RELEASE);
-        record("GENERIC DISABLED: synchronous Dobby installation failed");
-    }
-}
 #endif
 
 static void image_added(const struct mach_header *header, intptr_t slide) {
@@ -1826,7 +1774,6 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
         !strstr(info.dli_fname, "/UnityFramework.framework/UnityFramework")) return;
     uintptr_t base = (uintptr_t)header;
 #ifndef HOSHIMI_TEXT_ONLY
-    dobby_unity_base = base;
 #endif
 #ifdef HOSHIMI_DISCOVERY
     unity_base = base;
@@ -1874,21 +1821,31 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
         record("FAIL: MasterDB branch/gateway mismatch; hook not armed");
         return;
     }
-    if (memcmp((void *)(base + HOSHIMI_TMP_SET_TEXT_TARGET_RVA),
-               tmp_set_text_target_original_hex, sizeof(tmp_set_text_target_original_hex)) ||
-        memcmp((void *)(base + HOSHIMI_TMP_POPULATE_TARGET_RVA),
-               tmp_populate_target_original_hex, sizeof(tmp_populate_target_original_hex)) ||
-        memcmp((void *)(base + HOSHIMI_TMP_SETTEXT_BOOL_TARGET_RVA),
-               tmp_settext_bool_target_original_hex, sizeof(tmp_settext_bool_target_original_hex)) ||
-        memcmp((void *)(base + HOSHIMI_TMP_SETCHARARRAY_TARGET_RVA),
-               tmp_setchararray_target_original_hex, sizeof(tmp_setchararray_target_original_hex)) ||
-        memcmp((void *)(base + HOSHIMI_TEXTFIELD_TARGET_RVA),
-               textfield_target_original_hex, sizeof(textfield_target_original_hex)) ||
-        memcmp((void *)(base + HOSHIMI_UI_TEXT_TARGET_RVA),
-               ui_text_target_original_hex, sizeof(ui_text_target_original_hex))) {
-        record("FAIL: Dobby text target prologue mismatch; text hooks not armed");
-        return;
+    if (memcmp((void *)(base + HOSHIMI_TMP_SET_TEXT_TARGET_RVA), tmp_set_text_patched_entry_hex, sizeof(tmp_set_text_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_TMP_SET_TEXT_CAVE_RVA), tmp_set_text_gateway_hex, sizeof(tmp_set_text_gateway_hex))) {
+        record("FAIL: tmp_set_text static gateway mismatch"); return;
     }
+    if (memcmp((void *)(base + HOSHIMI_TMP_POPULATE_TARGET_RVA), tmp_populate_patched_entry_hex, sizeof(tmp_populate_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_TMP_POPULATE_CAVE_RVA), tmp_populate_gateway_hex, sizeof(tmp_populate_gateway_hex))) {
+        record("FAIL: tmp_populate static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_TMP_SETTEXT_BOOL_TARGET_RVA), tmp_settext_bool_patched_entry_hex, sizeof(tmp_settext_bool_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_TMP_SETTEXT_BOOL_CAVE_RVA), tmp_settext_bool_gateway_hex, sizeof(tmp_settext_bool_gateway_hex))) {
+        record("FAIL: tmp_settext_bool static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_TMP_SETCHARARRAY_TARGET_RVA), tmp_setchararray_patched_entry_hex, sizeof(tmp_setchararray_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_TMP_SETCHARARRAY_CAVE_RVA), tmp_setchararray_gateway_hex, sizeof(tmp_setchararray_gateway_hex))) {
+        record("FAIL: tmp_setchararray static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_TEXTFIELD_TARGET_RVA), textfield_patched_entry_hex, sizeof(textfield_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_TEXTFIELD_CAVE_RVA), textfield_gateway_hex, sizeof(textfield_gateway_hex))) {
+        record("FAIL: textfield static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_UI_TEXT_TARGET_RVA), ui_text_patched_entry_hex, sizeof(ui_text_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_UI_TEXT_CAVE_RVA), ui_text_gateway_hex, sizeof(ui_text_gateway_hex))) {
+        record("FAIL: ui_text static gateway mismatch"); return;
+    }
+
 #endif
     original = (SetValue)(base + HOSHIMI_ORIGINAL_RVA);
     string_length = (StringLength)(base + API_IL2CPP_STRING_LENGTH);
@@ -1945,7 +1902,19 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     } else {
         record("GENERIC WARN: embedded generic.bin was not found or invalid; ligature/josa normalization remains active");
     }
-    record("DOBBY WAIT: compatibility probe 1/6 will install after the first managed I18n call");
+    original_tmp_set_text = (TmpSetText)(base + HOSHIMI_TMP_SET_TEXT_ORIGINAL_RVA);
+    original_tmp_populate_text = (TmpPopulateText)(base + HOSHIMI_TMP_POPULATE_ORIGINAL_RVA);
+    original_tmp_settext_bool = (TmpSetTextBool)(base + HOSHIMI_TMP_SETTEXT_BOOL_ORIGINAL_RVA);
+    original_tmp_setchararray = (TmpSetCharArray)(base + HOSHIMI_TMP_SETCHARARRAY_ORIGINAL_RVA);
+    original_textfield_set_value = (UiSetText)(base + HOSHIMI_TEXTFIELD_ORIGINAL_RVA);
+    original_ui_text_set_text = (UiSetText)(base + HOSHIMI_UI_TEXT_ORIGINAL_RVA);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_TMP_SET_TEXT_SLOT_RVA), (uintptr_t)tmp_set_text_hook, __ATOMIC_RELEASE);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_TMP_POPULATE_SLOT_RVA), (uintptr_t)tmp_populate_text_hook, __ATOMIC_RELEASE);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_TMP_SETTEXT_BOOL_SLOT_RVA), (uintptr_t)tmp_settext_bool_hook, __ATOMIC_RELEASE);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_TMP_SETCHARARRAY_SLOT_RVA), (uintptr_t)tmp_setchararray_hook, __ATOMIC_RELEASE);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_TEXTFIELD_SLOT_RVA), (uintptr_t)textfield_set_value_hook, __ATOMIC_RELEASE);
+    __atomic_store_n((uintptr_t *)(base + HOSHIMI_UI_TEXT_SLOT_RVA), (uintptr_t)ui_text_set_text_hook, __ATOMIC_RELEASE);
+    record("GENERIC ARMED: 6 static text hooks; no runtime code patching");
 #endif
     uintptr_t *slot = (uintptr_t *)(base + HOSHIMI_SLOT_RVA);
     uintptr_t expected = 0;
@@ -1986,7 +1955,7 @@ __attribute__((constructor)) static void start(void) {
     record("Hoshimi iOS hook v8: translation-only isolation build");
     record("Font activation disabled; Korean glyphs are expected to render as squares");
 #else
-    record("Hoshimi iOS hook v28: synchronous Dobby compatibility probe 1/6");
+    record("Hoshimi iOS hook v29: static text hooks; generic duplication fixed");
     record("Static SourceSansPro-Regular OTF replacement expected in sharedassets0.assets");
 #endif
     patch_enabled = read_boolean_setting("HoshimiLocalifyEnabled", 1);
