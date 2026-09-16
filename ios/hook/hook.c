@@ -1766,6 +1766,10 @@ static void master_merge_hook(void *message, void *span, void *method) {
 
 #endif
 
+#ifndef HOSHIMI_TEXT_ONLY
+#include "image_hook.h"
+#endif
+
 static void image_added(const struct mach_header *header, intptr_t slide) {
     (void)slide;
     if (armed) return;
@@ -1782,6 +1786,10 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     unity_handle = dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD);
     const char *framework_marker = strstr(info.dli_fname, "/Frameworks/UnityFramework.framework/UnityFramework");
     if (framework_marker) {
+        size_t image_prefix = (size_t)(framework_marker - info.dli_fname);
+        if (image_prefix < 2048)
+            snprintf(image_root, sizeof(image_root), "%.*s/HoshimiLocal/local-files/resource/img",
+                     (int)image_prefix, info.dli_fname);
         size_t prefix_length = (size_t)(framework_marker - info.dli_fname);
         if (prefix_length < 2048)
             snprintf(adv_root, sizeof(adv_root), "%.*s/HoshimiLocal/local-files/resource/adv",
@@ -1846,6 +1854,24 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
         record("FAIL: ui_text static gateway mismatch"); return;
     }
 
+#endif
+#ifndef HOSHIMI_TEXT_ONLY
+    if (memcmp((void *)(base + HOSHIMI_IMAGE_SPRITE_TARGET_RVA), image_sprite_patched_entry_hex, sizeof(image_sprite_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_IMAGE_SPRITE_CAVE_RVA), image_sprite_gateway_hex, sizeof(image_sprite_gateway_hex))) {
+        record("FAIL: image_sprite static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_IMAGE_OVERRIDE_TARGET_RVA), image_override_patched_entry_hex, sizeof(image_override_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_IMAGE_OVERRIDE_CAVE_RVA), image_override_gateway_hex, sizeof(image_override_gateway_hex))) {
+        record("FAIL: image_override static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_IMAGE_TEXTURE_TARGET_RVA), image_texture_patched_entry_hex, sizeof(image_texture_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_IMAGE_TEXTURE_CAVE_RVA), image_texture_gateway_hex, sizeof(image_texture_gateway_hex))) {
+        record("FAIL: image_texture static gateway mismatch"); return;
+    }
+    if (memcmp((void *)(base + HOSHIMI_IMAGE_ENABLE_TARGET_RVA), image_enable_patched_entry_hex, sizeof(image_enable_patched_entry_hex)) ||
+        memcmp((void *)(base + HOSHIMI_IMAGE_ENABLE_CAVE_RVA), image_enable_gateway_hex, sizeof(image_enable_gateway_hex))) {
+        record("FAIL: image_enable static gateway mismatch"); return;
+    }
 #endif
     original = (SetValue)(base + HOSHIMI_ORIGINAL_RVA);
     string_length = (StringLength)(base + API_IL2CPP_STRING_LENGTH);
@@ -1915,6 +1941,18 @@ static void image_added(const struct mach_header *header, intptr_t slide) {
     __atomic_store_n((uintptr_t *)(base + HOSHIMI_TEXTFIELD_SLOT_RVA), (uintptr_t)textfield_set_value_hook, __ATOMIC_RELEASE);
     __atomic_store_n((uintptr_t *)(base + HOSHIMI_UI_TEXT_SLOT_RVA), (uintptr_t)ui_text_set_text_hook, __ATOMIC_RELEASE);
     record("GENERIC ARMED: 6 static text hooks; no runtime code patching");
+    if (images_enabled) {
+        original_image_sprite = (ImageSetter)(base + HOSHIMI_IMAGE_SPRITE_ORIGINAL_RVA);
+        original_image_override = (ImageSetter)(base + HOSHIMI_IMAGE_OVERRIDE_ORIGINAL_RVA);
+        original_image_texture = (ImageSetter)(base + HOSHIMI_IMAGE_TEXTURE_ORIGINAL_RVA);
+        original_image_enable = (ImageEnable)(base + HOSHIMI_IMAGE_ENABLE_ORIGINAL_RVA);
+        __atomic_store_n((uintptr_t *)(base + HOSHIMI_IMAGE_SPRITE_SLOT_RVA), (uintptr_t)image_sprite_hook, __ATOMIC_RELEASE);
+        __atomic_store_n((uintptr_t *)(base + HOSHIMI_IMAGE_OVERRIDE_SLOT_RVA), (uintptr_t)image_override_hook, __ATOMIC_RELEASE);
+        __atomic_store_n((uintptr_t *)(base + HOSHIMI_IMAGE_TEXTURE_SLOT_RVA), (uintptr_t)image_texture_hook, __ATOMIC_RELEASE);
+        __atomic_store_n((uintptr_t *)(base + HOSHIMI_IMAGE_ENABLE_SLOT_RVA), (uintptr_t)image_enable_hook, __ATOMIC_RELEASE);
+        record("IMAGE ARMED: 4 static hooks; root=%s", image_root);
+    } else { record("IMAGE DISABLED: replaceImages=OFF"); }
+
 #endif
     uintptr_t *slot = (uintptr_t *)(base + HOSHIMI_SLOT_RVA);
     uintptr_t expected = 0;
@@ -1955,7 +1993,7 @@ __attribute__((constructor)) static void start(void) {
     record("Hoshimi iOS hook v8: translation-only isolation build");
     record("Font activation disabled; Korean glyphs are expected to render as squares");
 #else
-    record("Hoshimi iOS hook v29: static text hooks; generic duplication fixed");
+    record("Hoshimi iOS hook v30: Android-style image replacement; static hooks");
     record("Static SourceSansPro-Regular OTF replacement expected in sharedassets0.assets");
 #endif
     patch_enabled = read_boolean_setting("HoshimiLocalifyEnabled", 1);

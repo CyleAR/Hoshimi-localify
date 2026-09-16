@@ -2,9 +2,24 @@
 
 2026-09-15: 사용자가 SideStore + iLoader로 복호화된 IDOLY PRIDE 6.0.2의 설치와 실행에 성공했다. 기존 Android의 IL2CPP 번역 훅·JSON 데이터와 폰트 자산 교체를 이식한다. AstralParty/프로토버프 방식은 사용하지 않는다.
 
-## 현재 결과물: Hook v29
+## 현재 결과물: Hook v30 (이미지 교체 실기 확인)
 
 사용자 기기에서 v18의 화면·폰트·ADV 번역이 확인됐다. v23은 ADV 원문 파일에는 괄호 치환만 적용하고, Android와 같은 generic 텍스트 보정 단계에서 조사·대시·문장부호를 처리한다. 검증된 `Google.Protobuf.MessageExtensions.MergeFrom` 뒤에서 MasterDB의 직접 필드와 중첩 객체·배열을 모두 적용한다. 정적 폰트 경로는 교체한 `SourceSansPro-Regular`를 런타임에서 찾아 Android 방식으로 활성화하고, 모든 TMP 폰트의 폴백 목록에 등록한다. v29는 generic 분할 검색이 원문을 출력한 뒤 호출자가 다시 원문을 붙이던 중복 버그를 수정했다. 정적 게이트웨이 자체가 원인이라는 이전 판단은 잘못이었다. 제공된 Dobby는 디버거 스크립트가 처리하는 BRK 명령을 포함하므로 일반 IPA 실행 경로에서 제거했다. 여섯 텍스트 훅은 정적 게이트웨이로 연결하며, 부분 문자열도 Android처럼 지정 범위만 번역한다. 2026-09-16 사용자가 v29 설치 후 정상 실행과 문제없음을 확인했다. 이후 기능 추가의 성공 기준선으로 보존한다.
+
+
+v30은 Android `resource/img`의 PNG 836개를 포함하고 `Image.set_sprite`,
+`Image.set_overrideSprite`, `RawImage.set_texture`, `Graphic.OnEnable`을 정적으로 연결한다.
+동일한 이름의 PNG를 읽으며 `(Clone)` 접미사를 제거한다. Sprite의 pivot, border,
+pixels-per-unit을 보존하고 전체 교체 PNG rect를 사용한다. Texture Clamp,
+DontUnloadUnusedAsset, preserveAspect를 적용하고 관리형 GC handle로 캐시를 유지한다.
+설정의 `이미지 교체`를 끄고 재시작하면 네 이미지 훅은 연결하지 않는다.
+이미지가 없거나 보조 API 해석/호출이 실패하면 원본 이미지를 유지한다.
+
+실기 확인: 홈·메뉴·이벤트의 번역 이미지, 화면 이동 후 재표시, `이미지 교체` OFF 후 재시작.
+로그는 `IMAGE ARMED`, `IMAGE API READY`, `IMAGE REPLACED`를 확인한다.
+`IMAGE API MISSING`, `IMAGE EXCEPTION`, `IMAGE LOAD FAILED`가 나오면 해당 로그로 보조 API를 점검한다.
+Unity API를 모의 구현한 ARM64 이미지 테스트와 기존 회귀 테스트 42개가 통과했으며,
+2026-09-16 사용자가 이미지 교체의 정상 동작을 확인했다. 홈 화면 로딩 시 약한 스터터링이 보고됐으며, 원인과 소요 시간은 아직 계측하지 않았다. 첫 PNG 읽기·디코딩·텍스처 생성이 UI 콜백에서 동기 실행되는 구간을 후속 성능 점검 대상으로 남긴다.
 
 - Android와 같은 `localization.json`의 키 → 번역 문자열 4,185개를 내장한다. 빌드 때 UTF-16 검색 테이블로 변환하므로 별도의 JSON 파일 복사가 필요 없다.
 - 실제 Android 훅 대상인 인스턴스 메서드 `Qua.UI.I18n.SetValue`에 연결한다. v1에서 찾은 정적 메서드 `I18nHelper.SetValue`는 이 메서드를 호출하는 래퍼다. 두 함수의 인자 배치를 구분하고 숨은 `MethodInfo` 인자도 보존한다.
@@ -29,7 +44,7 @@
 ```powershell
 chcp 65001 > $null
 ./ios/build-hook.ps1
-python ios/tools/package_probe.py --ipa dump/ios/game.qualiarts.idolypride-6.0.2-Decrypted.ipa --dylib ios/build/hook-v2/HoshimiLocalify.dylib --hook-plan ios/build/hook-v2/hook-plan.json --font-file ios/PretendardJP-SemiBold.otf --local-data-root app/src/main/assets/hoshimi-local --include-adv --include-master --patch-revision 29 --output ios/build/IdolyPride-6.0.2-HoshimiHook-v29.ipa
+python ios/tools/package_probe.py --ipa dump/ios/game.qualiarts.idolypride-6.0.2-Decrypted.ipa --dylib ios/build/hook-v2/HoshimiLocalify.dylib --hook-plan ios/build/hook-v2/hook-plan.json --font-file ios/PretendardJP-SemiBold.otf --local-data-root app/src/main/assets/hoshimi-local --include-adv --include-master --include-images --patch-revision 30 --output ios/build/IdolyPride-6.0.2-HoshimiHook-v30.ipa
 ```
 
 출력 IPA가 이미 있으면 새 이름을 지정한다. 원본 IPA는 변경하지 않는다.

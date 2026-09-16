@@ -67,6 +67,20 @@ class HeaderInjectionTests(unittest.TestCase):
             self.assertEqual(generic_details["exact"], 1)
             self.assertEqual(generic_details["translated"], 2)
 
+    def test_image_payload_is_opt_in_and_preserves_resource_paths(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "version.txt").write_text("test", encoding="utf-8")
+            img = root / "local-files/resource/img/nested"
+            img.mkdir(parents=True)
+            data = b"PNG fixture bytes"
+            (img / "button.png").write_bytes(data)
+            self.assertEqual(collect_local_payload(root), [])
+            payload = dict(collect_local_payload(root, include_images=True))
+            name = LOCAL_DATA_ROOT + "local-files/resource/img/nested/button.png"
+            self.assertEqual(payload[name].read_bytes(), data)
+            self.assertEqual(len(payload), 2)
+
     def test_generic_compiler_preserves_format_and_split_maps(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

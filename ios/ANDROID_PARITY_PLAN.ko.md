@@ -20,7 +20,7 @@ iOS v29 소스에는 다음 기능이 들어 있다.
 | 조사 처리 | 구현 | Android의 조사 규칙을 텍스트 최종 단계에 적용 |
 | 쉼표·Two-Em Dash·`[center]` 보정 | 구현 | Android의 `FixLigature`와 레이아웃 처리에 대응 |
 | MasterDB 사용 스위치 | 구현 | 실제 Master 훅과 연결됨 |
-| 이미지 교체 스위치 | 설정만 구현 | 아직 이미지 훅과 연결되지 않음 |
+| 이미지 교체 스위치 | v30 실기 확인 | 네 이미지 훅 및 PNG 836개와 연결 |
 | 전화 자막 스위치 | 설정만 구현 | 아직 오디오/자막 훅과 연결되지 않음 |
 
 `master.bin`과 `generic.bin`은 Android JSON을 다른 방식으로 새로 해석한 데이터가 아니다.
@@ -34,9 +34,9 @@ localization·폰트·ADV·MasterDB와 여섯 텍스트 경로를 정적 게이�
 실제 ARM64 번역 코드에서 숫자/태그 문자열의 4회 반복 처리와 exact/format/split/조사/대시를 검사했다.
 2026-09-16 사용자가 v29 실기 실행 후 문제없음을 확인했다. 이 버전을 성공 기준선으로 보존한다.
 
-## Android에는 있고 iOS에는 아직 없는 기능
+## 후속 기능과 검증 상태
 
-### 1. 이미지 교체
+### 1. 이미지 교체 — v30 실기 확인
 
 Android는 `local-files/resource/img`의 PNG를 다음 네 경로에서 적용한다.
 
@@ -52,10 +52,16 @@ Android는 `local-files/resource/img`의 PNG를 다음 네 경로에서 적용�
 - `RawImage.set_texture`: `0x7b2c9a8`
 - `Graphic.OnEnable`: `0x797eea0`
 
-실제 교체에는 PNG 바이트를 `Texture2D`로 만들고 `Sprite.Create`를 호출하는 보조 API가 더
-필요하다. 원본 스프라이트의 rect, pivot, border, pixels-per-unit을 보존하고
-`preserveAspect`를 켜는 Android 동작도 그대로 옮겨야 한다. 이 보조 API는 probe v4 목록에
-없으므로 런타임 IL2CPP 조회로 안전하게 얻거나 probe를 한 번 확장한다.
+v30은 보조 API를 첫 관리형 UI 콜백에서 정확한 인자 타입으로 조회한다.
+Texture2D/LoadImage/Sprite.Create는 runtime_invoke로 호출하여 구조체 인자를 전달하고,
+원본 rect로 정규화한 pivot, border, pixels-per-unit을 보존한다. PNG 전체 크기를 새 rect로 쓴다.
+Texture Clamp, DontUnloadUnusedAsset, preserveAspect는 Android 기본값과 같다.
+생성 자산은 GC handle로 참조를 유지하며 Unity 객체 생존 확인 후 이름별 캐시를 재사용한다.
+파일 누락·관리형 예외·API 누락 시 원본을 유지한다. 이미지 OFF는 다음 실행부터 적용된다.
+PNG 836개를 `--include-images` 옵션으로 IPA에 포함한다. v29 성공 기준선은 dc5b6f6이다.
+2026-09-16 사용자가 이미지 교체 정상 동작을 확인했다. 홈 로딩 시 약한 스터터링은 남아 있으며,
+첫 이미지 읽기·디코딩·생성 비용을 계측한 뒤 최적화할 예정이다. 아직 원인이 확정된 것은 아니다.
+
 
 ### 2. 전화 자막
 

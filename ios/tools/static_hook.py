@@ -20,6 +20,12 @@ TMP_SETTEXT_BOOL_TARGET = 0x773D790
 TMP_SETCHARARRAY_TARGET = 0x773E070
 TEXTFIELD_TARGET = 0x7A4428C
 UI_TEXT_TARGET = 0x7B3CE88
+IMAGE_SITES = (
+    ("image_sprite", 0x797489C, bytes.fromhex("e923bb6df85f01a9f65702a9f44f03a9")),
+    ("image_override", 0x79843BC, bytes.fromhex("f657bda9f44f01a9fd7b02a9fd830091")),
+    ("image_texture", 0x7B2C9A8, bytes.fromhex("f657bda9f44f01a9fd7b02a9fd830091")),
+    ("image_enable", 0x797EEA0, bytes.fromhex("f85fbca9f65701a9f44f02a9fd7b03a9")),
+)
 MODULE = 0x9DEEB28
 TOKEN_ROW = 0x26F
 HELPER_ROW = 0x27E
@@ -51,7 +57,7 @@ def gateway(cave, slot, target, displaced):
                           MASTER_EXPECTED[:4], TMP_SET_TEXT_EXPECTED[:4],
                           TMP_POPULATE_EXPECTED[:4], TMP_SETTEXT_BOOL_EXPECTED[:4],
                           TMP_SETCHARARRAY_EXPECTED[:4], TEXTFIELD_EXPECTED[:4],
-                          UI_TEXT_EXPECTED[:4]):
+                          UI_TEXT_EXPECTED[:4], *(site[2][:4] for site in IMAGE_SITES)):
         raise ValueError("Unsupported displaced instruction")
     page_delta = (slot >> 12) - (cave >> 12)
     if not -(1 << 20) <= page_delta < (1 << 20):
@@ -131,6 +137,7 @@ def plan(data):
         ("textfield", TEXTFIELD_TARGET, TEXTFIELD_EXPECTED),
         ("ui_text", UI_TEXT_TARGET, UI_TEXT_EXPECTED),
     ]
+    text_sites.extend(IMAGE_SITES)
     for name, target, expected in text_sites:
         if data[target:target + len(expected)] != expected:
             raise ValueError(f"Unexpected {name} prologue")
@@ -227,7 +234,8 @@ def patch(data, expected_plan):
     output[MASTER_TARGET:MASTER_TARGET + 4] = bytes.fromhex(actual["master_patched_entry_hex"])
     # Offline gateways keep executable pages unchanged at runtime (no JIT).
     for name in ("tmp_set_text", "tmp_populate", "tmp_settext_bool",
-                 "tmp_setchararray", "textfield", "ui_text"):
+                 "tmp_setchararray", "textfield", "ui_text",
+                 *(site[0] for site in IMAGE_SITES)):
         cave = actual[f"{name}_cave_rva"]
         code = bytes.fromhex(actual[f"{name}_gateway_hex"])
         target = actual[f"{name}_target_rva"]

@@ -92,9 +92,9 @@ def settings_plist():
     }, fmt=plistlib.FMT_BINARY)
 
 
-def collect_local_payload(root, include_adv=False, include_master=False):
+def collect_local_payload(root, include_adv=False, include_master=False, include_images=False):
     """Select files directly from the hoshimi-local checkout without rewriting them."""
-    if not include_adv and not include_master:
+    if not include_adv and not include_master and not include_images:
         return []
     root = root.resolve()
     version = root / "version.txt"
@@ -102,6 +102,8 @@ def collect_local_payload(root, include_adv=False, include_master=False):
         raise ValueError("hoshimi-local version.txt was not found")
     selected = [version]
     groups = []
+    if include_images:
+        groups.append(root / "local-files" / "resource" / "img")
     if include_adv:
         groups.append(root / "local-files" / "resource" / "adv")
     if include_master and not (root / "local-files" / "masterTrans").is_dir():
@@ -199,7 +201,7 @@ def add_load_dylib(data, name):
 
 def package(source, dylib, output, bundle_id, hook_plan_path=None, font_path=None,
             local_data_root=None, include_adv=False, include_master=False,
-            patch_revision=None, dobby_path=None):
+            patch_revision=None, dobby_path=None, include_images=False):
     if output.exists() or output.with_suffix(".report.json").exists():
         raise ValueError("Output already exists; choose a new output filename")
     if bundle_id != DEFAULT_BUNDLE_ID and not bundle_id.startswith("game.qualiarts.idolypride."):
@@ -222,9 +224,9 @@ def package(source, dylib, output, bundle_id, hook_plan_path=None, font_path=Non
         for symbol in DOBBY_REQUIRED_EXPORTS:
             if symbol not in dobby:
                 raise ValueError(f"Dobby payload is missing required export: {symbol[:-1].decode()}")
-    if (include_adv or include_master) and not local_data_root:
+    if (include_adv or include_master or include_images) and not local_data_root:
         raise ValueError("--local-data-root is required when embedding translation data")
-    local_payload = collect_local_payload(local_data_root, include_adv, include_master) \
+    local_payload = collect_local_payload(local_data_root, include_adv, include_master, include_images) \
         if local_data_root else []
     master_blob = None
     master_details = None
@@ -305,6 +307,7 @@ def package(source, dylib, output, bundle_id, hook_plan_path=None, font_path=Non
                 "version": (local_data_root.resolve() / "version.txt").read_text(
                     encoding="utf-8-sig").strip(),
                 "adv": include_adv,
+                "images": include_images,
                 "master": include_master,
                 "generic": bool(generic_blob),
                 "files": len(local_payload),
@@ -398,6 +401,8 @@ if __name__ == "__main__":
                         help="Embed local-files/resource/adv directly from hoshimi-local")
     parser.add_argument("--include-master", action="store_true",
                         help="Compile and embed all local-files/masterTrans translations")
+    parser.add_argument("--include-images", action="store_true",
+                        help="Embed Android replacement images from resource/img")
     parser.add_argument("--patch-revision", type=int,
                         help="Use 141.<revision> as CFBundleVersion so iOS treats it as an update")
     parser.add_argument("--dobby", type=Path,
@@ -405,4 +410,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     package(args.ipa, args.dylib, args.output, args.bundle_id, args.hook_plan, args.font_file,
             args.local_data_root, args.include_adv, args.include_master, args.patch_revision,
-            args.dobby)
+            args.dobby, args.include_images)

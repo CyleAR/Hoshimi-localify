@@ -18,7 +18,7 @@ from static_hook import (TARGET, EXPECTED, FONT_TARGET, FONT_EXPECTED,
                          TMP_SETCHARARRAY_TARGET, TMP_SETCHARARRAY_EXPECTED,
                          TEXTFIELD_TARGET, TEXTFIELD_EXPECTED,
                          UI_TEXT_TARGET, UI_TEXT_EXPECTED,
-                         branch, gateway)
+                         branch, gateway, IMAGE_SITES)
 
 CAVE = 0x9788050
 SLOT = 0xAB944D8
@@ -63,7 +63,7 @@ class GatewayExecutionTests(unittest.TestCase):
         from unicorn.arm64_const import UC_ARM64_REG_X29, UC_ARM64_REG_X30
         uc.reg_write(UC_ARM64_REG_X29, 0xF029)
         uc.reg_write(UC_ARM64_REG_X30, 0xF030)
-        for i in range(8):
+        for i in range(32):
             uc.reg_write(UC_ARM64_REG_Q0 + i, (0x12345678 << 64) + i)
         uc.reg_write(UC_ARM64_REG_SP, sp)
         stop = hook if armed and not trampoline else slide + target + 4
@@ -82,7 +82,7 @@ class GatewayExecutionTests(unittest.TestCase):
             self.assertEqual(uc.reg_read(UC_ARM64_REG_X0 + changed_register), changed_value)
         self.assertEqual(uc.reg_read(UC_ARM64_REG_X29), 0xF029)
         self.assertEqual(uc.reg_read(UC_ARM64_REG_X30), 0xF030)
-        for i in range(8):
+        for i in range(32):
             self.assertEqual(uc.reg_read(UC_ARM64_REG_Q0 + i), (0x12345678 << 64) + i)
         if stop == hook:
             self.assertEqual(uc.reg_read(UC_ARM64_REG_SP), sp)
@@ -91,6 +91,20 @@ class GatewayExecutionTests(unittest.TestCase):
             if saved:
                 self.assertEqual(bytes(uc.mem_read(sp - stack_size, 16)),
                                  struct.pack("<QQ", before[saved[0]], before[saved[1]]))
+
+        return uc, sp
+
+    def test_image_gateways_and_original_trampolines(self):
+        for index, (name, target, expected) in enumerate(IMAGE_SITES):
+            for armed, trampoline in ((False, False), (True, False), (True, True)):
+                with self.subTest(site=name, armed=armed, trampoline=trampoline):
+                    saved = None if index == 0 else ((24, 23) if index == 3 else (22, 21))
+                    size = 80 if index == 0 else (64 if index == 3 else 48)
+                    uc, sp = self.run_gateway(armed, 0x103A40000, trampoline=trampoline,
+                        target=target, cave=0x9788190 + 32 * index, slot=0xAB94528 + 8 * index,
+                        expected=expected, saved=saved, stack_size=size)
+                    if index == 0 and (not armed or trampoline):
+                        self.assertEqual(bytes(uc.mem_read(sp - 80, 16)), struct.pack("<QQ", 9, 8))
 
     def test_unarmed_falls_back_to_original(self):
         self.run_gateway(False, 0)
