@@ -1367,8 +1367,16 @@ namespace HoshimiLocal::HookMain {
                                                                      "TMPro", "TMP_Text");
         const auto get_Text_method = TMP_Text_klass->Get<UnityResolve::Method>("get_text");
         const auto set_Text_method = TMP_Text_klass->Get<UnityResolve::Method>("set_text");
+        static auto backingStringDirtyField = TMP_Text_klass->Get<UnityResolve::Field>("m_IsTextBackingStringDirty");
+        if (!backingStringDirtyField) {
+            TextMeshProUGUI_Awake_Orig(self, method);
+            UpdateFont(self);
+            return;
+        }
         bool centerAfterAwake = false;
+        const bool backingStringWasDirty = Il2cppUtils::ClassGetFieldValue<bool>(self, backingStringDirtyField);
         const auto currText = get_Text_method->Invoke<UnityResolve::UnityType::String*>(self);
+        Il2cppUtils::ClassSetFieldValue(self, backingStringDirtyField, backingStringWasDirty);
         if (currText) {
             //Log::InfoFmt("TextMeshProUGUI_Awake: %s", currText->ToString().c_str());
             std::string transText;
