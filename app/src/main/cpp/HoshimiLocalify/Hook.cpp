@@ -1577,11 +1577,22 @@ namespace HoshimiLocal::HookMain {
 
     std::string GetObjectName(void* obj) {
         if (!obj) return "";
-        if (!IsUnityObjectAlive(obj)) return "";
+        static auto is_native_object_alive = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Object", "IsNativeObjectAlive");
+        if (!is_native_object_alive) return "";
+        void* alive_args[] = {obj};
+        void* exception = nullptr;
+        auto alive_boxed = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke",
+                is_native_object_alive->address, nullptr, alive_args, &exception);
+        if (exception || !alive_boxed) return "";
+        auto alive = UnityResolve::Invoke<uint8_t*>("il2cpp_object_unbox", alive_boxed);
+        if (!alive || !*alive) return "";
         static auto get_name = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "get_name");
         if (!get_name) return "";
-        auto nameStr = get_name->Invoke<Il2cppString*>(obj);
-        if (!nameStr) return "";
+        exception = nullptr;
+        auto nameStr = UnityResolve::Invoke<Il2cppString*>("il2cpp_runtime_invoke",
+                get_name->address, obj, static_cast<void**>(nullptr), &exception);
+        if (exception || !nameStr) return "";
         std::string name = nameStr->ToString();
         const std::string cloneSuffix = "(Clone)";
         if (name.length() >= cloneSuffix.length() && 
