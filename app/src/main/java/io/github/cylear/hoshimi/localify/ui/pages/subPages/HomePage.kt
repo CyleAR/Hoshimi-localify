@@ -109,7 +109,12 @@ fun HomePage(modifier: Modifier = Modifier,
                     }
                 }
                 context.mainUIConfirmStatUpdate(true, context.getString(R.string.translation_resource_update),
-                    "${data.name}\n$localVersion -> ${data.tag_name}\n${data.body}\n\n${TimeUtils.convertIsoToLocalTime(data.published_at)}",
+                    listOf(
+                        data.name?.takeIf { it.isNotBlank() } ?: data.tag_name,
+                        "$localVersion -> ${data.tag_name}",
+                        data.body.orEmpty(),
+                        TimeUtils.convertIsoToLocalTime(data.published_at)
+                    ).filter { it.isNotBlank() }.joinToString("\n\n"),
                     onConfirm = {
                         resourceSettingsViewModel.expanded = true
                         RemoteAPIFilesChecker.updateLocalAssets(context, programConfig.value.useAPIAssetsURL,

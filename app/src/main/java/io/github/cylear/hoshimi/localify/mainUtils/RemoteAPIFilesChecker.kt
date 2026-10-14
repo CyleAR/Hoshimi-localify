@@ -7,6 +7,7 @@ import io.github.cylear.hoshimi.localify.models.GithubReleaseModel
 import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import java.io.File
@@ -15,6 +16,19 @@ import java.io.IOException
 
 object RemoteAPIFilesChecker {
     const val BASEPATH = "remote_files"
+
+    private val releaseJson = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
+
+    private fun parseRelease(responseBody: String): GithubReleaseModel {
+        val release = releaseJson.decodeFromString<GithubReleaseModel>(responseBody)
+        if (release.tag_name.isBlank()) {
+            throw IOException("Release version tag (tag_name) is missing or empty.")
+        }
+        return release
+    }
 
     fun getLocalVersion(context: Context): String? {
         val basePath = File(context.filesDir, BASEPATH)
@@ -57,8 +71,7 @@ object RemoteAPIFilesChecker {
 
                             val responseBody = response.body?.string()
                             if (responseBody != null) {
-                                val json = Json { ignoreUnknownKeys = true }
-                                val releaseData = json.decodeFromString<GithubReleaseModel>(responseBody)
+                                val releaseData = parseRelease(responseBody)
 
                                 // Check update
                                 // val releaseVersion = releaseData.tag_name
@@ -103,8 +116,7 @@ object RemoteAPIFilesChecker {
 
                             val responseBody = response.body?.string()
                             if (responseBody != null) {
-                                val json = Json { ignoreUnknownKeys = true }
-                                val releaseData = json.decodeFromString<GithubReleaseModel>(responseBody)
+                                val releaseData = parseRelease(responseBody)
 
                                 // Check and save update
                                 val releaseVersion = releaseData.tag_name
@@ -113,6 +125,7 @@ object RemoteAPIFilesChecker {
                                     var foundZipAsset = false
                                     for (asset in releaseData.assets) {
                                         if (!asset.name.endsWith(".zip")) continue
+                                        if (asset.browser_download_url.toHttpUrlOrNull() == null) continue
                                         foundZipAsset = true
                                         val basePath = File(context.filesDir, BASEPATH)
                                         if (!basePath.exists()) {
@@ -143,7 +156,7 @@ object RemoteAPIFilesChecker {
                                         break
                                     }
                                     if (!foundZipAsset) {
-                                        onFailed(-1, "No zip asset found in release.")
+                                        onFailed(-1, "No downloadable ZIP asset found in release. A ZIP filename and a valid HTTP(S) download URL are required.")
                                     }
                                 } else {
                                     onSuccess(File(context.filesDir, "$BASEPATH/remote.zip"), releaseVersion)

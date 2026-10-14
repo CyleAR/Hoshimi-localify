@@ -28,13 +28,13 @@ data class User(
 
 @Serializable
 data class Asset(
-    val browser_download_url: String,
+    val browser_download_url: String = "",
 //    val content_type: String,
 //    val created_at: String,
 //    val download_count: Int,
 //    val id: Int,
 //    val label: String?,
-    val name: String,
+    val name: String = "",
 //    val node_id: String,
 //    val size: Int,
 //    val state: String,
@@ -46,19 +46,19 @@ data class Asset(
 
 @Serializable
 data class GithubReleaseModel(
-    val assets: List<Asset>,
+    val assets: List<Asset> = emptyList(),
 //    val assets_url: String,
 //    val author: User,
-    val body: String,
+    val body: String? = null,
 //    val created_at: String,
 //    val draft: Boolean,
 //    val html_url: String,
 //    val id: Int,
-    val name: String?,
+    val name: String? = null,
 //    val node_id: String,
 //    val prerelease: Boolean,
-    val published_at: String,
-    val tag_name: String,
+    val published_at: String? = null,
+    val tag_name: String = "",
 //    val tarball_url: String,
 //    val target_commitish: String,
 //    val upload_url: String,
