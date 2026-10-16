@@ -36,6 +36,9 @@ namespace HoshimiLocal::Config {
     extern bool useCustomeGraphicSettings;
     extern float renderScale;
     extern int qualitySettingsLevel;
+    extern int graphicQuality;
+    extern int antiAliasingMode;
+    extern int shadowResolution;
     extern int volumeIndex;
     extern int maxBufferPixel;
 

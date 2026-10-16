@@ -34,6 +34,9 @@ data class IdolyprideConfig (
     var loginAsIOS: Boolean = false,
 
     var useCustomeGraphicSettings: Boolean = false,
+    var graphicQuality: Int = 0,
+    var antiAliasingMode: Int = -1,
+    var shadowResolution: Int = 0,
     var renderScale: Float = 0.77f,
     var qualitySettingsLevel: Int = 3,
     var volumeIndex: Int = 3,

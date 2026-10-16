@@ -5,6 +5,7 @@ import android.view.KeyEvent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.github.cylear.hoshimi.localify.models.IdolyprideConfig
+import io.github.cylear.hoshimi.localify.models.GraphicPresets
 import io.github.cylear.hoshimi.localify.models.ProgramConfig
 import io.github.cylear.hoshimi.localify.models.ProgramConfigViewModel
 import io.github.cylear.hoshimi.localify.models.ProgramConfigViewModelFactory
@@ -36,6 +37,9 @@ interface ConfigListener {
     fun onLiveCustomeHeadIdChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onLiveCustomeCostumeIdChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onUseCustomeGraphicSettingsChanged(value: Boolean)
+    fun onGraphicQualityChanged(value: Int)
+    fun onAntiAliasingModeChanged(value: Int)
+    fun onShadowResolutionChanged(value: Int)
     fun onRenderScaleChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onQualitySettingsLevelChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onVolumeIndexChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -256,13 +260,28 @@ override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
         saveConfig()
     }
 
+    override fun onGraphicQualityChanged(value: Int) {
+        if (value !in listOf(0, 10, 20, 30, 40, 100)) return
+        config.graphicQuality = value
+        saveConfig()
+    }
+
+    override fun onShadowResolutionChanged(value: Int) {
+        if (value !in listOf(0, 512, 1024, 2048, 4096)) return
+        config.shadowResolution = value
+        saveConfig()
+    }
+
+    override fun onAntiAliasingModeChanged(value: Int) {
+        if (value !in -1..2) return
+        config.antiAliasingMode = value
+        saveConfig()
+    }
+
     override fun onRenderScaleChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.renderScale = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0.0f
-        }
+        val scale = s.toString().toFloatOrNull() ?: return
+        if (!scale.isFinite() || scale !in 0.25f..2.0f) return
+        config.renderScale = scale
         saveConfig()
     }
 
@@ -287,12 +306,9 @@ override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
     }
 
     override fun onMaxBufferPixelChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.maxBufferPixel = try {
-            s.toString().toInt()
-        }
-        catch (e: Exception) {
-            0
-        }
+        val maxPixels = s.toString().toIntOrNull() ?: return
+        if (maxPixels !in 256..4096) return
+        config.maxBufferPixel = maxPixels
         saveConfig()
     }
 
@@ -324,49 +340,8 @@ override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
     }
 
     override fun onChangePresetQuality(level: Int) {
-        when (level) {
-            0 -> {
-                config.renderScale = 0.5f
-                config.qualitySettingsLevel = 1
-                config.volumeIndex = 0
-                config.maxBufferPixel = 1024
-                config.lodQualityLevel = 1
-                config.reflectionQualityLevel = 1
-            }
-            1 -> {
-                config.renderScale = 0.59f
-                config.qualitySettingsLevel = 1
-                config.volumeIndex = 1
-                config.maxBufferPixel = 1440
-                config.lodQualityLevel = 2
-                config.reflectionQualityLevel = 2
-            }
-            2 -> {
-                config.renderScale = 0.67f
-                config.qualitySettingsLevel = 2
-                config.volumeIndex = 2
-                config.maxBufferPixel = 2538
-                config.lodQualityLevel = 3
-                config.reflectionQualityLevel = 3
-            }
-            3 -> {
-                config.renderScale = 0.77f
-                config.qualitySettingsLevel = 3
-                config.volumeIndex = 3
-                config.maxBufferPixel = 3384
-                config.lodQualityLevel = 4
-                config.reflectionQualityLevel = 4
-            }
-            4 -> {
-                config.renderScale = 1.0f
-                config.qualitySettingsLevel = 5
-                config.volumeIndex = 4
-                config.maxBufferPixel = 8190
-                config.lodQualityLevel = 5
-                config.reflectionQualityLevel = 5
-            }
-        }
-        checkConfigAndUpdateView()
+        val preset = GraphicPresets.all.getOrNull(level) ?: return
+        preset.applyTo(config)
         saveConfig()
     }
 

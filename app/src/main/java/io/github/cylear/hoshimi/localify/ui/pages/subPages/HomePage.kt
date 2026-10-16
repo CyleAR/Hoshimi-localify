@@ -1,6 +1,7 @@
 package io.github.cylear.hoshimi.localify.ui.pages.subPages
 
 import io.github.cylear.hoshimi.localify.ui.components.IPGroupBox
+import io.github.cylear.hoshimi.localify.ui.components.GraphicSettingsPanel
 import android.content.res.Configuration.UI_MODE_NIGHT_NO
 import android.util.Log
 import androidx.compose.foundation.clickable
@@ -13,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,7 +52,6 @@ import io.github.cylear.hoshimi.localify.models.ResourceCollapsibleBoxViewModelF
 import io.github.cylear.hoshimi.localify.ui.components.base.CollapsibleBox
 import io.github.cylear.hoshimi.localify.ui.components.IPButton
 import io.github.cylear.hoshimi.localify.ui.components.IPProgressBar
-import io.github.cylear.hoshimi.localify.ui.components.IPRadio
 import io.github.cylear.hoshimi.localify.ui.components.IPSwitch
 import io.github.cylear.hoshimi.localify.ui.components.IPTextInput
 
@@ -74,9 +72,6 @@ fun HomePage(modifier: Modifier = Modifier,
     var isFirstTimeInThisPage by rememberSaveable { mutableStateOf(true) }
 
     // val scrollState = rememberScrollState()
-    val keyboardOptionsNumber = remember {
-        KeyboardOptions(keyboardType = KeyboardType.Number)
-    }
 
     val resourceSettingsViewModel: ResourceCollapsibleBoxViewModel =
         viewModel(factory = ResourceCollapsibleBoxViewModelFactory(initiallyExpanded = false))
@@ -377,52 +372,7 @@ fun HomePage(modifier: Modifier = Modifier,
 
         item {
             IPGroupBox(modifier = modifier, contentPadding = 0.dp, title = stringResource(R.string.graphic_settings)) {
-                LazyColumn(modifier = Modifier
-                    .sizeIn(maxHeight = screenH),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        IPTextInput(modifier = modifier
-                            .padding(start = 4.dp, end = 4.dp)
-                            .height(45.dp)
-                            .fillMaxWidth(),
-                            fontSize = 14f,
-                            value = config.value.targetFrameRate.toString(),
-                            onValueChange = { c -> context?.onTargetFpsChanged(c, 0, 0, 0)},
-                            label = { Text(stringResource(R.string.setFpsTitle)) },
-                            keyboardOptions = keyboardOptionsNumber)
-                    }
-
-                    item {
-                        Column(modifier = Modifier.padding(start = 8.dp, end = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(stringResource(R.string.orientation_lock))
-                            Row(modifier = modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                val radioModifier = remember {
-                                    modifier
-                                        .height(40.dp)
-                                        .weight(1f)
-                                }
-
-                                IPRadio(modifier = radioModifier,
-                                    text = stringResource(R.string.orientation_orig), selected = config.value.gameOrientation == 0,
-                                    onClick = { context?.onGameOrientationChanged(0) })
-
-                                IPRadio(modifier = radioModifier,
-                                    text = stringResource(R.string.orientation_portrait), selected = config.value.gameOrientation == 1,
-                                    onClick = { context?.onGameOrientationChanged(1) })
-
-                                IPRadio(modifier = radioModifier,
-                                    text = stringResource(R.string.orientation_landscape), selected = config.value.gameOrientation == 2,
-                                    onClick = { context?.onGameOrientationChanged(2) })
-                            }
-                        }
-                    }
-
-                }
-
+                GraphicSettingsPanel(config.value, context)
             }
 
             Spacer(Modifier.height(6.dp))

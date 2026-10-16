@@ -40,6 +40,9 @@ namespace HoshimiLocal::Config {
     bool useCustomeGraphicSettings = false;
     float renderScale = 0.77f;
     int qualitySettingsLevel = 3;
+    int graphicQuality = 0;
+    int antiAliasingMode = -1;
+    int shadowResolution = 0;
     int volumeIndex = 3;
     int maxBufferPixel = 3384;
     int reflectionQualityLevel = 4;
@@ -115,6 +118,9 @@ namespace HoshimiLocal::Config {
             GetConfigItem(useCustomeGraphicSettings);
             GetConfigItem(renderScale);
             GetConfigItem(qualitySettingsLevel);
+            graphicQuality = config.value("graphicQuality", 0);
+            antiAliasingMode = config.value("antiAliasingMode", -1);
+            shadowResolution = config.value("shadowResolution", 0);
             GetConfigItem(volumeIndex);
             GetConfigItem(maxBufferPixel);
             GetConfigItem(reflectionQualityLevel);
@@ -181,6 +187,9 @@ namespace HoshimiLocal::Config {
             SetConfigItem(useCustomeGraphicSettings);
             SetConfigItem(renderScale);
             SetConfigItem(qualitySettingsLevel);
+            SetConfigItem(graphicQuality);
+            SetConfigItem(antiAliasingMode);
+            SetConfigItem(shadowResolution);
             SetConfigItem(volumeIndex);
             SetConfigItem(maxBufferPixel);
             SetConfigItem(reflectionQualityLevel);
