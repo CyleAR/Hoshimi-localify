@@ -6,6 +6,8 @@ plugins {
     id("kotlin-parcelize")
 }
 
+def liteBuild = providers.gradleProperty("lite").getOrElse("false").toBoolean()
+
 android {
     namespace 'io.github.cylear.hoshimi.localify'
     compileSdk 34
@@ -89,7 +91,11 @@ android {
 
     applicationVariants.configureEach { variant ->
         variant.mergeAssetsProvider.configure { mergeAssetsTask ->
+            mergeAssetsTask.inputs.property("liteBuild", liteBuild)
             mergeAssetsTask.doLast {
+                if (liteBuild) {
+                    delete(new File(mergeAssetsTask.outputDir.get().asFile, 'hoshimi-local'))
+                }
                 delete(fileTree(dir: mergeAssetsTask.outputDir, includes: ['hoshimi-local/hoshimi-adapted-translation-data/**',
                                                                            'hoshimi-local/hoshimiPreTranslation/**',
                                                                            'hoshimi-local/hoshimi-generic-strings-translation/**',

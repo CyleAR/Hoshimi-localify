@@ -31,6 +31,8 @@ The release APK will be located at: `app\build\outputs\apk\release\app-release.a
 
 The debug APK will be located at: `app\build\outputs\apk\debug\app-debug.apk`
 
+For the Lite management APK, append `-Plite=true` and use `clean` when switching build modes. Full remains the default and includes translation data; Lite omits it. Both modes use the same output path, package name, version and signing configuration, so copy the Full artifact outside `app/build` before building Lite.
+
 ## 3. GitHub Actions Release Build
 
 The GitHub Actions workflow is manual-only. Run `Build APK` from the GitHub Actions tab.
@@ -39,7 +41,8 @@ The workflow:
 
 - Builds the release APK with `./gradlew clean assembleRelease`
 - Reads `versionName` from `app/build.gradle`
-- Renames the APK to `HoshimiLocalify_{versionName}.apk`
+- Builds Full and Lite separately with clean release builds
+- Publishes `HoshimiLocalify_{versionName}_full.apk` and `HoshimiLocalify_{versionName}_lite.apk`
 - Creates a git tag using `versionName`
 - Creates or updates the GitHub Release for that tag
 - Uploads the APK as a Release asset

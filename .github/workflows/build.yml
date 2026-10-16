@@ -63,18 +63,37 @@ jobs:
             echo "$HOSHIMI_RELEASE_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
           fi
 
-      - name: Build APK
+      - name: Build full and lite APKs
         env:
           HOSHIMI_RELEASE_STORE_FILE: release.keystore
           HOSHIMI_RELEASE_STORE_PASSWORD: ${{ secrets.HOSHIMI_RELEASE_STORE_PASSWORD }}
           HOSHIMI_RELEASE_KEY_ALIAS: ${{ secrets.HOSHIMI_RELEASE_KEY_ALIAS }}
           HOSHIMI_RELEASE_KEY_PASSWORD: ${{ secrets.HOSHIMI_RELEASE_KEY_PASSWORD }}
-        run: ./gradlew clean assembleRelease
-
-      - name: Rename APK
         run: |
-          mv app/build/outputs/apk/release/app-release.apk \
-            "app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
+          mkdir -p "$RUNNER_TEMP/hoshimi-apks"
+          ./gradlew clean assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk \
+            "$RUNNER_TEMP/hoshimi-apks/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}_full.apk"
+          ./gradlew clean assembleRelease -Plite=true
+          cp app/build/outputs/apk/release/app-release.apk \
+            "$RUNNER_TEMP/hoshimi-apks/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}_lite.apk"
+
+      - name: Verify packaged translation data
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          directory = Path(os.environ["RUNNER_TEMP"]) / "hoshimi-apks"
+          full, = directory.glob("HoshimiLocalify_v*_full.apk")
+          lite, = directory.glob("HoshimiLocalify_v*_lite.apk")
+          with ZipFile(full) as apk:
+              assert "assets/hoshimi-local/version.txt" in apk.namelist(), "Full APK has no translation version"
+              assert any(name.startswith("assets/hoshimi-local/local-files/") for name in apk.namelist()), "Full APK has no translation data"
+          with ZipFile(lite) as apk:
+              assert not any(name.startswith("assets/hoshimi-local/") for name in apk.namelist()), "Lite APK contains translation data"
+          PY
 
       - name: Create or update version tag
         run: |
@@ -92,12 +111,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag_name="${{ steps.app_version.outputs.version_name }}"
-          apk_path="app/build/outputs/apk/release/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}.apk"
+          full_apk="$RUNNER_TEMP/hoshimi-apks/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}_full.apk"
+          lite_apk="$RUNNER_TEMP/hoshimi-apks/HoshimiLocalify_${{ steps.app_version.outputs.version_name }}_lite.apk"
 
           gh release view "$tag_name" >/dev/null 2>&1 || \
             gh release create "$tag_name" \
               --title "$tag_name" \
               --notes ""
 
-          gh release upload "$tag_name" "$apk_path" --clobber
+          gh release upload "$tag_name" "$full_apk" "$lite_apk" --clobber
+
+          assets="$(gh release view "$tag_name" --json assets --jq '.assets[].name')"
+          while IFS= read -r asset; do
+            case "$asset" in
+              "${full_apk##*/}"|"${lite_apk##*/}") ;;
+              HoshimiLocalify_v*.apk|HoshimiLite_v*.apk)
+                gh release delete-asset "$tag_name" "$asset" --yes
+                ;;
+            esac
+          done <<< "$assets"
 

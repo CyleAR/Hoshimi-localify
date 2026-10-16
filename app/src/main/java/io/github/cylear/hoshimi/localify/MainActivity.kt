@@ -12,8 +12,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModelProvider
-import io.github.cylear.hoshimi.localify.hookUtils.FilesChecker
+import androidx.lifecycle.lifecycleScope
+import io.github.cylear.hoshimi.localify.mainUtils.BuiltInResourceVersion
 import io.github.cylear.hoshimi.localify.mainUtils.RemoteAPIFilesChecker
 
 import io.github.cylear.hoshimi.localify.mainUtils.json
@@ -26,11 +30,15 @@ import io.github.cylear.hoshimi.localify.ui.pages.MainUI
 import io.github.cylear.hoshimi.localify.ui.theme.HoshimiLocalifyTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import java.io.File
 
 
 class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableActivity<MainActivity> {
+    private var displayedBuiltInVersion by mutableStateOf<String?>(null)
     override lateinit var config: IdolyprideConfig
     override lateinit var programConfig: ProgramConfig
 
@@ -94,14 +102,7 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
     }
 
     fun getBuiltInResourceVersion(): String {
-        return try {
-            assets.open("${FilesChecker.localizationFilesDir}/version.txt").use { stream ->
-                FilesChecker.convertToString(stream).trim().ifEmpty { getString(R.string.resource_version_none) }
-            }
-        }
-        catch (_: Exception) {
-            getString(R.string.resource_version_none)
-        }
+        return displayedBuiltInVersion ?: getString(R.string.resource_version_none)
     }
 
     fun getAPIResourceVersion(): String {
@@ -147,6 +148,20 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         return if (event.action == 1145) true else super.dispatchKeyEvent(event)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            displayedBuiltInVersion = withContext(Dispatchers.IO) {
+                try {
+                    BuiltInResourceVersion.get(this@MainActivity)
+                } catch (exception: Exception) {
+                    Log.w(TAG, "Could not read built-in resource version", exception)
+                    null
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

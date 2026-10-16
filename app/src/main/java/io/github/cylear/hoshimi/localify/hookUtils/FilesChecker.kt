@@ -30,6 +30,7 @@ object FilesChecker {
         val installedVersion = getInstalledVersion()
         val pluginVersion = getPluginVersion()
         Log.d("HoshimiLocal", "installedVer: $installedVersion, pluginVer: $pluginVersion")
+        if (pluginVersion == "0.0") return
 
         if (installedVersion != pluginVersion) {
             val pluginBasePath = File(filesDir, localizationFilesDir)
@@ -47,6 +48,7 @@ object FilesChecker {
 
     fun updateFiles() {
         if (filesUpdated) return
+        if (getPluginVersion() == "0.0") return
         filesUpdated = true
 
         Log.i("HoshimiLocal", "Updating files...")
@@ -90,10 +92,9 @@ object FilesChecker {
     fun getPluginVersion(): String {
         val assets = XModuleResources.createInstance(modulePath, null).assets
 
-        for (i in assets.list(localizationFilesDir)!!) {
+        for (i in assets.list(localizationFilesDir).orEmpty()) {
             if (i.toString() == "version.txt") {
-                val stream = assets.open("$localizationFilesDir/$i")
-                return convertToString(stream).trim()
+                return assets.open("$localizationFilesDir/$i").use { convertToString(it).trim().ifEmpty { "0.0" } }
             }
         }
         return "0.0"
