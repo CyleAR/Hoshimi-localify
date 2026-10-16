@@ -374,13 +374,28 @@ namespace HoshimiLocal::HookMain {
         return Unity_set_position_Injected_Orig(self, data);
     }
 
-    DEFINE_HOOK(void*, InternalSetOrientationAsync, (void* self, int type, void* c, void* tc, void* mtd)) {
+    struct SolisUniTask {
+        void* source;
+        int16_t token;
+        int16_t padding0;
+        int32_t padding1;
+    };
+
+    struct SolisCancellationToken {
+        void* source;
+    };
+
+    static_assert(sizeof(SolisUniTask) == 16);
+    static_assert(sizeof(SolisCancellationToken) == sizeof(void*));
+
+    DEFINE_HOOK(SolisUniTask, InternalSetOrientationAsync,
+                (void* self, int type, SolisCancellationToken cancellationToken, void* method)) {
         switch (Config::gameOrientation) {
         case 1: type = 0x2; break;  // FixedPortrait
         case 2: type = 0x3; break;  // FixedLandscape
         default: break;
         }
-        return InternalSetOrientationAsync_Orig(self, type, c, tc, mtd);
+        return InternalSetOrientationAsync_Orig(self, type, cancellationToken, method);
     }
 
     void UpdatePhoneSubtitleOverlay();
@@ -3888,13 +3903,6 @@ namespace HoshimiLocal::HookMain {
         }
         return Solis_Costume_CheckBulkAsync_Call_Orig(self, request, metadata, deadline, ct, mtd);
     }
-
-    struct SolisUniTask {
-        void* source;
-        int16_t token;
-        int16_t padding0;
-        int32_t padding1;
-    };
 
     SolisUniTask getSolisCompletedUniTask() {
         SolisUniTask ret{};
