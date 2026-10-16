@@ -26,7 +26,6 @@
     <string name="useMasterDBTrans">Enable MasterDB Localization</string>
     <string name="export_text">Export Text</string>
     <string name="force_export_resource">Force Export Resource</string>
-    <string name="login_as_ios">Login as iOS</string>
     <string name="max_high">Ultra</string>
     <string name="very_high">Very High</string>
     <string name="hign">High</string>

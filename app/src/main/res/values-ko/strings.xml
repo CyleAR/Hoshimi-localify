@@ -26,7 +26,6 @@
     <string name="useMasterDBTrans">마스터 DB 번역 활성화</string>
     <string name="export_text">텍스트 내보내기</string>
     <string name="force_export_resource">리소스 강제 내보내기</string>
-    <string name="login_as_ios">iOS로 로그인</string>
     <string name="max_high">울트라</string>
     <string name="very_high">매우 높음</string>
     <string name="hign">높음</string>

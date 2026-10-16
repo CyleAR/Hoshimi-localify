@@ -35,7 +35,6 @@ namespace HoshimiLocal::Config {
     std::string liveCustomeHeadId = "";
     std::string liveCustomeCostumeId = "";
 
-    bool loginAsIOS = false;
 
     bool useCustomeGraphicSettings = false;
     float renderScale = 0.77f;
@@ -114,7 +113,6 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enableLiveCustomeDress);
             GetConfigItem(liveCustomeHeadId);
             GetConfigItem(liveCustomeCostumeId);
-            GetConfigItem(loginAsIOS);
             GetConfigItem(useCustomeGraphicSettings);
             GetConfigItem(renderScale);
             GetConfigItem(qualitySettingsLevel);
@@ -183,7 +181,6 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enableLiveCustomeDress);
             SetConfigItem(liveCustomeHeadId);
             SetConfigItem(liveCustomeCostumeId);
-            SetConfigItem(loginAsIOS);
             SetConfigItem(useCustomeGraphicSettings);
             SetConfigItem(renderScale);
             SetConfigItem(qualitySettingsLevel);

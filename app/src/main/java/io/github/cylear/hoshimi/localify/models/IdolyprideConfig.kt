@@ -31,7 +31,6 @@ data class IdolyprideConfig (
     var liveCustomeHeadId: String = "",
     var liveCustomeCostumeId: String = "",
 
-    var loginAsIOS: Boolean = false,
 
     var useCustomeGraphicSettings: Boolean = false,
     var graphicQuality: Int = 0,
