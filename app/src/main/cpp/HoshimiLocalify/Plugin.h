@@ -12,8 +12,8 @@ namespace HoshimiLocal {
         virtual ~HookInstaller();
         virtual void* InstallHook(void* addr, void* hook, void** orig) = 0;
         virtual OpaqueFunctionPointer LookupSymbol(const char* name) = 0;
+        virtual void* GetIl2CppLibraryHandle() const = 0;
 
-        std::string m_il2cppLibraryPath;
         std::string localizationFilesDir;
     };
 

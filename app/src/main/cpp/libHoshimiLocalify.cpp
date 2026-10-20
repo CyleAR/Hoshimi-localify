@@ -25,9 +25,8 @@ namespace
     {
     public:
         explicit AndroidHookInstaller(const std::string& il2cppLibraryPath, const std::string& localizationFilesDir)
-                : m_Il2CppLibrary(xdl_open(il2cppLibraryPath.c_str(), RTLD_LAZY))
+                : m_Il2CppLibrary(xdl_open(il2cppLibraryPath.c_str(), XDL_TRY_FORCE_LOAD))
         {
-            this->m_il2cppLibraryPath = il2cppLibraryPath;
             this->localizationFilesDir = localizationFilesDir;
         }
 
@@ -45,6 +44,11 @@ namespace
         HoshimiLocal::OpaqueFunctionPointer LookupSymbol(const char* name) override
         {
             return reinterpret_cast<HoshimiLocal::OpaqueFunctionPointer>(xdl_sym(m_Il2CppLibrary, name, NULL));
+        }
+
+        void* GetIl2CppLibraryHandle() const override
+        {
+            return m_Il2CppLibrary;
         }
 
     private:

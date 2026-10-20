@@ -4800,7 +4800,7 @@ namespace HoshimiLocal::HookMain {
     void StartInjectFunctions() {
         const auto hookInstaller = Plugin::GetInstance().GetHookInstaller();
 
-        UnityResolve::Init(xdl_open(hookInstaller->m_il2cppLibraryPath.c_str(), RTLD_NOW),
+        UnityResolve::Init(hookInstaller->GetIl2CppLibraryHandle(),
             UnityResolve::Mode::Il2Cpp, Config::lazyInit);
 
         ADD_HOOK(AssetBundle_LoadAssetAsync, Il2cppUtils::il2cpp_resolve_icall(
