@@ -47,6 +47,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         HoshimiLocalify/camera/camera.cpp
         HoshimiLocalify/config/Config.cpp
         HoshimiLocalify/string_parser/StringParser.cpp
+        HoshimiLocalify/string_parser/DictionaryPatterns.cpp
         )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} xdl::xdl)

@@ -4,11 +4,7 @@ Android Xposed module and translation manager for IDOLY PRIDE.
 
 ## Builds
 
-Run from this repository with a configured JDK and Android SDK. Use UTF-8 in PowerShell:
-
-```powershell
-chcp 65001 > $null
-```
+Run from this repository with a configured JDK and Android SDK. In PowerShell:
 
 | Build | Command | Bundled translation data |
 | --- | --- | --- |
