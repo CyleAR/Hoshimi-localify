@@ -15,6 +15,7 @@ namespace HoshimiLocal::Local {
 
     std::filesystem::path GetBasePath();
     void LoadData();
+    bool EnsureNotificationData(const std::filesystem::path& basePath);
     bool GetI18n(const std::string& key, std::string* ret);
 
     bool GetResourceText(const std::string& name, std::string* ret);

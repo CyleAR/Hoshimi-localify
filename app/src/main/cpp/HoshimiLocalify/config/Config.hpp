@@ -66,6 +66,7 @@ namespace HoshimiLocal::Config {
     extern bool dmmUnlockSize;
 
     std::string ReplaceDisplayUserName(std::string text);
+    std::string ReplaceDisplayUserName(std::string text, const std::string& userName);
     void LoadConfig(const std::string& configStr);
     void SaveConfig(const std::string& configPath);
 }

@@ -12,7 +12,7 @@ import java.io.InputStreamReader
 object FilesChecker {
     lateinit var filesDir: File
     lateinit var modulePath: String
-    val localizationFilesDir = "hoshimi-local"
+    const val localizationFilesDir = "hoshimi-local"
     var filesUpdated = false
 
     fun initAndCheck(fileDir: File, modulePath: String) {

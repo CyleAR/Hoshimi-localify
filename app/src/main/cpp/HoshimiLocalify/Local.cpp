@@ -30,6 +30,7 @@ namespace HoshimiLocal::Local {
     std::unordered_map<std::string, std::string> genericFmtText{};
     std::unordered_map<std::string, std::string> genericDictionaryText{};
     DictionaryPatterns::Matcher genericDictionaryMatcher;
+    bool genericDataLoaded = false;
     std::vector<std::string> genericTextDumpData{};
     std::vector<std::string> genericSplittedDumpData{};
     std::vector<std::string> genericOrigTextDumpData{};
@@ -422,18 +423,19 @@ namespace HoshimiLocal::Local {
         return ret;
     }
 
-    void LoadData() {
+    bool LoadDataFromPath(const std::filesystem::path& basePath, bool onlyIfMissing) {
         std::unique_lock<std::shared_mutex> lock(localDataMutex);
+        if (onlyIfMissing && genericDataLoaded) return true;
         std::lock_guard<std::mutex> dumpLock(dumpDataMutex);
-        static auto localizationFile = GetBasePath() / "local-files" / "localization.json";
-        static auto genericFile = GetBasePath() / "local-files" / "generic.json";
-        static auto genericSplitFile = GetBasePath() / "local-files" / "generic.split.json";
-        static auto genericDir = GetBasePath() / "local-files" / "genericTrans";
-        static auto dictionaryFile = GetBasePath() / "local-files" / "prefill_dictionary.json";
+        const auto localizationFile = basePath / "local-files" / "localization.json";
+        const auto genericFile = basePath / "local-files" / "generic.json";
+        const auto genericSplitFile = basePath / "local-files" / "generic.split.json";
+        const auto genericDir = basePath / "local-files" / "genericTrans";
+        const auto dictionaryFile = basePath / "local-files" / "prefill_dictionary.json";
 
         if (!std::filesystem::is_regular_file(localizationFile)) {
             Log::ErrorFmt("localizationFile: %s not found.", localizationFile.c_str());
-            return;
+            return false;
         }
         LoadJsonDataToMap(localizationFile, i18nData, true);
         Log::InfoFmt("%ld localization items loaded.", i18nData.size());
@@ -477,6 +479,16 @@ namespace HoshimiLocal::Local {
         Log::InfoFmt("%ld generic text items loaded.", genericText.size());
         Log::InfoFmt("%ld generic format text items loaded.", genericFmtText.size());
         Log::InfoFmt("%ld generic dictionary pattern items loaded.", genericDictionaryText.size() - invalidDictionaryPatterns.size());
+        genericDataLoaded = true;
+        return true;
+    }
+
+    void LoadData() {
+        LoadDataFromPath(GetBasePath(), false);
+    }
+
+    bool EnsureNotificationData(const std::filesystem::path& basePath) {
+        return LoadDataFromPath(basePath, true);
     }
 
     bool GetI18n(const std::string& key, std::string* ret) {

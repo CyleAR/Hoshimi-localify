@@ -75,6 +75,10 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             return
         }
 
+        if (nativeLibLoadSuccess) {
+            NotificationTranslationHook.install(lpparam.packageName)
+        }
+
         XposedHelpers.findAndHookMethod(
             "android.app.Activity",
             lpparam.classLoader,
@@ -313,6 +317,7 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             }
 
             loadConfig(iprData)
+            if (initConfig != null) NotificationLocalizer.updateConfig(activity, initConfig)
             Log.d(TAG, "iprData: $iprData")
             checkTranslationUpdate(activity)
         }
@@ -389,7 +394,9 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
         iprDataInited = true
         FilesChecker.initAndCheck(context.filesDir, modulePath)
-        loadConfig(json.encodeToString(IdolyprideConfig.serializer(), IdolyprideConfig()))
+        val config = IdolyprideConfig()
+        loadConfig(json.encodeToString(IdolyprideConfig.serializer(), config))
+        NotificationLocalizer.updateConfig(context, config)
         Log.i(TAG, "Loaded default configuration in standalone mode.")
     }
 

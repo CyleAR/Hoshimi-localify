@@ -967,9 +967,7 @@ namespace HoshimiLocal::HookMain {
         if (!Config::displayUserName.empty()) {
             userName = Il2cppString::New(Config::displayUserName);
         }
-        auto notificationText = MessageDetail_GetNotificationText_Orig(self, userName, mtd);
-        if (!notificationText) return nullptr;
-        return Il2cppString::New(ResolveJosa(notificationText->ToString()));
+        return MessageDetail_GetNotificationText_Orig(self, userName, mtd);
     }
 
     std::unordered_set<void*> updatedFontPtrs{};
@@ -5380,6 +5378,12 @@ namespace HoshimiLocal::HookMain {
 
 
 namespace HoshimiLocal::Hook {
+    std::string LocalizeNotificationText(std::string text, const std::string& userName) {
+        std::string translated;
+        if (Local::GetGenericText(text, &translated)) text = std::move(translated);
+        return HookMain::ResolveJosa(Config::ReplaceDisplayUserName(std::move(text), userName));
+    }
+
     void Install() {
         const auto hookInstaller = Plugin::GetInstance().GetHookInstaller();
 
