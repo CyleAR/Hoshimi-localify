@@ -1,4 +1,5 @@
 #include "shadowhook.h"
+#include "xdl.h"
 #include <android/log.h>
 #include "Hook.h"
 #include "Plugin.h"
@@ -9,10 +10,15 @@
 #include "MasterLocal.h"
 #include "RenderResolution.hpp"
 #include "GraphicsQuality.hpp"
+#include "BreastMotion.hpp"
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstring>
+#include <mutex>
 #include "camera/camera.hpp"
 #include "config/Config.hpp"
 // #include <jni.h>
@@ -4709,90 +4715,437 @@ namespace HoshimiLocal::HookMain {
         SolisActorController_LateUpdate_Orig(self, mtd);
     }
 
+    float BreastDampingAt60Fps(float size) {
+        return std::lerp(0.075f, 0.028f, size - 0.75f);
+    }
+
+    struct SwingBonePhysics {
+        float damping;
+        float stiffness;
+        float spring;
+        float average;
+    };
+
+    SwingBonePhysics GetSwingBonePhysics(float size) {
+        const float sizeFactor = size - 0.75f;
+        return {
+                BreastDampingAt60Fps(size),
+                std::lerp(0.075f, 0.035f, sizeFactor),
+                std::lerp(0.85f, 1.10f, sizeFactor),
+                0.08f
+        };
+    }
+
+    std::atomic_bool liveSwingTuning{false};
+
     void UpdateSolisSwingBreastBones(void* breastBones) {
-        if (!Config::enableBreastParam || !breastBones) return;
+        const auto [size, swingLevel] = Config::GetBreastMotion();
+        if (size <= 0.0f || !breastBones) return;
+        const bool needsSetupTuning = swingLevel >= 2 && !liveSwingTuning.load(std::memory_order_relaxed);
+        if (size == 1.0f && !needsSetupTuning) return;
 
         static auto ActorSwingBreastBone_klass = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing",
                                                                        "ActorSwingBreastBone");
-        static auto LimitInfo_klass = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing",
-                                                            "LimitInfo");
-        if (!ActorSwingBreastBone_klass || !LimitInfo_klass) return;
+        if (!ActorSwingBreastBone_klass) return;
 
         static auto damping_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("damping");
         static auto stiffness_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("stiffness");
         static auto spring_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("spring");
         static auto average_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("average");
-        static auto useArmCorrection_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("useArmCorrection");
         static auto leftBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreast");
         static auto rightBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreast");
-        static auto leftBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreastEnd");
-        static auto rightBreastEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreastEnd");
-        static auto limitInfo_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("limitInfo");
-
-        static auto limitInfo_useLimit_field = LimitInfo_klass->Get<UnityResolve::Field>("useLimit");
-        static auto limitInfo_axisX_field = LimitInfo_klass->Get<UnityResolve::Field>("axisX");
-        static auto limitInfo_axisY_field = LimitInfo_klass->Get<UnityResolve::Field>("axisY");
-        static auto limitInfo_axisZ_field = LimitInfo_klass->Get<UnityResolve::Field>("axisZ");
-
-        if (!damping_field || !stiffness_field || !spring_field || !average_field || !useArmCorrection_field ||
-            !leftBreast_field || !rightBreast_field || !leftBreastEnd_field || !rightBreastEnd_field ||
-            !limitInfo_field || !limitInfo_useLimit_field || !limitInfo_axisX_field ||
-            !limitInfo_axisY_field || !limitInfo_axisZ_field) {
+        if (!leftBreast_field || !rightBreast_field) {
             return;
         }
-
+        const bool tuneSwing = needsSetupTuning && damping_field && stiffness_field && spring_field && average_field;
+        const auto physics = GetSwingBonePhysics(size);
+        const UnityResolve::UnityType::Vector3 scale(size, size, size);
         Il2cppUtils::Tools::CSListEditor<void*> listEditor(breastBones);
         for (auto bone : listEditor) {
             if (!bone) continue;
 
-            if (Config::bUseScale) {
+            if (size != 1.0f) {
                 auto leftBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreast_field);
                 auto rightBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreast_field);
-                auto leftBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreastEnd_field);
-                auto rightBreastEnd = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreastEnd_field);
-
-                const auto setScale = UnityResolve::UnityType::Vector3(Config::bScale, Config::bScale, Config::bScale);
-                if (leftBreast) leftBreast->SetLocalScale(setScale);
-                if (rightBreast) rightBreast->SetLocalScale(setScale);
-                if (leftBreastEnd) leftBreastEnd->SetLocalScale(setScale);
-                if (rightBreastEnd) rightBreastEnd->SetLocalScale(setScale);
+                if (leftBreast) leftBreast->SetLocalScale(scale);
+                if (rightBreast) rightBreast->SetLocalScale(scale);
             }
 
-            auto limitInfo = Il2cppUtils::ClassGetFieldValue<void*>(bone, limitInfo_field);
-            if (limitInfo) {
-                if (!Config::bUseLimit) {
-                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 0);
-                }
-                else {
-                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_useLimit_field, 1);
-                    auto axisX = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisX_field);
-                    auto axisY = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisY_field);
-                    auto axisZ = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Vector2Int>(limitInfo, limitInfo_axisZ_field);
-                    axisX.m_X *= Config::bLimitXx;
-                    axisX.m_Y *= Config::bLimitXy;
-                    axisY.m_X *= Config::bLimitYx;
-                    axisY.m_Y *= Config::bLimitYy;
-                    axisZ.m_X *= Config::bLimitZx;
-                    axisZ.m_Y *= Config::bLimitZy;
-                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisX_field, axisX);
-                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisY_field, axisY);
-                    Il2cppUtils::ClassSetFieldValue(limitInfo, limitInfo_axisZ_field, axisZ);
-                }
+            if (tuneSwing) {
+                Il2cppUtils::ClassSetFieldValue(bone, damping_field, physics.damping);
+                Il2cppUtils::ClassSetFieldValue(bone, stiffness_field, physics.stiffness);
+                Il2cppUtils::ClassSetFieldValue(bone, spring_field, physics.spring);
+                Il2cppUtils::ClassSetFieldValue(bone, average_field, physics.average);
             }
-
-            Il2cppUtils::ClassSetFieldValue(bone, damping_field, Config::bDamping);
-            Il2cppUtils::ClassSetFieldValue(bone, stiffness_field, Config::bStiffness);
-            Il2cppUtils::ClassSetFieldValue(bone, spring_field, Config::bSpring);
-            Il2cppUtils::ClassSetFieldValue(bone, average_field, Config::bAverage);
-            Il2cppUtils::ClassSetFieldValue(bone, useArmCorrection_field, Config::bUseArmCorrection);
         }
     }
 
+    void InstallBurstBreastMotion();
+    std::atomic_bool burstBreastMotionPending{false};
+
     DEFINE_HOOK(void*, SolisActorController_InitializeActorSwing_GetBreastBones,
         (void* self, void* modelParts, void* mtd)) {
+        if (burstBreastMotionPending.load(std::memory_order_acquire)) InstallBurstBreastMotion();
         auto ret = SolisActorController_InitializeActorSwing_GetBreastBones_Orig(self, modelParts, mtd);
         UpdateSolisSwingBreastBones(ret);
         return ret;
+    }
+
+    using SwingRotation = UnityResolve::UnityType::Quaternion;
+
+    struct ActorSwingJobLimitInfo {
+        uint8_t useLimit;
+        float positive[3];
+        float negative[3];
+    };
+
+    struct ActorSwingAffineTransform {
+        float translation[3];
+        SwingRotation rotation;
+    };
+
+    static_assert(sizeof(ActorSwingJobLimitInfo) == 0x1c);
+    static_assert(offsetof(ActorSwingAffineTransform, rotation) == 0xc);
+
+    constexpr int swingListOffset = 0x48;
+    constexpr int swingDrivenOffset = 0xf0;
+    constexpr int swingDrivenSize = 0x18;
+    constexpr int swingBoneDampingOffset = 0x108;
+    constexpr int swingBoneStride = 0x13c;
+
+    struct SwingBoneList {
+        uint8_t* data;
+        int32_t length;
+        int32_t capacity;
+    };
+
+    using AnimationStreamDeltaTime = float (*)(const void*, void*);
+    AnimationStreamDeltaTime animationStreamDeltaTime = nullptr;
+
+    using SwingVector = UnityResolve::UnityType::Vector3;
+    using SwingDrivenIsValid = bool (*)(void*, const void*, void*);
+    using SwingDrivenGetGlobalTR = void (*)(void*, const void*, SwingVector*, SwingRotation*, void*);
+    SwingDrivenIsValid swingDrivenIsValid = nullptr;
+    SwingDrivenGetGlobalTR swingDrivenGetGlobalTR = nullptr;
+    using BurstDeltaTime = float (*)(const void*);
+    BurstDeltaTime* burstDeltaTime = nullptr;
+    using BurstDrivenGetGlobalTR = void (*)(void*, const void*, SwingVector*, SwingRotation*);
+    BurstDrivenGetGlobalTR burstDrivenGetGlobalTR = nullptr;
+
+    struct SwingPulse {
+        float pitch = 0.0f;
+        float roll = 0.0f;
+    };
+
+    struct ChestMotionState {
+        std::chrono::steady_clock::time_point lastSample{};
+        SwingVector position{};
+        SwingRotation rotation{0.0f, 0.0f, 0.0f, 1.0f};
+        BreastMotion::SpringAxis pitch;
+        BreastMotion::SpringAxis roll;
+    };
+
+    thread_local SwingPulse activeSwingPulse;
+
+    SwingRotation MultiplySwingRotation(const SwingRotation& a, const SwingRotation& b) {
+        return {
+                a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+                a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+                a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+                a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+        };
+    }
+
+    SwingPulse CalculateChestRecoil(const uint8_t* boneData, const void* stream, float dt, float size,
+                                   bool burst) {
+        if (dt < 0.001f || dt > 0.1f) return {};
+
+        alignas(void*) uint8_t driven[swingDrivenSize];
+        std::memcpy(driven, boneData + swingDrivenOffset, sizeof(driven));
+        SwingVector position;
+        SwingRotation rotation;
+        if (burst) {
+            if (!burstDrivenGetGlobalTR) return {};
+            burstDrivenGetGlobalTR(driven, stream, &position, &rotation);
+        } else {
+            if (!swingDrivenIsValid || !swingDrivenGetGlobalTR ||
+                !swingDrivenIsValid(driven, stream, nullptr)) return {};
+            swingDrivenGetGlobalTR(driven, stream, &position, &rotation, nullptr);
+        }
+        const float rotationNorm = rotation.x * rotation.x + rotation.y * rotation.y
+                                   + rotation.z * rotation.z + rotation.w * rotation.w;
+        if (!std::isfinite(position.Length()) || !(rotationNorm > 0.99f && rotationNorm < 1.01f)) return {};
+
+        using namespace std::chrono_literals;
+        static std::mutex stateMutex;
+        static std::unordered_map<const uint8_t*, ChestMotionState> states;
+        static std::chrono::steady_clock::time_point nextPrune{};
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard lock(stateMutex);
+        if (now >= nextPrune) {
+            std::erase_if(states, [now](const auto& entry) { return now - entry.second.lastSample > 1s; });
+            nextPrune = now + 1s;
+        }
+
+        auto& state = states[boneData];
+        const SwingVector displacement(position.x - state.position.x, position.y - state.position.y,
+                                       position.z - state.position.z);
+        const SwingRotation rotationDelta = MultiplySwingRotation(
+                {-state.rotation.x, -state.rotation.y, -state.rotation.z, state.rotation.w}, rotation);
+        if (now - state.lastSample > 250ms || displacement.Length() > 0.16f || std::abs(rotationDelta.w) < 0.92f) {
+            state = {now, position, rotation, {}, {}};
+            return {};
+        }
+
+        state.lastSample = now;
+        state.position = position;
+        state.rotation = rotation;
+
+        // World vertical speed and speed along the chest's right axis drive pitch and roll.
+        const SwingVector right(1.0f - 2.0f * (rotation.y * rotation.y + rotation.z * rotation.z),
+                                2.0f * (rotation.x * rotation.y + rotation.w * rotation.z),
+                                2.0f * (rotation.x * rotation.z - rotation.w * rotation.y));
+        const float angularSign = rotationDelta.w >= 0.0f ? 1.0f : -1.0f;
+        const float sizeFactor = size - 0.75f;
+        const float frequency = std::lerp(19.0f, 13.5f, sizeFactor);
+        const float pitchSpeed = (72.0f * displacement.y + 5.5f * angularSign * rotationDelta.x) / dt;
+        const float rollSpeed = (30.0f * displacement.Dot(right) + 3.5f * angularSign * rotationDelta.z) / dt;
+        state.pitch.Step(pitchSpeed, dt, frequency, std::lerp(0.26f, 0.42f, sizeFactor));
+        state.roll.Step(rollSpeed, dt, frequency, std::lerp(0.16f, 0.28f, sizeFactor));
+        return {state.pitch.angle, state.roll.angle};
+    }
+
+    bool HasSwingPhysicsLayout() {
+        const auto job = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing", "ActorSwingJob");
+        const auto bone = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing", "ActorSwingJobBreastBone");
+        const auto listField = job ? job->Get<UnityResolve::Field>("breastBones") : nullptr;
+        constexpr int objectHeaderSize = 2 * sizeof(void*);
+        uint32_t alignment = 0;
+        const auto hasPhysicsField = [bone](const char* name, size_t offset) {
+            const auto field = bone->Get<UnityResolve::Field>(name);
+            return field && field->offset == swingBoneDampingOffset + objectHeaderSize + offset;
+        };
+        return listField && bone &&
+               listField->offset == swingListOffset + objectHeaderSize &&
+               UnityResolve::Invoke<int>("il2cpp_class_value_size", bone->address, &alignment) == swingBoneStride &&
+               hasPhysicsField("damping", offsetof(SwingBonePhysics, damping)) &&
+               hasPhysicsField("stiffness", offsetof(SwingBonePhysics, stiffness)) &&
+               hasPhysicsField("spring", offsetof(SwingBonePhysics, spring)) &&
+               hasPhysicsField("average", offsetof(SwingBonePhysics, average));
+    }
+
+    bool HasSwingDrivenLayout() {
+        const auto bone = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing", "ActorSwingJobBreastBone");
+        const auto handle = Il2cppUtils::GetClass("Unity.Animation.Rigging.dll", "UnityEngine.Animations.Rigging",
+                                                 "ReadOnlyTransformHandle");
+        const auto field = bone ? bone->Get<UnityResolve::Field>("driven") : nullptr;
+        uint32_t alignment = 0;
+        return field && handle && field->offset == swingDrivenOffset + 2 * sizeof(void*) &&
+               UnityResolve::Invoke<int>("il2cpp_class_value_size", handle->address, &alignment) == swingDrivenSize;
+    }
+
+    class ScopedBreastMotion {
+    public:
+        ScopedBreastMotion(const void* job, const void* stream, bool burst) {
+            activeSwingPulse = {};
+            const auto [size, swingLevel] = Config::GetBreastMotion();
+            if (size <= 0.0f) return;
+#ifndef NDEBUG
+            static std::atomic_int reportedLevel{-1};
+            if (reportedLevel.load(std::memory_order_relaxed) != swingLevel &&
+                reportedLevel.exchange(swingLevel, std::memory_order_relaxed) != swingLevel) {
+                Log::InfoFmt("ActorSwing: rig intensity %d/5", swingLevel + 1);
+            }
+#endif
+            if (swingLevel < 2) return;
+            const float dt = burst
+                    ? (burstDeltaTime && *burstDeltaTime ? (*burstDeltaTime)(stream) : 0.0f)
+                    : animationStreamDeltaTime(stream, nullptr);
+            if (!(dt > 0.0f) || !std::isfinite(dt)) return;
+
+            const void* listAddress;
+            std::memcpy(&listAddress, static_cast<const uint8_t*>(job) + swingListOffset, sizeof(listAddress));
+            if (!listAddress) return;
+
+            SwingBoneList list;
+            std::memcpy(&list, listAddress, sizeof(list));
+            if (!list.data || list.length <= 0 || list.length > list.capacity || list.length > maxBones) return;
+            bones = list;
+
+            auto physics = GetSwingBonePhysics(size);
+            // ActorSwing retains (1 - damping)² of the previous motion per update.
+            const float steps = std::min(dt, 0.1f) * 60.0f;
+            physics.damping = 1.0f - std::pow(1.0f - physics.damping, steps);
+            for (int i = 0; i < bones.length; ++i) {
+                auto* parameters = bones.data + i * swingBoneStride + swingBoneDampingOffset;
+                std::memcpy(&originalPhysics[i], parameters, sizeof(physics));
+                std::memcpy(parameters, &physics, sizeof(physics));
+            }
+            if (swingLevel >= 3) {
+                const auto recoil = CalculateChestRecoil(bones.data, stream, dt, size, burst);
+                const float strength = (swingLevel - 2) * 0.5f;
+                activeSwingPulse = {recoil.pitch * strength, recoil.roll * strength};
+            }
+        }
+
+        ~ScopedBreastMotion() {
+            // Keep the rig's authored values so Game default can take effect on the next update.
+            for (int i = 0; i < bones.length; ++i) {
+                auto* parameters = bones.data + i * swingBoneStride + swingBoneDampingOffset;
+                std::memcpy(parameters, &originalPhysics[i], sizeof(SwingBonePhysics));
+            }
+            activeSwingPulse = previousPulse;
+        }
+
+    private:
+        static constexpr int maxBones = 128;
+        const SwingPulse previousPulse = activeSwingPulse;
+        SwingBoneList bones{};
+        SwingBonePhysics originalPhysics[maxBones];
+    };
+
+    // On ARM64 the AnimationStream and root transform value types are passed indirectly.
+    DEFINE_HOOK(void, ActorSwingJob_ProcessBreastBones,
+        (void* self, const void* stream, void* manager, const void* rootTransform, void* method)) {
+        const ScopedBreastMotion motion(self, stream, false);
+        ActorSwingJob_ProcessBreastBones_Orig(self, stream, manager, rootTransform, method);
+    }
+
+    DEFINE_HOOK(void, Burst_ProcessBreastBones,
+        (void* self, const void* stream, void* manager, const void* rootTransform)) {
+        const ScopedBreastMotion motion(self, stream, true);
+        Burst_ProcessBreastBones_Orig(self, stream, manager, rootTransform);
+    }
+
+    void ApplyBreastMotion(float weight, const SwingRotation& restRotation, ActorSwingAffineTransform* target) {
+        const auto [size, swingLevel] = Config::GetBreastMotion();
+        if (size > 0.0f && swingLevel > 0 && weight > 0.0f && target) {
+            const auto& swingRotation = target->rotation;
+            const float dot = restRotation.x * swingRotation.x + restRotation.y * swingRotation.y
+                            + restRotation.z * swingRotation.z + restRotation.w * swingRotation.w;
+            // Add some travel to small movements, keeping the rig's large motions and limits.
+            const float halfAngle = std::acos(std::min(std::abs(dot), 1.0f));
+            const float strength = swingLevel * 0.5f;
+            const float maxHalfAngle = std::lerp(0.105f, 0.21f, size - 0.75f)
+                                     * (0.5f + 0.5f * strength);
+            if (halfAngle > 0.0f && halfAngle < maxHalfAngle) {
+                const float gain = 1.0f + std::lerp(0.35f, 1.25f, size - 0.75f) * strength;
+                const float multiplier = std::min(gain, maxHalfAngle / halfAngle);
+                const float sine = std::sin(halfAngle);
+                const float restWeight = std::sin((1.0f - multiplier) * halfAngle) / sine;
+                const float swingWeight = std::copysign(std::sin(multiplier * halfAngle) / sine, dot);
+                target->rotation = {
+                        restRotation.x * restWeight + swingRotation.x * swingWeight,
+                        restRotation.y * restWeight + swingRotation.y * swingWeight,
+                        restRotation.z * restWeight + swingRotation.z * swingWeight,
+                        restRotation.w * restWeight + swingRotation.w * swingWeight
+                };
+            }
+        }
+    }
+
+    void ApplyChestRecoil(float weight, ActorSwingAffineTransform* target) {
+        if (!target || !(weight > 0.0f) || (activeSwingPulse.pitch == 0.0f && activeSwingPulse.roll == 0.0f)) return;
+
+        // Layer the bounded recoil over the game's limited rotation, respecting the rig's blend weight.
+        const float layerWeight = std::min(weight, 1.0f);
+        const float pitch = activeSwingPulse.pitch * layerWeight;
+        const float roll = activeSwingPulse.roll * layerWeight;
+        const float sinPitch = std::sin(pitch * 0.5f);
+        const float cosPitch = std::cos(pitch * 0.5f);
+        const float sinRoll = std::sin(roll * 0.5f);
+        const float cosRoll = std::cos(roll * 0.5f);
+        target->rotation = MultiplySwingRotation(
+                {sinPitch * cosRoll, sinPitch * sinRoll, cosPitch * sinRoll, cosPitch * cosRoll}, target->rotation);
+#ifndef NDEBUG
+        static std::atomic_flag reported{};
+        constexpr float radiansToDegrees = 57.2957795f;
+        if (!reported.test(std::memory_order_relaxed) &&
+            std::max(std::abs(pitch), std::abs(roll)) * radiansToDegrees >= 3.0f &&
+            !reported.test_and_set(std::memory_order_relaxed)) {
+            Log::InfoFmt("ActorSwing: chest recoil applied (pitch %.2f deg, roll %.2f deg)",
+                         pitch * radiansToDegrees, roll * radiansToDegrees);
+        }
+#endif
+    }
+
+    DEFINE_HOOK(void, ActorSwingJob_ProcessBreastBoneLayer,
+        (void* self, float weight, ActorSwingJobLimitInfo limit, SwingRotation restRotation,
+         ActorSwingAffineTransform* target, void* method)) {
+        ApplyBreastMotion(weight, restRotation, target);
+        ActorSwingJob_ProcessBreastBoneLayer_Orig(self, weight, limit, restRotation, target, method);
+        ApplyChestRecoil(weight, target);
+    }
+
+    // Burst passes its quaternion indirectly and has no trailing IL2CPP MethodInfo argument.
+    DEFINE_HOOK(void, Burst_ProcessBreastBoneLayer,
+        (void* self, float weight, const ActorSwingJobLimitInfo* limit, const SwingRotation* restRotation,
+         ActorSwingAffineTransform* target)) {
+        ApplyBreastMotion(weight, *restRotation, target);
+        Burst_ProcessBreastBoneLayer_Orig(self, weight, limit, restRotation, target);
+        ApplyChestRecoil(weight, target);
+    }
+
+    void InstallBurstBreastMotion() {
+        static std::mutex installMutex;
+        const std::lock_guard lock(installMutex);
+        if (!burstBreastMotionPending.load(std::memory_order_relaxed)) return;
+        void* burstLibrary = xdl_open("lib_burst_generated.so", XDL_DEFAULT);
+        if (!burstLibrary) return;
+        burstBreastMotionPending.store(false, std::memory_order_relaxed);
+
+        // The AOT exports use managed signatures as their ELF symbol names.
+#define ACTOR_SWING_ASSEMBLY ", ActorSwing.Runtime, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+#define SWING_STREAM "UnityEngine.Animations.AnimationStream, UnityEngine.AnimationModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null stream"
+#define SWING_BURST_SUFFIX ") -> System.Void, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089_cbedf90658c89046353c84cec3f8d441 from ActorSwing.Runtime, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+        constexpr char processBones[] =
+                "ActorSwing.ActorSwingJob" ACTOR_SWING_ASSEMBLY ".ProcessBreastBones("
+                "ActorSwing.ActorSwingJob*" ACTOR_SWING_ASSEMBLY " this, " SWING_STREAM ", "
+                "ActorSwing.ActorSwingManagerPropertyData&" ACTOR_SWING_ASSEMBLY " manager, "
+                "ActorSwing.ActorSwingAffineTransform" ACTOR_SWING_ASSEMBLY " rootTx" SWING_BURST_SUFFIX;
+        constexpr char processLayer[] =
+                "ActorSwing.ActorSwingJob" ACTOR_SWING_ASSEMBLY ".ProcessBreastBoneLayer("
+                "ActorSwing.ActorSwingJob*" ACTOR_SWING_ASSEMBLY " this, "
+                "System.Single, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089 weight, "
+                "ActorSwing.ActorSwingJobLimitInfo" ACTOR_SWING_ASSEMBLY " limit, "
+                "Unity.Mathematics.quaternion, Unity.Mathematics, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null pDynamicDefaultRotation, "
+                "ActorSwing.ActorSwingAffineTransform&" ACTOR_SWING_ASSEMBLY " targetBreastTx" SWING_BURST_SUFFIX;
+        constexpr char getGlobalTR[] =
+                "UnityEngine.Animations.Rigging.ReadOnlyTransformHandle, Unity.Animation.Rigging, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null.GetGlobalTR("
+                "UnityEngine.Animations.Rigging.ReadOnlyTransformHandle*, Unity.Animation.Rigging, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null this, "
+                SWING_STREAM ", UnityEngine.Vector3&, UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null position, "
+                "UnityEngine.Quaternion&, UnityEngine.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null rotation" SWING_BURST_SUFFIX;
+#undef SWING_BURST_SUFFIX
+#undef SWING_STREAM
+#undef ACTOR_SWING_ASSEMBLY
+
+        burstDeltaTime = static_cast<BurstDeltaTime*>(xdl_sym(
+                burstLibrary, "UnityEngine.Animations.AnimationStream::GetDeltaTime_Injected_Ptr", nullptr));
+        if (HasSwingDrivenLayout()) {
+            burstDrivenGetGlobalTR = reinterpret_cast<BurstDrivenGetGlobalTR>(
+                    xdl_sym(burstLibrary, getGlobalTR, nullptr));
+        }
+        const auto layer = xdl_sym(burstLibrary, processLayer, nullptr);
+        const auto bones = xdl_sym(burstLibrary, processBones, nullptr);
+        if (layer && bones && burstDeltaTime) {
+            const auto installer = Plugin::GetInstance().GetHookInstaller();
+            const auto layerHook = installer->InstallHook(layer, reinterpret_cast<void*>(Burst_ProcessBreastBoneLayer_Hook),
+                    reinterpret_cast<void**>(&Burst_ProcessBreastBoneLayer_Orig));
+            if (layerHook) {
+                const auto bonesHook = installer->InstallHook(bones, reinterpret_cast<void*>(Burst_ProcessBreastBones_Hook),
+                        reinterpret_cast<void**>(&Burst_ProcessBreastBones_Orig));
+                if (bonesHook) {
+                    liveSwingTuning.store(true, std::memory_order_relaxed);
+                    Log::Info("ActorSwing: Burst breast motion hooks installed");
+                }
+                else Log::ErrorFmt("ActorSwing: Burst breast bones hook failed (%d)", shadowhook_get_errno());
+            }
+            else Log::ErrorFmt("ActorSwing: Burst breast layer hook failed (%d)", shadowhook_get_errno());
+        }
+        else {
+            Log::Info("ActorSwing: Burst breast motion exports are unavailable");
+        }
+        xdl_close(burstLibrary);
     }
 
     void StartInjectFunctions() {
@@ -5262,15 +5615,38 @@ namespace HoshimiLocal::HookMain {
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
                                                "SolisActorController", "LateUpdate"));
 
-        auto SolisActorController_c_klass = Il2cppUtils::GetClass("solis-submodule.Runtime.dll", "Solis.Common",
-                                                                  "SolisActorController/<>c");
-        if (SolisActorController_c_klass) {
-            auto GetBreastBones_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
-                    SolisActorController_c_klass->address, "<InitializeActorSwing>b__64_3", 1);
-            if (GetBreastBones_mtd) {
-                ADD_HOOK(SolisActorController_InitializeActorSwing_GetBreastBones,
-                         GetBreastBones_mtd->methodPointer);
+        const auto actorController = Il2cppUtils::GetClass("solis-submodule.Runtime.dll", "Solis.Common",
+                                                           "SolisActorController");
+        const auto actorSwingCallbacks = actorController
+                ? Il2cppUtils::find_nested_class_from_name(actorController->address, "<>c") : nullptr;
+        const auto getBreastBones = actorSwingCallbacks
+                ? Il2cppUtils::il2cpp_class_get_method_from_name(actorSwingCallbacks,
+                                                               "<InitializeActorSwing>b__64_3", 1) : nullptr;
+        ADD_HOOK(SolisActorController_InitializeActorSwing_GetBreastBones,
+                 getBreastBones ? reinterpret_cast<void*>(getBreastBones->methodPointer) : nullptr);
+
+        ADD_HOOK(ActorSwingJob_ProcessBreastBoneLayer, Il2cppUtils::GetMethodPointer(
+                "ActorSwing.Runtime.dll", "ActorSwing", "ActorSwingJob", "ProcessBreastBoneLayer"));
+
+        if (HasSwingPhysicsLayout()) {
+            animationStreamDeltaTime = reinterpret_cast<AnimationStreamDeltaTime>(Il2cppUtils::GetMethodPointer(
+                    "UnityEngine.AnimationModule.dll", "UnityEngine.Animations", "AnimationStream", "get_deltaTime"));
+            if (animationStreamDeltaTime) {
+                if (HasSwingDrivenLayout()) {
+                    swingDrivenIsValid = reinterpret_cast<SwingDrivenIsValid>(Il2cppUtils::GetMethodPointer(
+                            "Unity.Animation.Rigging.dll", "UnityEngine.Animations.Rigging",
+                            "ReadOnlyTransformHandle", "IsValid"));
+                    swingDrivenGetGlobalTR = reinterpret_cast<SwingDrivenGetGlobalTR>(Il2cppUtils::GetMethodPointer(
+                            "Unity.Animation.Rigging.dll", "UnityEngine.Animations.Rigging",
+                            "ReadOnlyTransformHandle", "GetGlobalTR"));
+                }
+                ADD_HOOK(ActorSwingJob_ProcessBreastBones, Il2cppUtils::GetMethodPointer(
+                        "ActorSwing.Runtime.dll", "ActorSwing", "ActorSwingJob", "ProcessBreastBones"));
+                if (ActorSwingJob_ProcessBreastBones_Orig) liveSwingTuning.store(true, std::memory_order_relaxed);
             }
+            // Unity can load Burst after IL2CPP initialization. Retry when the rig is built.
+            burstBreastMotionPending.store(true, std::memory_order_release);
+            InstallBurstBreastMotion();
         }
 
         ADD_HOOK(SolisQualityManager_set_TargetFrameRate,

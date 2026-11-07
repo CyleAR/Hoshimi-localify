@@ -2,6 +2,9 @@
 #include "Config.hpp"
 #include "nlohmann/json.hpp"
 #include "../Log.h"
+#include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <thread>
 #include <fstream>
 
@@ -48,26 +51,17 @@ namespace HoshimiLocal::Config {
     int reflectionQualityLevel = 4;
     int lodQualityLevel = 4;
 
-    bool enableBreastParam = false;
-    float bDamping = 0.33f;
-    float bStiffness = 0.08f;
-    float bSpring = 1.0f;
-    float bPendulum = 0.055f;
-    float bPendulumRange = 0.15f;
-    float bAverage = 0.20f;
-    float bRootWeight = 0.5f;
-    bool bUseArmCorrection = true;
-    bool bUseScale = false;
-    float bScale = 1.0f;
-    bool bUseLimit = true;
-    float bLimitXx = 1.0f;
-    float bLimitXy = 1.0f;
-    float bLimitYx = 1.0f;
-    float bLimitYy = 1.0f;
-    float bLimitZx = 1.0f;
-    float bLimitZy = 1.0f;
+    static bool enableBreastParam = false;
+    static bool bUseScale = false;
+    static float bScale = 1.0f;
+    static int bSwingIntensity = 2;
+    static std::atomic<BreastMotionConfig> activeBreastMotion{{0.0f, 2}};
 
     bool dmmUnlockSize = false;
+
+    BreastMotionConfig GetBreastMotion() {
+        return activeBreastMotion.load(std::memory_order_relaxed);
+    }
 
     std::string ReplaceDisplayUserName(std::string text) {
         return ReplaceDisplayUserName(std::move(text), displayUserName);
@@ -129,24 +123,17 @@ namespace HoshimiLocal::Config {
             GetConfigItem(reflectionQualityLevel);
             GetConfigItem(lodQualityLevel);
             GetConfigItem(enableBreastParam);
-            GetConfigItem(bDamping);
-            GetConfigItem(bStiffness);
-            GetConfigItem(bSpring);
-            GetConfigItem(bPendulum);
-            GetConfigItem(bPendulumRange);
-            GetConfigItem(bAverage);
-            GetConfigItem(bRootWeight);
-            GetConfigItem(bUseArmCorrection);
             GetConfigItem(bUseScale);
             GetConfigItem(bScale);
-            GetConfigItem(bUseLimit);
-            GetConfigItem(bLimitXx);
-            GetConfigItem(bLimitXy);
-            GetConfigItem(bLimitYx);
-            GetConfigItem(bLimitYy);
-            GetConfigItem(bLimitZx);
-            GetConfigItem(bLimitZy);
+            const auto swingIntensity = config.find("bSwingIntensity");
+            bSwingIntensity = swingIntensity != config.end() && swingIntensity->is_number_integer()
+                    ? std::clamp(swingIntensity->get<int>(), 0, 4)
+                    : std::clamp(config.value("bSwingLevel", 1), 0, 2) * 2;
             GetConfigItem(dmmUnlockSize);
+            const float size = bUseScale && std::isfinite(bScale)
+                    ? std::clamp(bScale, 0.75f, 1.75f) : 1.0f;
+            activeBreastMotion.store({enabled && enableBreastParam ? size : 0.0f, bSwingIntensity},
+                                     std::memory_order_relaxed);
         }
         catch (std::exception& e) {
             Log::ErrorFmt("LoadConfig error: %s", e.what());
@@ -197,23 +184,9 @@ namespace HoshimiLocal::Config {
             SetConfigItem(reflectionQualityLevel);
             SetConfigItem(lodQualityLevel);
             SetConfigItem(enableBreastParam);
-            SetConfigItem(bDamping);
-            SetConfigItem(bStiffness);
-            SetConfigItem(bSpring);
-            SetConfigItem(bPendulum);
-            SetConfigItem(bPendulumRange);
-            SetConfigItem(bAverage);
-            SetConfigItem(bRootWeight);
-            SetConfigItem(bUseArmCorrection);
             SetConfigItem(bUseScale);
             SetConfigItem(bScale);
-            SetConfigItem(bUseLimit);
-            SetConfigItem(bLimitXx);
-            SetConfigItem(bLimitXy);
-            SetConfigItem(bLimitYx);
-            SetConfigItem(bLimitYy);
-            SetConfigItem(bLimitZx);
-            SetConfigItem(bLimitZy);
+            SetConfigItem(bSwingIntensity);
             SetConfigItem(dmmUnlockSize);
 
             std::ofstream out(configPath);

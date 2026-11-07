@@ -54,24 +54,8 @@ interface ConfigListener {
     fun onDebugAudioLogChanged(value: Boolean)
 
     fun onEnableBreastParamChanged(value: Boolean)
-    fun onBDampingChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBStiffnessChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBSpringChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBPendulumChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBPendulumRangeChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBAverageChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBRootWeightChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBUseLimitChanged(value: Boolean)
-    fun onBLimitXxChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBLimitXyChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBLimitYxChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBLimitYyChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBLimitZxChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBLimitZyChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBScaleChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onBUseArmCorrectionChanged(value: Boolean)
-    fun onBUseScaleChanged(value: Boolean)
-    fun onBClickPresetChanged(index: Int)
+    fun onBreastSizeChanged(percent: Int)
+    fun onBreastSwingLevelChanged(level: Int)
     fun onPUseBuiltInAssetsChanged(value: Boolean)
     fun onPCleanLocalAssetsChanged(value: Boolean)
     fun mainPageAssetsViewDataUpdate(downloadAbleState: Boolean? = null,
@@ -352,208 +336,18 @@ override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
         checkConfigAndUpdateView()
     }
 
-    override fun onBUseArmCorrectionChanged(value: Boolean) {
-        config.bUseArmCorrection = value
+    override fun onBreastSizeChanged(percent: Int) {
+        val size = percent.coerceIn(75, 175) / 100f
+        if (config.bUseScale && config.bScale == size) return
+        config.bUseScale = true
+        config.bScale = size
         saveConfig()
     }
 
-    override fun onBUseScaleChanged(value: Boolean) {
-        config.bUseScale = value
-        saveConfig()
-        checkConfigAndUpdateView()
-    }
-
-    override fun onBDampingChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bDamping = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBStiffnessChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bStiffness = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBSpringChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bSpring = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBPendulumChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bPendulum = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBPendulumRangeChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bPendulumRange = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBAverageChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bAverage = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBRootWeightChanged(s: CharSequence, start: Int, before: Int, count: Int){
-        config.bRootWeight = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBUseLimitChanged(value: Boolean){
-        config.bUseLimit = value
-        saveConfig()
-        checkConfigAndUpdateView()
-    }
-
-    override fun onBLimitXxChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitXx = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBLimitXyChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitXy = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBLimitYxChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitYx = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBLimitYyChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitYy = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBLimitZxChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitZx = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBLimitZyChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bLimitZy = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-
-    override fun onBScaleChanged(s: CharSequence, start: Int, before: Int, count: Int) {
-        config.bScale = try {
-            s.toString().toFloat()
-        }
-        catch (e: Exception) {
-            0f
-        }
-        saveConfig()
-    }
-
-    override fun onBClickPresetChanged(index: Int) {
-        val setData: FloatArray = when (index) {
-            // 0.33, 0.08, 0.7, 0.12, 0.25, 0.2, 0.8, 0, noUseArm
-            0 -> floatArrayOf(0.33f, 0.07f, 0.7f, 0.06f, 0.25f, 0.2f, 0.5f,
-                1f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f)
-            1 -> floatArrayOf(0.365f, 0.06f, 0.62f, 0.07f, 0.25f, 0.2f, 0.5f,
-                1f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f, 1.5f)
-            2 -> floatArrayOf(0.4f, 0.065f, 0.55f, 0.075f, 0.25f, 0.2f, 0.5f,
-                1f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f)
-            3 -> floatArrayOf(0.4f, 0.065f, 0.55f, 0.075f, 0.25f, 0.2f, 0.5f,
-                1f, 4.0f, 4.0f, 4.0f, 4.0f, 4.0f, 3.0f)
-            4 -> floatArrayOf(0.4f, 0.06f, 0.4f, 0.075f, 0.55f, 0.2f, 0.8f,
-                1f, 6.0f, 6.0f, 6.0f, 6.0f, 6.0f, 3.5f)
-
-            5 -> floatArrayOf(0.33f, 0.08f, 0.8f, 0.12f, 0.55f, 0.2f, 1.0f,
-                0f)
-
-            else -> floatArrayOf(0.33f, 0.08f, 1.0f, 0.055f, 0.15f, 0.2f, 0.5f,
-                1f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f)
-        }
-
-        config.bDamping = setData[0]
-        config.bStiffness = setData[1]
-        config.bSpring = setData[2]
-        config.bPendulum = setData[3]
-        config.bPendulumRange = setData[4]
-        config.bAverage = setData[5]
-        config.bRootWeight = setData[6]
-        config.bUseLimit = if (setData[7] == 0f) {
-            false
-        }
-        else {
-            config.bLimitXx = setData[8]
-            config.bLimitXy = setData[9]
-            config.bLimitYx = setData[10]
-            config.bLimitYy = setData[11]
-            config.bLimitZx = setData[12]
-            config.bLimitZy = setData[13]
-            true
-        }
-
-        config.bUseArmCorrection = true
-
-        checkConfigAndUpdateView()
+    override fun onBreastSwingLevelChanged(level: Int) {
+        val swingIntensity = level.coerceIn(0, 4)
+        if (config.breastSwingIntensity == swingIntensity) return
+        config.bSwingIntensity = swingIntensity
         saveConfig()
     }
 

@@ -44,24 +44,11 @@ namespace HoshimiLocal::Config {
     extern int reflectionQualityLevel;
     extern int lodQualityLevel;
 
-    extern bool enableBreastParam;
-    extern float bDamping;
-    extern float bStiffness;
-    extern float bSpring;
-    extern float bPendulum;
-    extern float bPendulumRange;
-    extern float bAverage;
-    extern float bRootWeight;
-    extern bool bUseArmCorrection;
-    extern bool bUseScale;
-    extern float bScale;
-    extern bool bUseLimit;
-    extern float bLimitXx;
-    extern float bLimitXy;
-    extern float bLimitYx;
-    extern float bLimitYy;
-    extern float bLimitZx;
-    extern float bLimitZy;
+    struct BreastMotionConfig {
+        float size;
+        int swingLevel;
+    };
+    BreastMotionConfig GetBreastMotion();
 
     extern bool dmmUnlockSize;
 

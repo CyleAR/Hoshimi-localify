@@ -4,23 +4,20 @@ import io.github.cylear.hoshimi.localify.ui.components.IPGroupBox
 import android.content.res.Configuration.UI_MODE_NIGHT_NO
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -33,9 +30,9 @@ import io.github.cylear.hoshimi.localify.models.BreastCollapsibleBoxViewModel
 import io.github.cylear.hoshimi.localify.models.BreastCollapsibleBoxViewModelFactory
 import io.github.cylear.hoshimi.localify.models.IdolyprideConfig
 import io.github.cylear.hoshimi.localify.ui.components.base.CollapsibleBox
-import io.github.cylear.hoshimi.localify.ui.components.IPButton
 import io.github.cylear.hoshimi.localify.ui.components.IPSwitch
 import io.github.cylear.hoshimi.localify.ui.components.IPTextInput
+import kotlin.math.roundToInt
 
 
 @Composable
@@ -49,9 +46,6 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
 
     val breastParamViewModel: BreastCollapsibleBoxViewModel =
         viewModel(factory = BreastCollapsibleBoxViewModelFactory(initiallyExpanded = false))
-    val keyBoardOptionsDecimal = remember {
-        KeyboardOptions(keyboardType = KeyboardType.Decimal)
-    }
 
     LazyColumn(modifier = modifier
         .sizeIn(maxHeight = screenH)
@@ -122,243 +116,50 @@ fun AdvanceSettingsPage(modifier: Modifier = Modifier,
                 CollapsibleBox(modifier = modifier,
                     viewModel = breastParamViewModel
                 ) {
-                    LazyColumn(modifier = modifier
-                        .padding(8.dp)
-                        .sizeIn(maxHeight = screenH),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Column(
+                        modifier = modifier.padding(8.dp).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        item {
-                            IPSwitch(modifier = modifier,
-                                checked = config.value.enableBreastParam,
-                                text = stringResource(R.string.enable_breast_param)
-                            ) { v -> context?.onEnableBreastParamChanged(v) }
-                        }
-                        item {
-                            Row(modifier = modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                val buttonModifier = remember {
-                                    modifier
-                                        .height(40.dp)
-                                        .weight(1f)
-                                }
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "??", onClick = { context?.onBClickPresetChanged(5) })
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "+5", onClick = { context?.onBClickPresetChanged(4) })
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "+4", onClick = { context?.onBClickPresetChanged(3) })
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "+3", onClick = { context?.onBClickPresetChanged(2) })
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "+2", onClick = { context?.onBClickPresetChanged(1) })
-
-                                IPButton(modifier = buttonModifier,
-                                    text = "+1", onClick = { context?.onBClickPresetChanged(0) })
-                            }
-                        }
-
-                        item {
-                            Row(modifier = modifier,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bDamping.toString(),
-                                    onValueChange = { c -> context?.onBDampingChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.damping)) },
-                                    keyboardOptions = keyBoardOptionsDecimal
-                                )
-
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bStiffness.toString(),
-                                    onValueChange = { c -> context?.onBStiffnessChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.stiffness)) },
-                                    keyboardOptions = keyBoardOptionsDecimal)
-                            }
-                        }
-
-                        item {
-                            Row(modifier = modifier,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bSpring.toString(),
-                                    onValueChange = { c -> context?.onBSpringChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.spring)) },
-                                    keyboardOptions = keyBoardOptionsDecimal
-                                )
-
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bPendulum.toString(),
-                                    onValueChange = { c -> context?.onBPendulumChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.pendulum)) },
-                                    keyboardOptions = keyBoardOptionsDecimal)
-                            }
-                        }
-
-                        item {
-                            Row(modifier = modifier,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bPendulumRange.toString(),
-                                    onValueChange = { c -> context?.onBPendulumRangeChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.pendulumrange)) },
-                                    keyboardOptions = keyBoardOptionsDecimal
-                                )
-
-                                IPTextInput(modifier = modifier
-                                    .height(45.dp)
-                                    .weight(1f),
-                                    fontSize = 14f,
-                                    value = config.value.bAverage.toString(),
-                                    onValueChange = { c -> context?.onBAverageChanged(c, 0, 0, 0)},
-                                    label = { Text(stringResource(R.string.average)) },
-                                    keyboardOptions = keyBoardOptionsDecimal)
-                            }
-                        }
-
-                        item {
-                            IPTextInput(modifier = modifier
-                                .height(45.dp)
-                                .fillMaxWidth(),
-                                fontSize = 14f,
-                                value = config.value.bRootWeight.toString(),
-                                onValueChange = { c -> context?.onBRootWeightChanged(c, 0, 0, 0)},
-                                label = { Text(stringResource(R.string.rootweight)) },
-                                keyboardOptions = keyBoardOptionsDecimal
-                            )
-                        }
-
-                        item {
-                            IPSwitch(modifier = modifier,
-                                checked = config.value.bUseScale,
-                                leftPart = {
-                                    IPTextInput(modifier = modifier
-                                        .height(45.dp),
-                                        fontSize = 14f,
-                                        value = config.value.bScale.toString(),
-                                        onValueChange = { c -> context?.onBScaleChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.breast_scale)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-                                }
-                            ) { v -> context?.onBUseScaleChanged(v) }
-                        }
-
-                        item {
-                            IPSwitch(modifier = modifier,
-                                checked = config.value.bUseArmCorrection,
-                                text = stringResource(R.string.usearmcorrection)
-                            ) { v -> context?.onBUseArmCorrectionChanged(v) }
-                        }
-
-                        item {
-                            HorizontalDivider(
-                                thickness = 1.dp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                            )
-                        }
-
-                        item {
-                            IPSwitch(modifier = modifier,
-                                checked = config.value.bUseLimit,
-                                text = stringResource(R.string.uselimit_0_1)
-                            ) { v ->
-                                context?.onBUseLimitChanged(v)
-                            }
-                        }
-
-                        item {
-                            CollapsibleBox(modifier = modifier,
-                                expandState = config.value.bUseLimit,
-                                collapsedHeight = 0.dp,
-                                showExpand = false
-                            ){
-                                Row(modifier = modifier,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    val textInputModifier = remember {
-                                        modifier
-                                            .height(45.dp)
-                                            .weight(1f)
-                                    }
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitXx.toString(),
-                                        onValueChange = { c -> context?.onBLimitXxChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisx_x)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitYx.toString(),
-                                        onValueChange = { c -> context?.onBLimitYxChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisy_x)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitZx.toString(),
-                                        onValueChange = { c -> context?.onBLimitZxChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisz_x)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-                                }
-
-                                Row(modifier = modifier,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    val textInputModifier = remember {
-                                        modifier
-                                            .height(45.dp)
-                                            .weight(1f)
-                                    }
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitXy.toString(),
-                                        onValueChange = { c -> context?.onBLimitXyChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisx_y)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitYy.toString(),
-                                        onValueChange = { c -> context?.onBLimitYyChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisy_y)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-
-                                    IPTextInput(modifier = textInputModifier,
-                                        fontSize = 14f,
-                                        value = config.value.bLimitZy.toString(),
-                                        onValueChange = { c -> context?.onBLimitZyChanged(c, 0, 0, 0)},
-                                        label = { Text(stringResource(R.string.axisz_y)) },
-                                        keyboardOptions = keyBoardOptionsDecimal
-                                    )
-                                }
-                            }
-                        }
-
+                        val size = config.value.bScale
+                            .takeIf { config.value.bUseScale && it.isFinite() } ?: 1f
+                        val percent = (size.coerceIn(0.75f, 1.75f) * 100).roundToInt()
+                        IPSwitch(
+                            modifier = modifier,
+                            checked = config.value.enableBreastParam,
+                            text = stringResource(R.string.enable_breast_param)
+                        ) { context?.onEnableBreastParamChanged(it) }
+                        Text(stringResource(R.string.breast_size_percent, percent))
+                        Slider(
+                            value = percent.toFloat(),
+                            onValueChange = { context?.onBreastSizeChanged(it.roundToInt()) },
+                            enabled = config.value.enableBreastParam,
+                            valueRange = 75f..175f,
+                            steps = 19
+                        )
+                        val intensity = config.value.breastSwingIntensity
+                        val intensityLabels = listOf(
+                            R.string.breast_swing_game_default,
+                            R.string.breast_swing_light,
+                            R.string.breast_swing_strong,
+                            R.string.breast_swing_stronger,
+                            R.string.breast_swing_maximum
+                        )
+                        Text(stringResource(
+                            R.string.breast_swing_level,
+                            intensity + 1,
+                            stringResource(intensityLabels[intensity])
+                        ))
+                        Slider(
+                            value = intensity.toFloat(),
+                            onValueChange = { context?.onBreastSwingLevelChanged(it.roundToInt()) },
+                            enabled = config.value.enableBreastParam,
+                            valueRange = 0f..4f,
+                            steps = 3
+                        )
+                        Text(
+                            stringResource(R.string.breast_auto_hint),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
             }

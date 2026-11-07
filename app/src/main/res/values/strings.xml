@@ -48,6 +48,14 @@
     <string name="isdirty">IsDirty</string>
     <string name="usescale">Use Breast Scale</string>
     <string name="breast_scale">Breast Scale</string>
+    <string name="breast_size_percent">Breast size %1$d%%</string>
+    <string name="breast_swing_level">Swing intensity %1$d/5 · %2$s</string>
+    <string name="breast_swing_game_default">Game default</string>
+    <string name="breast_swing_light">Light</string>
+    <string name="breast_swing_strong">Strong</string>
+    <string name="breast_swing_stronger">Stronger</string>
+    <string name="breast_swing_maximum">Maximum</string>
+    <string name="breast_auto_hint">Restart the game after changing size or swing intensity.</string>
     <string name="uselimitmultiplier">Use Limit Multiplier</string>
     <string name="axisx_x">axisX.x</string>
     <string name="axisy_x">axisY.x</string>
@@ -84,7 +92,7 @@
     <string name="graphic_quality_hint">Turn custom graphics off to use game graphics settings. FPS and orientation remain independent.</string>
     <string name="render_resolution_scale">Render scale: scales 3D resolution. 1.0 uses screen resolution as the base. Range: 0.25–2.0.</string>
     <string name="render_resolution_max">Max size: caps the longer edge of the 3D resolution. Range: 256–4096 px.</string>
-    <string name="render_resolution_hint">Higher values may increase load and heat. Refresh settings after changes; restart the game if changes do not appear.</string>
+    <string name="render_resolution_hint">Restart the game after changing graphics settings. Higher values may increase load and heat.</string>
     <string name="camera_settings">Camera Settings</string>
     <string name="reset_settings">Reset Settings</string>
     <string name="reset_settings_confirm">Reset all plugin and resource settings to their default values?</string>
