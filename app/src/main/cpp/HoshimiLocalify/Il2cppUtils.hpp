@@ -331,6 +331,7 @@ namespace Il2cppUtils {
         public:
             CSListEditor(void* list) {
                 lst = list;
+                if (!list) return;
                 list_klass = get_class_from_instance(list);
                 if (!list_klass) return;
 
@@ -404,8 +405,8 @@ namespace Il2cppUtils {
                 return Iterator(this, get_Count());
             }
 
-            void* lst;
-            void* list_klass;
+            void* lst{};
+            void* list_klass{};
         private:
             typedef T(*lst_get_Item_t)(void*, int, void* mtd);
             typedef void(*lst_Add_t)(void*, T, void* mtd);
@@ -413,17 +414,17 @@ namespace Il2cppUtils {
             typedef int(*lst_get_Count_t)(void*, void* mtd);
             typedef bool(*lst_Contains_t)(void*, T, void* mtd);
 
-            MethodInfo* lst_get_Item_method;
-            MethodInfo* lst_Add_method;
-            MethodInfo* lst_get_Count_method;
-            MethodInfo* lst_set_Item_method;
-            MethodInfo* lst_Contains_method;
+            MethodInfo* lst_get_Item_method{};
+            MethodInfo* lst_Add_method{};
+            MethodInfo* lst_get_Count_method{};
+            MethodInfo* lst_set_Item_method{};
+            MethodInfo* lst_Contains_method{};
 
-            lst_get_Item_t lst_get_Item;
-            lst_set_Item_t lst_set_Item;
-            lst_Add_t lst_Add;
-            lst_get_Count_t lst_get_Count;
-            lst_Contains_t lst_Contains;
+            lst_get_Item_t lst_get_Item{};
+            lst_set_Item_t lst_set_Item{};
+            lst_Add_t lst_Add{};
+            lst_get_Count_t lst_get_Count{};
+            lst_Contains_t lst_Contains{};
         };
 
 
