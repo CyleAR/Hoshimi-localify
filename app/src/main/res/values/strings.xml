@@ -48,7 +48,7 @@
     <string name="isdirty">IsDirty</string>
     <string name="usescale">Use Breast Scale</string>
     <string name="breast_scale">Breast Scale</string>
-    <string name="breast_size_percent">Breast size %1$d%%</string>
+    <string name="breast_size_percent">Breast width and height %1$d%%</string>
     <string name="breast_swing_level">Swing intensity %1$d/5 · %2$s</string>
     <string name="breast_swing_game_default">Game default</string>
     <string name="breast_swing_light">Light</string>

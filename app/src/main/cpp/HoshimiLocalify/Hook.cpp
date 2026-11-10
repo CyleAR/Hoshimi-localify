@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -3518,11 +3519,143 @@ namespace HoshimiLocal::HookMain {
 
     std::atomic_bool liveSwingTuning{false};
 
+    using BreastTransform = UnityResolve::UnityType::Transform;
+    using BreastScaleVector = UnityResolve::UnityType::Vector3;
+
+    struct BreastShapeState {
+        BreastScaleVector originalScale;
+        BreastScaleVector appliedScale;
+        BreastScaleVector originalPosition;
+        BreastScaleVector appliedPosition;
+        BreastScaleVector depthWeights;
+    };
+
+    BreastScaleVector GetBreastDepthWeights(BreastTransform* breast, BreastTransform* end) {
+        constexpr float evenWeight = 1.0f / 3.0f;
+        if (!end) return {evenWeight, evenWeight, evenWeight};
+
+        // The rig's endpoint defines depth even on meshes with different bone orientations.
+        auto endDirection = end->GetPosition() - breast->GetPosition();
+        const float squaredLength = endDirection.Length();
+        if (!std::isfinite(squaredLength) || squaredLength < 0.000001f) return {evenWeight, evenWeight, evenWeight};
+        const auto depth = endDirection / std::sqrt(squaredLength);
+        const auto weight = [depth](BreastScaleVector axis) {
+            const float alignment = axis.Dot(depth);
+            return std::min(alignment * alignment, 1.0f);
+        };
+        return {weight(breast->GetRight()), weight(breast->GetUp()), weight(breast->GetForward())};
+    }
+
+    BreastShapeState* ApplyBreastScale(BreastTransform* breast, BreastTransform* end, float size) {
+        // Rig setup runs on the Unity thread. Cache the authored shape for reused bones.
+        static std::unordered_map<int32_t, BreastShapeState> shapes;
+        if (!breast || (size == 1.0f && shapes.empty())) return nullptr;
+        static const auto getInstanceId = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Object", "GetInstanceID");
+        if (!getInstanceId) return nullptr;
+
+        using Clock = std::chrono::steady_clock;
+        static auto nextPrune = Clock::now();
+        const auto now = Clock::now();
+        if (now >= nextPrune) {
+            static const auto exists = Il2cppUtils::GetMethod(
+                    "UnityEngine.CoreModule.dll", "UnityEngine", "Object", "DoesObjectWithInstanceIDExist");
+            if (exists) {
+                std::erase_if(shapes, [](const auto& entry) { return !exists->Invoke<bool>(entry.first); });
+            }
+            nextPrune = now + std::chrono::seconds(10);
+        }
+
+        const auto id = getInstanceId->Invoke<int32_t>(breast);
+        const auto currentScale = breast->GetLocalScale();
+        const auto currentPosition = breast->GetLocalPosition();
+        auto [entry, inserted] = shapes.try_emplace(id);
+        auto& state = entry->second;
+        if (inserted || currentPosition != state.appliedPosition) {
+            state.originalPosition = state.appliedPosition = currentPosition;
+        }
+        if (inserted || currentScale != state.appliedScale) {
+            state.originalScale = state.appliedScale = currentScale;
+            state.depthWeights = GetBreastDepthWeights(breast, end);
+        }
+        const float change = size - 1.0f;
+        // Let depth grow with the rest of the shape, with slightly less forward projection.
+        const float depth = change > 0.0f ? change * 0.80f : change;
+        const auto scale = [change, depth](float weight) {
+            return 1.0f + std::lerp(change, depth, weight);
+        };
+        const BreastScaleVector scaled(state.originalScale.x * scale(state.depthWeights.x),
+                                       state.originalScale.y * scale(state.depthWeights.y),
+                                       state.originalScale.z * scale(state.depthWeights.z));
+        if (scaled == currentScale) return &state;
+        breast->SetLocalScale(scaled);
+        state.appliedScale = scaled;
+#ifndef NDEBUG
+        if (Config::dbgMode) {
+            Log::DebugFmt("BreastScale: size=%.2f original=(%.2f, %.2f, %.2f) applied=(%.2f, %.2f, %.2f)",
+                          size, state.originalScale.x, state.originalScale.y, state.originalScale.z,
+                          scaled.x, scaled.y, scaled.z);
+        }
+#endif
+        return &state;
+    }
+
+    void ApplyBreastSpacing(BreastTransform* left, BreastShapeState* leftShape,
+                            BreastTransform* right, BreastShapeState* rightShape, float size) {
+        const float sideFraction = 0.045f * std::clamp((size - 1.30f) / 0.45f, 0.0f, 1.0f);
+        BreastScaleVector leftOffset, rightOffset;
+        if (sideFraction > 0.0f && leftShape && rightShape) {
+            auto* leftParent = left->GetParent();
+            auto* rightParent = right->GetParent();
+            if (leftParent == rightParent) {
+                rightOffset = (BreastScaleVector(rightShape->originalPosition) - leftShape->originalPosition) * sideFraction;
+                leftOffset = BreastScaleVector(rightOffset) * -1.0f;
+            } else if (leftParent && rightParent) {
+                static const auto inverseVector = Il2cppUtils::GetMethod(
+                        "UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "InverseTransformVector",
+                        {"UnityEngine.Vector3"});
+                if (inverseVector) {
+                    const auto worldOffset = (rightParent->TransformPoint(rightShape->originalPosition) -
+                                              leftParent->TransformPoint(leftShape->originalPosition)) * sideFraction;
+                    leftOffset = inverseVector->Invoke<BreastScaleVector>(leftParent, BreastScaleVector(worldOffset) * -1.0f);
+                    rightOffset = inverseVector->Invoke<BreastScaleVector>(rightParent, worldOffset);
+                }
+            }
+        }
+
+        const auto move = [](BreastTransform* breast, BreastShapeState* shape, const BreastScaleVector& offset) {
+            if (!shape) return false;
+            const auto position = BreastScaleVector(shape->originalPosition) + offset;
+            if (position == shape->appliedPosition) return false;
+            breast->SetLocalPosition(position);
+            shape->appliedPosition = position;
+            return true;
+        };
+        const bool movedLeft = move(left, leftShape, leftOffset);
+        const bool movedRight = move(right, rightShape, rightOffset);
+#ifndef NDEBUG
+        if (Config::dbgMode && (movedLeft || movedRight) && leftShape && rightShape) {
+            const auto authoredWorldPosition = [](BreastTransform* bone, const BreastShapeState& shape) {
+                auto* parent = bone->GetParent();
+                return parent ? parent->TransformPoint(shape.originalPosition) : shape.originalPosition;
+            };
+            const auto originalLeft = authoredWorldPosition(left, *leftShape);
+            const auto originalRight = authoredWorldPosition(right, *rightShape);
+            const float originalDistance = originalLeft.Distance(originalRight);
+            if (originalDistance > 0.0001f) {
+                const float distance = left->GetPosition().Distance(right->GetPosition());
+                Log::DebugFmt("BreastSpacing: size=%.2f spacing=%.2f%% of original", size, distance * 100.0f / originalDistance);
+            }
+        }
+#endif
+    }
+
     void UpdateSolisSwingBreastBones(void* breastBones) {
         const auto [size, swingLevel] = Config::GetBreastMotion();
-        if (size <= 0.0f || !breastBones) return;
-        const bool needsSetupTuning = swingLevel >= 2 && !liveSwingTuning.load(std::memory_order_relaxed);
-        if (size == 1.0f && !needsSetupTuning) return;
+        if (!breastBones) return;
+        const float scale = size > 0.0f ? size : 1.0f;
+        const bool needsSetupTuning = size > 0.0f && swingLevel >= 2 &&
+                                      !liveSwingTuning.load(std::memory_order_relaxed);
 
         static auto ActorSwingBreastBone_klass = Il2cppUtils::GetClass("ActorSwing.Runtime.dll", "ActorSwing",
                                                                        "ActorSwingBreastBone");
@@ -3534,22 +3667,25 @@ namespace HoshimiLocal::HookMain {
         static auto average_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("average");
         static auto leftBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreast");
         static auto rightBreast_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreast");
+        static auto leftEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("leftBreastEnd");
+        static auto rightEnd_field = ActorSwingBreastBone_klass->Get<UnityResolve::Field>("rightBreastEnd");
         if (!leftBreast_field || !rightBreast_field) {
             return;
         }
         const bool tuneSwing = needsSetupTuning && damping_field && stiffness_field && spring_field && average_field;
-        const auto physics = GetSwingBonePhysics(size);
-        const UnityResolve::UnityType::Vector3 scale(size, size, size);
+        const auto physics = GetSwingBonePhysics(scale);
         Il2cppUtils::Tools::CSListEditor<void*> listEditor(breastBones);
         for (auto bone : listEditor) {
             if (!bone) continue;
 
-            if (size != 1.0f) {
-                auto leftBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, leftBreast_field);
-                auto rightBreast = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Transform*>(bone, rightBreast_field);
-                if (leftBreast) leftBreast->SetLocalScale(scale);
-                if (rightBreast) rightBreast->SetLocalScale(scale);
-            }
+            const auto transform = [bone](UnityResolve::Field* field) {
+                return field ? Il2cppUtils::ClassGetFieldValue<BreastTransform*>(bone, field) : nullptr;
+            };
+            auto* left = transform(leftBreast_field);
+            auto* right = transform(rightBreast_field);
+            auto* leftShape = ApplyBreastScale(left, transform(leftEnd_field), scale);
+            auto* rightShape = ApplyBreastScale(right, transform(rightEnd_field), scale);
+            ApplyBreastSpacing(left, leftShape, right, rightShape, scale);
 
             if (tuneSwing) {
                 Il2cppUtils::ClassSetFieldValue(bone, damping_field, physics.damping);
@@ -3617,15 +3753,24 @@ namespace HoshimiLocal::HookMain {
         float roll = 0.0f;
     };
 
-    struct ChestMotionState {
-        std::chrono::steady_clock::time_point lastSample{};
-        SwingVector position{};
-        SwingRotation rotation{0.0f, 0.0f, 0.0f, 1.0f};
+    struct BreastSpring {
         BreastMotion::SpringAxis pitch;
         BreastMotion::SpringAxis roll;
     };
 
-    thread_local SwingPulse activeSwingPulse;
+    struct ChestMotionState {
+        std::chrono::steady_clock::time_point lastSample{};
+        SwingVector position{};
+        SwingRotation rotation{0.0f, 0.0f, 0.0f, 1.0f};
+        std::array<BreastSpring, 2> springs{};
+    };
+
+    struct SwingRecoilFrame {
+        std::array<SwingPulse, 2> pulses{};
+        unsigned nextSide = 0;
+    };
+
+    thread_local SwingRecoilFrame* activeSwingRecoil = nullptr;
 
     SwingRotation MultiplySwingRotation(const SwingRotation& a, const SwingRotation& b) {
         return {
@@ -3636,8 +3781,14 @@ namespace HoshimiLocal::HookMain {
         };
     }
 
-    SwingPulse CalculateChestRecoil(const uint8_t* boneData, const void* stream, float dt, float size,
-                                   bool burst) {
+    SwingVector ChestRight(const SwingRotation& rotation) {
+        return {1.0f - 2.0f * (rotation.y * rotation.y + rotation.z * rotation.z),
+                2.0f * (rotation.x * rotation.y + rotation.w * rotation.z),
+                2.0f * (rotation.x * rotation.z - rotation.w * rotation.y)};
+    }
+
+    std::array<SwingPulse, 2> CalculateChestRecoil(const uint8_t* boneData, const void* stream,
+                                                  float dt, float size, bool burst) {
         if (dt < 0.001f || dt > 0.1f) return {};
 
         alignas(void*) uint8_t driven[swingDrivenSize];
@@ -3673,26 +3824,41 @@ namespace HoshimiLocal::HookMain {
         const SwingRotation rotationDelta = MultiplySwingRotation(
                 {-state.rotation.x, -state.rotation.y, -state.rotation.z, state.rotation.w}, rotation);
         if (now - state.lastSample > 250ms || displacement.Length() > 0.16f || std::abs(rotationDelta.w) < 0.92f) {
-            state = {now, position, rotation, {}, {}};
+            state = {now, position, rotation, {}};
             return {};
         }
 
+        auto right = ChestRight(rotation);
+        auto rightDelta = right - ChestRight(state.rotation);
         state.lastSample = now;
         state.position = position;
         state.rotation = rotation;
 
-        // World vertical speed and speed along the chest's right axis drive pitch and roll.
-        const SwingVector right(1.0f - 2.0f * (rotation.y * rotation.y + rotation.z * rotation.z),
-                                2.0f * (rotation.x * rotation.y + rotation.w * rotation.z),
-                                2.0f * (rotation.x * rotation.z - rotation.w * rotation.y));
         const float angularSign = rotationDelta.w >= 0.0f ? 1.0f : -1.0f;
         const float sizeFactor = size - 0.75f;
         const float frequency = std::lerp(19.0f, 13.5f, sizeFactor);
-        const float pitchSpeed = (72.0f * displacement.y + 5.5f * angularSign * rotationDelta.x) / dt;
-        const float rollSpeed = (30.0f * displacement.Dot(right) + 3.5f * angularSign * rotationDelta.z) / dt;
-        state.pitch.Step(pitchSpeed, dt, frequency, std::lerp(0.26f, 0.42f, sizeFactor));
-        state.roll.Step(rollSpeed, dt, frequency, std::lerp(0.16f, 0.28f, sizeFactor));
-        return {state.pitch.angle, state.roll.angle};
+        const float halfWidth = std::lerp(0.085f, 0.125f, sizeFactor);
+        const SwingVector forward(2.0f * (rotation.x * rotation.z + rotation.w * rotation.y),
+                                  2.0f * (rotation.y * rotation.z - rotation.w * rotation.x),
+                                  1.0f - 2.0f * (rotation.x * rotation.x + rotation.y * rotation.y));
+        const float pitchLimit = std::lerp(0.26f, 0.42f, sizeFactor);
+        const float rollLimit = std::lerp(0.16f, 0.28f, sizeFactor);
+        std::array<SwingPulse, 2> pulses;
+        for (size_t side = 0; side < pulses.size(); ++side) {
+            // Rotation moves the left and right attachment points in opposite directions.
+            const float direction = side == 0 ? -1.0f : 1.0f;
+            const auto attachmentDelta = rightDelta * (direction * halfWidth);
+            const float pitchSpeed = (72.0f * (displacement.y + attachmentDelta.y)
+                                      + 5.5f * angularSign * rotationDelta.x) / dt;
+            const float rollSpeed = (30.0f * (displacement.Dot(right) + attachmentDelta.Dot(forward))
+                                     + 3.5f * angularSign * rotationDelta.z) / dt;
+            auto& spring = state.springs[side];
+            const float sideFrequency = frequency * (1.0f + direction * 0.06f);
+            spring.pitch.Step(pitchSpeed, dt, sideFrequency, pitchLimit);
+            spring.roll.Step(rollSpeed, dt, sideFrequency, rollLimit);
+            pulses[side] = {spring.pitch.angle, spring.roll.angle};
+        }
+        return pulses;
     }
 
     bool HasSwingPhysicsLayout() {
@@ -3727,7 +3893,7 @@ namespace HoshimiLocal::HookMain {
     class ScopedBreastMotion {
     public:
         ScopedBreastMotion(const void* job, const void* stream, bool burst) {
-            activeSwingPulse = {};
+            activeSwingRecoil = nullptr;
             const auto [size, swingLevel] = Config::GetBreastMotion();
             if (size <= 0.0f) return;
 #ifndef NDEBUG
@@ -3762,9 +3928,13 @@ namespace HoshimiLocal::HookMain {
                 std::memcpy(parameters, &physics, sizeof(physics));
             }
             if (swingLevel >= 3) {
-                const auto recoil = CalculateChestRecoil(bones.data, stream, dt, size, burst);
-                const float strength = (swingLevel - 2) * 0.5f;
-                activeSwingPulse = {recoil.pitch * strength, recoil.roll * strength};
+                const float strength = swingLevel == 4 ? 1.65f : 0.5f;
+                recoil.pulses = CalculateChestRecoil(bones.data, stream, dt, size, burst);
+                for (auto& pulse : recoil.pulses) {
+                    pulse.pitch *= strength;
+                    pulse.roll *= strength;
+                }
+                activeSwingRecoil = &recoil;
             }
         }
 
@@ -3774,12 +3944,13 @@ namespace HoshimiLocal::HookMain {
                 auto* parameters = bones.data + i * swingBoneStride + swingBoneDampingOffset;
                 std::memcpy(parameters, &originalPhysics[i], sizeof(SwingBonePhysics));
             }
-            activeSwingPulse = previousPulse;
+            activeSwingRecoil = previousRecoil;
         }
 
     private:
         static constexpr int maxBones = 128;
-        const SwingPulse previousPulse = activeSwingPulse;
+        SwingRecoilFrame* const previousRecoil = activeSwingRecoil;
+        SwingRecoilFrame recoil;
         SwingBoneList bones{};
         SwingBonePhysics originalPhysics[maxBones];
     };
@@ -3825,12 +3996,17 @@ namespace HoshimiLocal::HookMain {
     }
 
     void ApplyChestRecoil(float weight, ActorSwingAffineTransform* target) {
-        if (!target || !(weight > 0.0f) || (activeSwingPulse.pitch == 0.0f && activeSwingPulse.roll == 0.0f)) return;
+        if (!activeSwingRecoil) return;
+        // ProcessBreastBones calls the layer for the left and right sides in that order.
+        const unsigned side = activeSwingRecoil->nextSide;
+        activeSwingRecoil->nextSide ^= 1u;
+        const auto& pulse = activeSwingRecoil->pulses[side];
+        if (!target || !(weight > 0.0f) || (pulse.pitch == 0.0f && pulse.roll == 0.0f)) return;
 
         // Layer the bounded recoil over the game's limited rotation, respecting the rig's blend weight.
         const float layerWeight = std::min(weight, 1.0f);
-        const float pitch = activeSwingPulse.pitch * layerWeight;
-        const float roll = activeSwingPulse.roll * layerWeight;
+        const float pitch = pulse.pitch * layerWeight;
+        const float roll = pulse.roll * layerWeight;
         const float sinPitch = std::sin(pitch * 0.5f);
         const float cosPitch = std::cos(pitch * 0.5f);
         const float sinRoll = std::sin(roll * 0.5f);
@@ -3838,13 +4014,13 @@ namespace HoshimiLocal::HookMain {
         target->rotation = MultiplySwingRotation(
                 {sinPitch * cosRoll, sinPitch * sinRoll, cosPitch * sinRoll, cosPitch * cosRoll}, target->rotation);
 #ifndef NDEBUG
-        static std::atomic_flag reported{};
+        static std::atomic_flag reported[2]{};
         constexpr float radiansToDegrees = 57.2957795f;
-        if (!reported.test(std::memory_order_relaxed) &&
+        if (!reported[side].test(std::memory_order_relaxed) &&
             std::max(std::abs(pitch), std::abs(roll)) * radiansToDegrees >= 3.0f &&
-            !reported.test_and_set(std::memory_order_relaxed)) {
-            Log::InfoFmt("ActorSwing: chest recoil applied (pitch %.2f deg, roll %.2f deg)",
-                         pitch * radiansToDegrees, roll * radiansToDegrees);
+            !reported[side].test_and_set(std::memory_order_relaxed)) {
+            Log::InfoFmt("ActorSwing: %s recoil applied (pitch %.2f deg, roll %.2f deg)",
+                         side == 0 ? "left" : "right", pitch * radiansToDegrees, roll * radiansToDegrees);
         }
 #endif
     }

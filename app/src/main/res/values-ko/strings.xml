@@ -48,7 +48,7 @@
     <string name="isdirty">IsDirty</string>
     <string name="usescale">바스트 스케일 사용</string>
     <string name="breast_scale">바스트 스케일</string>
-    <string name="breast_size_percent">가슴 크기 %1$d%%</string>
+    <string name="breast_size_percent">가슴 폭·높이 %1$d%%</string>
     <string name="breast_swing_level">흔들림 강도 %1$d/5 · %2$s</string>
     <string name="breast_swing_game_default">게임 기본</string>
     <string name="breast_swing_light">가볍게</string>
