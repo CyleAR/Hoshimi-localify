@@ -16,7 +16,7 @@ class TranslucentActivity : ComponentActivity(), IConfigurableActivity<Transluce
         val requestData = intent.getStringExtra("iprData")
         if (requestData != null) {
             if (requestData == "requestConfig") {
-                onClickStartGame()
+                onClickStartGame(intent.getStringExtra(TargetGamePackages.EXTRA_REQUESTING_GAME_PACKAGE))
                 finish()
             }
         }
