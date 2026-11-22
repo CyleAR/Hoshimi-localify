@@ -107,6 +107,7 @@
     <string name="about">About</string>
     <string name="home">Home</string>
     <string name="advanced_settings">Advanced</string>
+    <string name="extra_settings">Extras</string>
     <string name="about_warn_title">WARNING</string>
     <string name="about_warn_p1">This plugin is for learning and communication only.</string>
     <string name="about_warn_p2">Using external plugin against the relevant TOS so proceed at your own risk.</string>
@@ -141,4 +142,63 @@
 
     <string name="about_contributors_asset_file">about_contributors_en.json</string>
     <string name="default_assets_check_api">https://api.github.com/repos/CyleAR/Idolypride-Translation-Data-KR/releases/latest</string>
+    <string name="private_server">Private server</string>
+    <string name="private_server_status">Select a server and verify its certificate here. The selection applies when you open the game. Switching restarts the game and saves/restores login data separately for each server. Expired sessions may require signing in again.</string>
+    <string name="private_server_open_game">Open server picker in game</string>
+    <string name="private_server_address">Server address</string>
+    <string name="private_server_address_hint">Enter host:port or an HTTPS address. You can append #sha256= followed by the CA fingerprint.</string>
+    <string name="private_server_invalid">Check the hostname, port (1–65535), and optional SHA-256 fingerprint. Paths and login credentials are not supported.</string>
+    <string name="private_server_save">Save address</string>
+    <string name="private_server_remove">Remove address</string>
+    <string name="private_server_saved_address">Saved address</string>
+    <string name="private_server_empty">No server address saved.</string>
+    <string name="private_server_saved">Server address saved.</string>
+    <string name="private_server_removed">Saved address removed.</string>
+    <string name="private_server_save_failed">Could not save the address. Please try again.</string>
+
+    <string name="ps_ui_01">Account data deleted.</string>
+    <string name="ps_ui_02">"Account deletion pending: "</string>
+    <string name="ps_ui_03">" (Processed the next time the game starts.)"</string>
+    <string name="ps_ui_04">Could not save server: %1$s</string>
+    <string name="ps_ui_05">Private servers</string>
+    <string name="ps_ui_06">Login data is saved separately for each server. Server changes take effect after the game restarts.</string>
+    <string name="ps_ui_07">Server list</string>
+    <string name="ps_ui_08">Official server</string>
+    <string name="ps_ui_09">Could not save server selection: %1$s</string>
+    <string name="ps_ui_10">"Selected server: "</string>
+    <string name="ps_ui_11">None selected</string>
+    <string name="ps_ui_12">View / edit selected server</string>
+    <string name="ps_ui_13">+ Add server</string>
+    <string name="ps_ui_14">Select a server. Until then, the game keeps its previous selection.</string>
+    <string name="ps_ui_15">Verify certificate fingerprint</string>
+    <string name="ps_ui_16">Remove server</string>
+    <string name="ps_ui_17">Delete account data</string>
+    <string name="ps_ui_18">Add private server</string>
+    <string name="ps_ui_19">Matches · Add</string>
+    <string name="ps_ui_20">Save</string>
+    <string name="ps_ui_21">Delete</string>
+    <string name="ps_ui_22">Checking…</string>
+    <string name="ps_ui_23">Verify and add</string>
+    <string name="ps_ui_24">Could not save server details: %1$s</string>
+    <string name="ps_ui_25">The game must be installed to delete its account data.</string>
+    <string name="ps_ui_26">Could not delete: %1$s</string>
+    <string name="ps_ui_27">Enter a valid HTTPS server address.</string>
+    <string name="ps_ui_28">Server verification failed: %1$s</string>
+    <string name="ps_ui_29">Could not verify the server certificate.</string>
+    <string name="ps_ui_30">Server verification failed: %1$s</string>
+    <string name="ps_ui_31">Check that this SHA-256 fingerprint matches the one provided by the server operator.</string>
+    <string name="ps_ui_32">Server nickname</string>
+    <string name="ps_ui_33">Registered CA certificate · SHA-256</string>
+    <string name="ps_ui_34">Delete account data only</string>
+    <string name="ps_ui_35">Removes this server and selects the official server. If the game is running, it will restart when you return to apply the change.</string>
+    <string name="ps_ui_36">Removes this server from the module’s list.</string>
+    <string name="ps_ui_37">Also delete saved account data</string>
+    <string name="ps_ui_38">Keeps the server address and nickname, and deletes only its account data.</string>
+    <string name="ps_ui_39">Deletes this server’s login information and local saves the next time the game starts. This cannot be undone. The account on the remote server is not deleted.</string>
+    <string name="ps_ui_40">Login data saved inside the game is kept.</string>
+    <string name="ps_ui_41">Server nickname (optional)</string>
+    <string name="ps_ui_42">HTTPS server address</string>
+    <string name="ps_ui_43">Verifying server certificate…</string>
+    <string name="ps_ui_44">Leave the nickname blank to use the name provided by the server.</string>
+    <string name="ps_ui_45">You can also enter host:port. Append #sha256= and the certificate fingerprint to pin the CA.</string>
 </resources>

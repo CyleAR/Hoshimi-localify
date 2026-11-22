@@ -3,19 +3,30 @@ package io.github.cylear.hoshimi.localify.ui.components
 import android.content.res.Configuration.UI_MODE_NIGHT_NO
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.compose.material3.Surface
@@ -27,7 +38,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun IPTabRow(
     modifier: Modifier = Modifier,
@@ -35,9 +46,11 @@ fun IPTabRow(
     tabs: List<String>,
     onTabSelected: (index: Int) -> Unit
 ) {
+    if (tabs.isEmpty()) return
+    val selectedIndex = pagerState.currentPage.coerceIn(tabs.indices)
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(pagerState.currentPage) {
-        onTabSelected(pagerState.currentPage)
+    LaunchedEffect(selectedIndex) {
+        onTabSelected(selectedIndex)
     }
 
     Box(
@@ -54,11 +67,11 @@ fun IPTabRow(
                 TabRow(
                     modifier = modifier.background(Color.Transparent),
                     containerColor = Color.Transparent,
-                    selectedTabIndex = pagerState.currentPage,
+                    selectedTabIndex = selectedIndex,
                     indicator = @Composable { tabPositions ->
                         Box(
                             Modifier
-                                .tabIndicatorOffset(tabPositions[pagerState.currentPage])
+                                .tabIndicatorOffset(tabPositions[selectedIndex])
                                 .height(4.dp)
                                 .background(Color(0xFF1428ff))
                                 .padding(horizontal = 4.dp)
@@ -67,7 +80,7 @@ fun IPTabRow(
                 ) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
-                            selected = pagerState.currentPage == index,
+                            selected = selectedIndex == index,
                             onClick = {
                                 coroutineScope.launch {
                                     pagerState.scrollToPage(index)
@@ -76,14 +89,32 @@ fun IPTabRow(
 //                                        animationSpec = tween(durationMillis = 250)
 //                                    )
                                 }
-                            },
-                            text = {
-                                Text(
-                                    text = title,
-                                    color = if (pagerState.currentPage == index) Color(0xFF1428ff) else Color.Black
-                                )
                             }
-                        )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                FlowRow(
+                                    modifier = Modifier.clearAndSetSemantics { text = AnnotatedString(title) },
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+                                ) {
+                                    title.split(' ').filter { it.isNotEmpty() }.forEach { word ->
+                                        Text(
+                                            text = word,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = if (selectedIndex == index) Color(0xFF1428ff) else Color.Black,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

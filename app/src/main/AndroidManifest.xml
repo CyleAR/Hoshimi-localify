@@ -56,6 +56,11 @@
         </activity>
 
         <provider
+            android:name=".ServerSelectionProvider"
+            android:authorities="${applicationId}.servers"
+            android:exported="true" />
+
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"

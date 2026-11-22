@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 data class IdolyprideConfig (
     var dbgMode: Boolean = false,
     var enabled: Boolean = true,
+    var privateServerEnabled: Boolean = false,
+    var privateServerUrl: String = "",
+    var privateServerCaPem: String = "",
     var lazyInit: Boolean = true,
     var replaceFont: Boolean = true,
     var useRuntimeKoreanFont: Boolean = false,

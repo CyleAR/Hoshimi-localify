@@ -41,7 +41,7 @@ fun IPButton(
 ) {
     var buttonSize by remember { mutableStateOf(IntSize.Zero) }
 
-    val gradient = remember(buttonSize) {
+    val gradient = remember(buttonSize, enabled, bgColors) {
         Brush.linearGradient(
             colors = bgColors
                 ?: if (enabled) listOf(Color(0xFF1428FF), Color(0xFF5335FA)) else

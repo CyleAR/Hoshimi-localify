@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import io.github.cylear.hoshimi.localify.MainActivity
 import io.github.cylear.hoshimi.localify.R
 import io.github.cylear.hoshimi.localify.TAG
+import io.github.cylear.hoshimi.localify.getConfigState
 import io.github.cylear.hoshimi.localify.getMainUIConfirmState
 import io.github.cylear.hoshimi.localify.getProgramConfigState
 import io.github.cylear.hoshimi.localify.getProgramLocalAPIResourceVersionState
@@ -54,7 +55,7 @@ fun MainUI(modifier: Modifier = Modifier, context: MainActivity? = null,
         mutableStateOf(context?.getVersion() ?: listOf("", "Unknown"))
     }
     var debugTapCount by remember { mutableStateOf(0) }
-    // val config = getConfigState(context, previewData)
+    val config by getConfigState(context, previewData ?: IdolyprideConfig())
     val confirmState by getMainUIConfirmState(context, null)
     val programConfig by getProgramConfigState(context)
     val localAPIResourceVersion by getProgramLocalAPIResourceVersionState(context)
@@ -86,7 +87,7 @@ fun MainUI(modifier: Modifier = Modifier, context: MainActivity? = null,
                 fontSize = 18.sp,
                 modifier = Modifier.clickable {
                     debugTapCount++
-                    if (debugTapCount >= 7) {
+                    if (debugTapCount >= 5) {
                         debugTapCount = 0
                         context?.toggleDebugMode()
                     }
@@ -94,9 +95,13 @@ fun MainUI(modifier: Modifier = Modifier, context: MainActivity? = null,
             )
             Text(text = "${stringResource(R.string.current_resource_version)}: ${versionInfo[1]}", fontSize = 13.sp)
 
-            SettingsTabs(modifier, listOf(stringResource(R.string.about), stringResource(R.string.home),
-                stringResource(R.string.advanced_settings)),
-                context = context, previewData = previewData, screenH = screenH)
+            SettingsTabs(
+                modifier,
+                showHiddenPages = config.dbgMode,
+                context = context,
+                previewData = previewData,
+                screenH = screenH
+            )
         }
 
         if (confirmState.isShow) {

@@ -20,6 +20,7 @@ data class ProgramConfig(
     var useAPIAssetsURL: String = "",
     var cleanLocalAssets: Boolean = false,
     var currentResourceVersion: String = "",
+    var privateServerUrl: String = "",
 
     // var localAPIAssetsVersion: String = "",
     var p: Boolean = false

@@ -2,6 +2,7 @@
 #include "xdl.h"
 #include <android/log.h>
 #include "Hook.h"
+#include "PrivateServer.hpp"
 #include "Plugin.h"
 #include "Log.h"
 #include "../deps/UnityResolve/UnityResolve.hpp"
@@ -75,6 +76,19 @@ void UnHookAll() {
 }*/
 
 namespace HoshimiLocal::HookMain {
+    std::atomic<bool> clearUserDataRequested{false};
+    std::atomic<int> clearUserDataResult{0};
+
+    bool ClearPrivateServerAccount() {
+        const auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common", "SolisInitializer");
+        if (!klass) return false;
+        const auto method = Il2cppUtils::il2cpp_class_get_method_from_name(klass->address, "ClearUserData", 1);
+        if (!method || !method->methodPointer) return false;
+        void* args[1] = {nullptr};
+        void* exception = nullptr;
+        UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", method, nullptr, args, &exception);
+        return exception == nullptr;
+    }
     using Il2cppString = UnityResolve::UnityType::String;
 
     DEFINE_HOOK(void, Solis_UserGetResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
@@ -433,6 +447,9 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void, EndCameraRendering, (void* ctx, void* camera, void* method)) {
         EndCameraRendering_Orig(ctx, camera, method);
+        if (clearUserDataRequested.exchange(false)) {
+            clearUserDataResult.store(ClearPrivateServerAccount() ? 1 : -1);
+        }
         UpdatePhoneSubtitleOverlay();
 
         if (Config::enableFreeCamera && mainCameraCache) {
@@ -4109,6 +4126,7 @@ namespace HoshimiLocal::HookMain {
 
         UnityResolve::Init(hookInstaller->GetIl2CppLibraryHandle(),
             UnityResolve::Mode::Il2Cpp, Config::lazyInit);
+        PrivateServer::Install(hookInstaller);
 
         ADD_HOOK(AssetBundle_LoadAssetAsync, Il2cppUtils::il2cpp_resolve_icall(
                 "UnityEngine.AssetBundle::LoadAssetAsync_Internal(System.String,System.Type)"));

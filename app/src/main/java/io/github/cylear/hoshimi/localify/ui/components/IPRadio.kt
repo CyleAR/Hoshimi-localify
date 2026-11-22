@@ -30,6 +30,7 @@ fun IPRadio(
     selected: Boolean,
     fontSize: TextUnit = 14.sp,
     compact: Boolean = false,
+    leadingContent: @Composable (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val backgroundColor = if (selected) Color(0xFFF1F1EB) else Color(0xFFF8F7F5)
@@ -52,8 +53,14 @@ fun IPRadio(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = modifier.padding(start = 0.dp, end = 4.dp)
+            modifier = (if (leadingContent != null) Modifier else modifier)
+                .padding(start = if (leadingContent != null) 12.dp else 0.dp, end = 4.dp)
         ) {
+            if (leadingContent != null) {
+                Box(Modifier.weight(1f).padding(vertical = 12.dp, horizontal = 0.dp)) {
+                    leadingContent()
+                }
+            }
             CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides
                 (!compact && LocalMinimumInteractiveComponentEnforcement.current)) {
                 RadioButton(

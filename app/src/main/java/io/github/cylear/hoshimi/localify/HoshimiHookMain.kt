@@ -78,6 +78,21 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         if (nativeLibLoadSuccess) {
             NotificationTranslationHook.install(lpparam.packageName)
         }
+        if (lpparam.processName == lpparam.packageName) {
+            XposedHelpers.findAndHookMethod(android.app.Application::class.java, "attach", Context::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        try {
+                            ModuleServerSelection.prepareStartup(param.args[0] as Context)
+                        } catch (failure: Throwable) {
+                            Log.e(TAG, "Account switch failed; stopping game startup", failure)
+                            android.os.Process.killProcess(android.os.Process.myPid())
+                            throw failure
+                        }
+                    }
+                })
+        }
+        PrivateServerTrust.install(lpparam.classLoader)
 
         XposedHelpers.findAndHookMethod(
             "android.app.Activity",
@@ -224,6 +239,8 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             while (isActive) {
                 val timeTaken = measureTimeMillis {
                     val returnValue = pluginCallbackLooper()  // plugin main thread loop
+                    val clearResult = pollClearUserData()
+                    if (clearResult != 0) ServerProfileStore.onClearUserDataDone(clearResult > 0)
                     if (returnValue == 9) {
                         NativeInitProgress.startInit = true
                     }
@@ -249,6 +266,13 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
     }
 
     fun initIprConfig(activity: Activity) {
+        if (ModuleServerSelection.restartIfChanged(activity)) return
+        if (activity.intent.getBooleanExtra("openPrivateServers", false)) {
+            activity.intent.removeExtra("openPrivateServers")
+            activity.window.decorView.post {
+                ServerPromptDialog.show(activity)
+            }
+        }
         val intent = activity.intent
         val iprData = intent.getStringExtra("iprData")
         val programData = intent.getStringExtra("localData")
@@ -316,7 +340,10 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
                 }
             }
 
-            loadConfig(iprData)
+            val effectiveConfig = initConfig ?: IdolyprideConfig()
+            ServerProfileStore.applyActiveProfile(effectiveConfig, activity.filesDir)
+            PrivateServerTrust.observeConfig(effectiveConfig, "standalone-profile")
+            loadConfig(json.encodeToString(IdolyprideConfig.serializer(), effectiveConfig))
             if (initConfig != null) NotificationLocalizer.updateConfig(activity, initConfig)
             Log.d(TAG, "iprData: $iprData")
             checkTranslationUpdate(activity)
@@ -395,6 +422,8 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         iprDataInited = true
         FilesChecker.initAndCheck(context.filesDir, modulePath)
         val config = IdolyprideConfig()
+        ServerProfileStore.applyActiveProfile(config, context.filesDir)
+        PrivateServerTrust.observeConfig(config, "standalone-profile")
         loadConfig(json.encodeToString(IdolyprideConfig.serializer(), config))
         NotificationLocalizer.updateConfig(context, config)
         Log.i(TAG, "Loaded default configuration in standalone mode.")
@@ -559,6 +588,10 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         )
         @JvmStatic
         external fun loadConfig(configJsonStr: String)
+        @JvmStatic
+        external fun requestClearUserData()
+        @JvmStatic
+        external fun pollClearUserData(): Int
 
         // Toast fast switch content
         private var toast: Toast? = null

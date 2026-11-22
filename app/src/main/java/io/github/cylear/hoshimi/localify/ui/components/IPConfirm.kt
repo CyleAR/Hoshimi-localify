@@ -76,6 +76,11 @@ fun IPGroupConfirm(
     contentHeightForAnimation: Float = 400f,
     initIsVisible: Boolean = false,
     baseModifier: Modifier = Modifier,
+    confirmText: String? = null,
+    cancelText: String? = null,
+    confirmEnabled: Boolean = true,
+    cancelEnabled: Boolean = true,
+    dismissOnConfirm: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val scoop = rememberCoroutineScope()
@@ -96,10 +101,12 @@ fun IPGroupConfirm(
         FullScreenBoxWithAnimation(
             isVisible = isVisible,
             onDismiss = {
-                isVisible = false
-                scoop.launch {
-                    delay(ANIMATION_TIME.toLong())
-                    onCancel()
+                if (cancelEnabled) {
+                    isVisible = false
+                    scoop.launch {
+                        delay(ANIMATION_TIME.toLong())
+                        onCancel()
+                    }
                 }
             }
         ) {
@@ -191,7 +198,8 @@ fun IPGroupConfirm(
                             IPButton(modifier = Modifier
                                 .height(40.dp)
                                 .sizeIn(minWidth = 100.dp),
-                                text = stringResource(R.string.cancel),
+                                text = cancelText ?: stringResource(R.string.cancel),
+                                enabled = cancelEnabled,
                                 bgColors = listOf(Color(0xFFF9F9F9), Color(0xFFF0F0F0)),
                                 textColor = Color(0xFF111111),
                                 onClick = { scoop.launch {
@@ -208,10 +216,13 @@ fun IPGroupConfirm(
                             IPButton(modifier = Modifier
                                 .height(40.dp)
                                 .sizeIn(minWidth = 100.dp),
-                                text = stringResource(R.string.ok),
+                                text = confirmText ?: stringResource(R.string.ok),
+                                enabled = confirmEnabled,
                                 onClick = { scoop.launch {
-                                    isVisible = false
-                                    delay(ANIMATION_TIME.toLong())
+                                    if (dismissOnConfirm) {
+                                        isVisible = false
+                                        delay(ANIMATION_TIME.toLong())
+                                    }
                                     onConfirm()
                                 } })
                         }

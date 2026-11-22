@@ -1,6 +1,9 @@
 #pragma once
 
 namespace HoshimiLocal::Config {
+    extern bool privateServerEnabled;
+    extern std::string privateServerUrl;
+    extern std::string privateServerCaPem;
     extern bool isConfigInit;
 
     extern bool dbgMode;

@@ -66,6 +66,8 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
     }
 
     override fun saveProgramConfig() {
+        val configFile = File(filesDir, "localify-config.json")
+        configFile.writeText(json.encodeToString(programConfig))
         try {
             programConfig.p = false
             programConfigViewModel.configState.value = programConfig.copy( p = true )  // Update UI
@@ -73,8 +75,6 @@ class MainActivity : ComponentActivity(), ConfigUpdateListener, IConfigurableAct
         catch (e: RuntimeException) {
             Log.d(TAG, e.toString())
         }
-        val configFile = File(filesDir, "localify-config.json")
-        configFile.writeText(json.encodeToString(programConfig))
     }
 
     fun resetSettings() {

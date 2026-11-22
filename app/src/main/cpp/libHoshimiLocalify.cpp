@@ -5,6 +5,23 @@
 #include "HoshimiLocalify/Misc.hpp"
 
 #include <jni.h>
+#include <atomic>
+
+namespace HoshimiLocal::HookMain {
+    extern std::atomic<bool> clearUserDataRequested;
+    extern std::atomic<int> clearUserDataResult;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_requestClearUserData(JNIEnv*, jclass) {
+    HoshimiLocal::HookMain::clearUserDataResult.store(0);
+    HoshimiLocal::HookMain::clearUserDataRequested.store(true);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_pollClearUserData(JNIEnv*, jclass) {
+    return HoshimiLocal::HookMain::clearUserDataResult.exchange(0);
+}
 #include <android/log.h>
 #include "string"
 #include "shadowhook.h"

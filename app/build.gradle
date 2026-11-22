@@ -65,6 +65,7 @@ android {
     kotlinOptions {
         jvmTarget = '11'
     }
+    testOptions { unitTests.returnDefaultValues = true }
     buildFeatures {
         buildConfig true
         compose true
@@ -106,6 +107,7 @@ android {
 }
 
 dependencies {
+    testImplementation "junit:junit:4.13.2"
     // implementation files('libs/lspatch_cleaned.jar')
     // api 'com.google.guava:guava:32.0.1-jre'
 

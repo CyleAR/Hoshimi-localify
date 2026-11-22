@@ -9,6 +9,9 @@
 #include <fstream>
 
 namespace HoshimiLocal::Config {
+    bool privateServerEnabled = false;
+    std::string privateServerUrl;
+    std::string privateServerCaPem;
     bool isConfigInit = false;
 
     bool dbgMode = false;
@@ -88,6 +91,9 @@ namespace HoshimiLocal::Config {
 
             GetConfigItem(dbgMode);
             GetConfigItem(enabled);
+            GetConfigItem(privateServerEnabled);
+            GetConfigItem(privateServerUrl);
+            GetConfigItem(privateServerCaPem);
             GetConfigItem(lazyInit);
             GetConfigItem(replaceFont);
             GetConfigItem(useRuntimeKoreanFont);
