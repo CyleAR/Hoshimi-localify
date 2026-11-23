@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 namespace HoshimiLocal::PhotoRequests {
     // Observers receive unmodified server responses, never the unlocked UI collections.
@@ -7,9 +8,11 @@ namespace HoshimiLocal::PhotoRequests {
     void CaptureUpdate(void* updatedData);
     void CaptureAvailability(void* response);
     void ObserveUnlock(void* item, bool unlocked);
+    void ApplyActivityVisualOutfits(void* progress);
     using CostumeValidator = bool (*)(void* specifier, void* costume, void* method);
     using HairValidator = bool (*)(void* hair, void* costume, void* method);
     void SetValidators(CostumeValidator costume, HairValidator hair);
+    void* FindOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit, void* costumeSpecifier = nullptr);
 
     class PreparedRequest {
     public:
