@@ -30,6 +30,8 @@ interface ConfigListener {
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onSkipLiveToResultChanged(value: Boolean)
     fun onUnlockAllLiveCostumeChanged(value: Boolean)
+    fun onUnlockCrossCharacterCostumeChanged(value: Boolean)
+    fun onUnlockCrossCharacterHairChanged(value: Boolean)
     fun onUnlockAllPhotoPoseChanged(value: Boolean)
     fun onLiveCustomeDressChanged(value: Boolean)
     fun onLiveCustomeHeadIdChanged(s: CharSequence, start: Int, before: Int, count: Int)
@@ -189,8 +191,18 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         config.skipLiveToResult = value
         saveConfig()
     }
-override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
+    override fun onUnlockAllLiveCostumeChanged(value: Boolean) {
         config.unlockAllLiveCostume = value
+        saveConfig()
+    }
+
+    override fun onUnlockCrossCharacterCostumeChanged(value: Boolean) {
+        config.unlockCrossCharacterCostume = value
+        saveConfig()
+    }
+
+    override fun onUnlockCrossCharacterHairChanged(value: Boolean) {
+        config.unlockCrossCharacterHair = value
         saveConfig()
     }
 

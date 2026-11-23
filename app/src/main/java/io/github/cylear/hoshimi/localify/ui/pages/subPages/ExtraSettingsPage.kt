@@ -1,5 +1,10 @@
 package io.github.cylear.hoshimi.localify.ui.pages.subPages
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -118,6 +123,31 @@ fun ExtraSettingsPage(
                     }
                     IPSwitch(modifier, stringResource(R.string.unlockAllLiveCostume), checked = config.unlockAllLiveCostume) {
                         context?.onUnlockAllLiveCostumeChanged(it)
+                    }
+                    AnimatedVisibility(
+                        visible = config.unlockAllLiveCostume,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IPSwitch(
+                                modifier = modifier,
+                                text = stringResource(R.string.unlockCrossCharacterCostume),
+                                checked = config.unlockCrossCharacterCostume
+                            ) {
+                                context?.onUnlockCrossCharacterCostumeChanged(it)
+                            }
+                            IPSwitch(
+                                modifier = modifier,
+                                text = stringResource(R.string.unlockCrossCharacterHair),
+                                checked = config.unlockCrossCharacterHair
+                            ) {
+                                context?.onUnlockCrossCharacterHairChanged(it)
+                            }
+                        }
                     }
                     IPSwitch(modifier, stringResource(R.string.unlockAllPhotoPose), checked = config.unlockAllPhotoPose) {
                         context?.onUnlockAllPhotoPoseChanged(it)

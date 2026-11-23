@@ -14,7 +14,9 @@
     <string name="start_game">게임 시작 / 설정 새로고침</string>
     <string name="setFpsTitle">최대 FPS (0은 게임 내 설정값 사용)</string>
     <string name="skip_live_to_result">라이브 결과로 바로 이동</string>
-    <string name="unlockAllLiveCostume">모든 라이브 의상 해금</string>
+    <string name="unlockAllLiveCostume">모든 의상/헤어 해금</string>
+    <string name="unlockCrossCharacterCostume">타 캐릭터 의상 해금</string>
+    <string name="unlockCrossCharacterHair">타 캐릭터 헤어 해금</string>
     <string name="unlockAllPhotoPose">모든 사진 포즈 해금</string>
     <string name="liveUseCustomeDress">라이브 캐릭터 커스텀</string>
     <string name="live_costume_head_id">라이브 커스텀 머리 ID (예: costume_head_hski-cstm-0002)</string>

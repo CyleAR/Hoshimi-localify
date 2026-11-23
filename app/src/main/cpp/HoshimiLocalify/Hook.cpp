@@ -2605,6 +2605,12 @@ namespace HoshimiLocal::HookMain {
         }
 
         auto allIds = GetSolisMasterIdAll(SolisMasterIdType::CostumeId, characterId, g_filterCostumesTo3DOnly);
+        if (Config::unlockCrossCharacterCostume && !characterId.empty()) {
+            auto crossIds = GetSolisMasterIdAll(SolisMasterIdType::CostumeId, "", g_filterCostumesTo3DOnly);
+            allIds.reserve(allIds.size() + crossIds.size());
+            allIds.insert(allIds.end(), std::make_move_iterator(crossIds.begin()),
+                          std::make_move_iterator(crossIds.end()));
+        }
         return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserCostume",
                                                          UserCostume_get_CostumeId, UserCostume_set_CostumeId,
                                                          UserCostume_Clone);
@@ -2860,6 +2866,69 @@ namespace HoshimiLocal::HookMain {
         return nullptr;
     }
 
+    struct ActorCostumeOwnerEntry {
+        uint32_t actorCostumeHandle = 0;
+        std::string characterId;
+    };
+    std::mutex actorCostumeOwnerMutex;
+    std::vector<ActorCostumeOwnerEntry> actorCostumeOwnerEntries;
+
+    void RememberActorCostumeOwner(void* actorCostume, const std::string& characterId) {
+        if (!actorCostume || characterId.empty()) return;
+        std::lock_guard lock(actorCostumeOwnerMutex);
+        for (auto it = actorCostumeOwnerEntries.begin(); it != actorCostumeOwnerEntries.end();) {
+            auto target = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", it->actorCostumeHandle);
+            if (!target) {
+                UnityResolve::Invoke<void>("il2cpp_gchandle_free", it->actorCostumeHandle);
+                it = actorCostumeOwnerEntries.erase(it);
+                continue;
+            }
+            if (target == actorCostume) {
+                it->characterId = characterId;
+                return;
+            }
+            ++it;
+        }
+        const auto handle = UnityResolve::Invoke<uint32_t>("il2cpp_gchandle_new_weakref", actorCostume, false);
+        if (!handle) return;
+        constexpr size_t maxTrackedOwners = 128;
+        if (actorCostumeOwnerEntries.size() >= maxTrackedOwners) {
+            UnityResolve::Invoke<void>("il2cpp_gchandle_free", actorCostumeOwnerEntries.front().actorCostumeHandle);
+            actorCostumeOwnerEntries.erase(actorCostumeOwnerEntries.begin());
+        }
+        actorCostumeOwnerEntries.push_back({handle, characterId});
+    }
+
+    std::string FindActorCostumeOwner(void* actorCostume) {
+        if (!actorCostume) return {};
+        std::lock_guard lock(actorCostumeOwnerMutex);
+        for (auto it = actorCostumeOwnerEntries.begin(); it != actorCostumeOwnerEntries.end();) {
+            auto target = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", it->actorCostumeHandle);
+            if (!target) {
+                UnityResolve::Invoke<void>("il2cpp_gchandle_free", it->actorCostumeHandle);
+                it = actorCostumeOwnerEntries.erase(it);
+                continue;
+            }
+            if (target == actorCostume) {
+                return it->characterId;
+            }
+            ++it;
+        }
+        return {};
+    }
+
+    void SetActorDescriptorNameFromCharacterId(void* descriptor, const std::string& characterId) {
+        if (!descriptor || characterId.empty()) return;
+        const std::string actorName = characterId.starts_with("char-") ? characterId.substr(5) : characterId;
+        if (actorName.empty()) return;
+        auto klass = Il2cppUtils::get_class_from_instance(descriptor);
+        auto setName = klass ? Il2cppUtils::il2cpp_class_get_method_from_name(klass, "set_name", 1) : nullptr;
+        if (setName && setName->methodPointer) {
+            reinterpret_cast<void (*)(void*, Il2cppString*, const Il2cppUtils::MethodInfo*)>(setName->methodPointer)(
+                    descriptor, Il2cppString::New(actorName), setName);
+        }
+    }
+
     void* ReplaceWithOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit,
                                            void* costumeSpecifier = nullptr) {
         if (!PhotoOwnedEntryEnabled() || characterId.empty() || !selectedOutfit) return selectedOutfit;
@@ -2877,7 +2946,10 @@ namespace HoshimiLocal::HookMain {
         for (int index = 0; index < count; ++index) {
             auto selected = list.get_Item(index);
             if (!selected) continue;
-            auto characterId = GetCostumeCharacterId(GetActorCostumeCostume(selected));
+            auto characterId = FindActorCostumeOwner(selected);
+            if (characterId.empty()) {
+                characterId = GetCostumeCharacterId(GetActorCostumeCostume(selected));
+            }
             if (characterId.empty()) continue;
             auto owned = ReplaceWithOwnedPhotoEntryOutfit(characterId, selected, costumeSpecifier);
             if (owned && owned != selected) {
@@ -2912,16 +2984,12 @@ namespace HoshimiLocal::HookMain {
             if (displayObj) {
                 Il2cppUtils::Tools::CSListEditor<void*> display(displayObj);
                 if (display.get_Count() == count) {
-                    const auto targetCharId = GetCostumeCharacterId(costume);
                     for (int i = 0; i < count; ++i) {
                         auto displayOutfit = display.get_Item(i);
                         if (displayOutfit && GetActorCostumeCostume(displayOutfit) == costume) {
                             auto entryOutfit = outfits.get_Item(i);
                             if (auto selected = FindPhotoAppearance(entryOutfit)) {
-                                if (targetCharId.empty() ||
-                                    GetCostumeCharacterId(GetActorCostumeCostume(selected)) == targetCharId) {
-                                    return selected;
-                                }
+                                return selected;
                             }
                         }
                     }
@@ -3072,13 +3140,20 @@ namespace HoshimiLocal::HookMain {
     // Lazy LINQ selector in PhotographyLiveTransitionData.CreateLiveData():
     // covers deferred async enumeration in Photography360Live3DPresenter (Panorama 360) and all live modes.
     DEFINE_HOOK(void*, Solis_Photography_CreateLiveDataDescriptor, (void* self, void* actorCostume, void* mtd)) {
+        std::string origCharId;
         if (PhotoOwnedEntryEnabled() && actorCostume) {
             if (auto selected = FindPhotoAppearance(actorCostume)) {
+                origCharId = GetCostumeCharacterId(GetActorCostumeCostume(actorCostume));
                 Log::DebugFmt("PhotoDisplay: CreateLiveData descriptor swapped %p -> %p", actorCostume, selected);
                 actorCostume = selected;
             }
         }
-        return Solis_Photography_CreateLiveDataDescriptor_Orig(self, actorCostume, mtd);
+        auto descriptor = Solis_Photography_CreateLiveDataDescriptor_Orig(self, actorCostume, mtd);
+        if (descriptor && !origCharId.empty() &&
+            GetCostumeCharacterId(GetActorCostumeCostume(actorCostume)) != origCharId) {
+            SetActorDescriptorNameFromCharacterId(descriptor, origCharId);
+        }
+        return descriptor;
     }
 
     // 3D live MV / mode presenter init scope
@@ -3112,6 +3187,7 @@ namespace HoshimiLocal::HookMain {
     // Central 3D model + asset bundle descriptor substitution for active photography scopes
     DEFINE_HOOK(void*, Solis_SolisActorUtility_CreateActorDescriptor,
         (void* costume, void* hair, void* props, void* mtd)) {
+        std::string origCharId;
         if (PhotoOwnedEntryEnabled() && costume && (activePhotoOwnedOutfit || activePhotoTransition)) {
             void* selected = nullptr;
             if (activePhotoOwnedOutfit && GetActorCostumeCostume(activePhotoOwnedOutfit) == costume) {
@@ -3122,13 +3198,18 @@ namespace HoshimiLocal::HookMain {
             }
             if (selected) {
                 if (auto selectedCostume = GetActorCostumeCostume(selected)) {
+                    origCharId = GetCostumeCharacterId(costume);
                     costume = selectedCostume;
                     hair = GetActorCostumeHair(selected);
                     Log::DebugFmt("PhotoDisplay: applied selected appearance costume=%p hair=%p", costume, hair);
                 }
             }
         }
-        return Solis_SolisActorUtility_CreateActorDescriptor_Orig(costume, hair, props, mtd);
+        auto descriptor = Solis_SolisActorUtility_CreateActorDescriptor_Orig(costume, hair, props, mtd);
+        if (descriptor && !origCharId.empty() && GetCostumeCharacterId(costume) != origCharId) {
+            SetActorDescriptorNameFromCharacterId(descriptor, origCharId);
+        }
+        return descriptor;
     }
 
     DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
@@ -3556,7 +3637,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void*, Solis_UserHairCollection_GetSortedCharacterOrnamentHairs,
         (void* self, Il2cppString* hairId, void* mtd)) {
         auto ret = Solis_UserHairCollection_GetSortedCharacterOrnamentHairs_Orig(self, hairId, mtd);
-        if (!Config::unlockAllLiveCostume) return ret;
+        if (!Config::unlockAllLiveCostume || !Config::unlockCrossCharacterHair) return ret;
 
         static auto UserHairCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
                                                                      "UserHairCollection");
@@ -3632,6 +3713,84 @@ namespace HoshimiLocal::HookMain {
         (void* self, void* param, void* mtd)) {
         Scoped3DCostumeFilter filterGuard(Config::unlockAllLiveCostume);
         Solis_CharacterCostumeScreenModel_ctor_Orig(self, param, mtd);
+        if (Config::unlockAllLiveCostume && self) {
+            static const auto getUserCharacter = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                    "Solis.OutGame", "CharacterCostumeScreenModel", "get_UserCharacter");
+            auto userCharacter = getUserCharacter ? getUserCharacter->Invoke<void*>(self, getUserCharacter->address) : nullptr;
+            const auto cid = GetUserCharacterId(userCharacter);
+            if (!cid.empty()) {
+                PhotoRequests::SetCostumeRoomCharacter(cid);
+            }
+        }
+    }
+
+    void* GetCostumeChangeSheetModel(void* presenter) {
+        if (!presenter) return nullptr;
+        auto klass = Il2cppUtils::get_class_from_instance(presenter);
+        auto mtd = klass ? Il2cppUtils::il2cpp_class_get_method_from_name(klass, "get_Model", 0) : nullptr;
+        if (!mtd || !mtd->methodPointer) return nullptr;
+        return reinterpret_cast<void* (*)(void*, const Il2cppUtils::MethodInfo*)>(mtd->methodPointer)(presenter, mtd);
+    }
+
+    thread_local void* g_preservedCostumeSheetModel = nullptr;
+    thread_local void* g_preservedCostumeSheetCharacter = nullptr;
+
+    DEFINE_HOOK(void, Solis_CostumeChangeSheetPresenter_OnSelectCostume,
+        (void* self, void* selectCostume, void* mtd)) {
+        void* prevModel = g_preservedCostumeSheetModel;
+        void* prevCharacter = g_preservedCostumeSheetCharacter;
+        if (Config::unlockAllLiveCostume && Config::unlockCrossCharacterCostume && self) {
+            auto presenter = ReadManagedObjectField(self, "<>4__this");
+            auto model = GetCostumeChangeSheetModel(presenter);
+            static const auto getCharacter = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                    "Solis.OutGame", "CostumeChangeSheetModel", "get_Character");
+            auto origCharacter = (model && getCharacter)
+                ? getCharacter->Invoke<void*>(model, getCharacter->address) : nullptr;
+            if (model && origCharacter) {
+                g_preservedCostumeSheetModel = model;
+                g_preservedCostumeSheetCharacter = origCharacter;
+            }
+        }
+        Solis_CostumeChangeSheetPresenter_OnSelectCostume_Orig(self, selectCostume, mtd);
+        g_preservedCostumeSheetModel = prevModel;
+        g_preservedCostumeSheetCharacter = prevCharacter;
+    }
+
+    DEFINE_HOOK(void, Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels,
+        (void* self, void* selectOrnamentHair, void* mtd)) {
+        if (Config::unlockAllLiveCostume && Config::unlockCrossCharacterCostume &&
+            self && g_preservedCostumeSheetModel && g_preservedCostumeSheetCharacter) {
+            auto model = GetCostumeChangeSheetModel(self);
+            if (model == g_preservedCostumeSheetModel) {
+                auto modelKlass = Il2cppUtils::get_class_from_instance(model);
+                auto setChar = modelKlass ? Il2cppUtils::il2cpp_class_get_method_from_name(modelKlass, "set_Character", 1) : nullptr;
+                if (setChar && setChar->methodPointer) {
+                    reinterpret_cast<void (*)(void*, void*, const Il2cppUtils::MethodInfo*)>(setChar->methodPointer)(
+                            model, g_preservedCostumeSheetCharacter, setChar);
+                } else if (modelKlass) {
+                    auto field = UnityResolve::Invoke<void*>("il2cpp_class_get_field_from_name",
+                                                             modelKlass, "<Character>k__BackingField");
+                    if (field) {
+                        UnityResolve::Invoke<void>("il2cpp_field_set_value", model, field, &g_preservedCostumeSheetCharacter);
+                    }
+                }
+            }
+        }
+        Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels_Orig(self, selectOrnamentHair, mtd);
+    }
+
+    DEFINE_HOOK(void, Solis_CostumeSheetCellModel_set_ActorCostume,
+        (void* self, void* value, void* mtd)) {
+        if (Config::unlockAllLiveCostume && self && value) {
+            static const auto getCharacter = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                    "Solis.OutGame", "CostumeSheetCellModel", "get_Character");
+            auto character = getCharacter ? getCharacter->Invoke<void*>(self, getCharacter->address) : nullptr;
+            const auto cid = GetCharacterMasterId(character);
+            if (!cid.empty()) {
+                RememberActorCostumeOwner(value, cid);
+            }
+        }
+        Solis_CostumeSheetCellModel_set_ActorCostume_Orig(self, value, mtd);
     }
 
     DEFINE_HOOK(void, Solis_CostumeChangeSheetPresenter_SetCostumeItemModels,
@@ -5087,6 +5246,19 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Solis_CostumeChangeSheetPresenter_SetCostumeItemModels,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
                                                "CostumeChangeSheetPresenter", "SetCostumeItemModels"));
+        ADD_HOOK(Solis_CostumeChangeSheetPresenter_OnSelectCostume,
+                 hookNestedMethod("Solis.OutGame", "CostumeChangeSheetPresenter",
+                                  "<>c__DisplayClass10_0", "<SetEvent>b__0", 1));
+        ADD_HOOK(Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CostumeChangeSheetPresenter", "SetBaseHairItemModels"));
+        ADD_HOOK(Solis_CostumeSheetCellModel_set_ActorCostume,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CostumeSheetCellModel", "set_ActorCostume"));
+        Log::InfoFmt("CrossCostume UI hooks ready: select=%d baseHair=%d cellOwner=%d",
+                     Solis_CostumeChangeSheetPresenter_OnSelectCostume_Orig != nullptr,
+                     Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels_Orig != nullptr,
+                     Solis_CostumeSheetCellModel_set_ActorCostume_Orig != nullptr);
         auto Solis_CostumeSheetPresenter_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.OutGame",
                                                                        "CostumeSheetPresenter");
         if (Solis_CostumeSheetPresenter_klass) {

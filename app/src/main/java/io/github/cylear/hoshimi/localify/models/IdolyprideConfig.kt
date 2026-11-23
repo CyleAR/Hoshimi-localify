@@ -28,6 +28,8 @@ data class IdolyprideConfig (
     var targetFrameRate: Int = 0,
     var skipLiveToResult: Boolean = false,
     var unlockAllLiveCostume: Boolean = false,
+    var unlockCrossCharacterCostume: Boolean = false,
+    var unlockCrossCharacterHair: Boolean = false,
     var unlockAllPhotoPose: Boolean = false,
     var enableLiveCustomeDress: Boolean = false,
     var liveCustomeHeadId: String = "",

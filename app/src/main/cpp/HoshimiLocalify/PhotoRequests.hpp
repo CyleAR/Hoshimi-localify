@@ -11,6 +11,7 @@ namespace HoshimiLocal::PhotoRequests {
     using CostumeValidator = bool (*)(void* specifier, void* costume, void* method);
     using HairValidator = bool (*)(void* hair, void* costume, void* method);
     void SetValidators(CostumeValidator costume, HairValidator hair);
+    void SetCostumeRoomCharacter(const std::string& characterId);
     void* FindOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit, void* costumeSpecifier = nullptr);
 
     class PreparedRequest {

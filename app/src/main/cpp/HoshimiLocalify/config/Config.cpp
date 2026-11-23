@@ -35,6 +35,8 @@ namespace HoshimiLocal::Config {
     int targetFrameRate = 0;
     bool skipLiveToResult = false;
     bool unlockAllLiveCostume = false;
+    bool unlockCrossCharacterCostume = false;
+    bool unlockCrossCharacterHair = false;
     bool unlockAllPhotoPose = false;
 
     bool enableLiveCustomeDress = false;
@@ -112,6 +114,8 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enableFreeCamera);
             GetConfigItem(skipLiveToResult);
             GetConfigItem(unlockAllLiveCostume);
+            GetConfigItem(unlockCrossCharacterCostume);
+            GetConfigItem(unlockCrossCharacterHair);
             GetConfigItem(unlockAllPhotoPose);
             GetConfigItem(enableLiveCustomeDress);
             GetConfigItem(liveCustomeHeadId);
@@ -172,6 +176,8 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enableFreeCamera);
             SetConfigItem(skipLiveToResult);
             SetConfigItem(unlockAllLiveCostume);
+            SetConfigItem(unlockCrossCharacterCostume);
+            SetConfigItem(unlockCrossCharacterHair);
             SetConfigItem(unlockAllPhotoPose);
             SetConfigItem(enableLiveCustomeDress);
             SetConfigItem(liveCustomeHeadId);

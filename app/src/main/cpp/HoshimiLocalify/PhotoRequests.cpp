@@ -26,6 +26,9 @@ namespace {
     std::mutex specialSceneMutex;
     SceneCatalog specialScenes;
 
+    std::mutex costumeRoomMutex;
+    std::string activeCostumeRoomCharacterId;
+
     struct ActivityVisualRecord {
         std::string sceneId;
         std::map<std::string, std::pair<std::string, std::string>> outfits;
@@ -557,7 +560,25 @@ namespace {
             const auto reqHair = Text(request, "get_HairId");
             auto costumeMaster = Find("get_CostumeMaster", reqCostume);
             auto hairMaster = Find("get_HairMaster", reqHair);
-            const auto characterId = costumeMaster ? Text(costumeMaster, "get_CharacterId") : Text(hairMaster, "get_CharacterId");
+            const auto costumeCharId = costumeMaster ? Text(costumeMaster, "get_CharacterId") : "";
+            const auto hairCharId = hairMaster ? Text(hairMaster, "get_CharacterId") : "";
+            std::string roomCharId;
+            {
+                std::lock_guard lock(costumeRoomMutex);
+                roomCharId = activeCostumeRoomCharacterId;
+            }
+            std::string characterId;
+            if (!costumeCharId.empty() && costumeCharId == hairCharId && owned.actors.contains(costumeCharId)) {
+                characterId = costumeCharId;
+            } else if (!roomCharId.empty() && owned.actors.contains(roomCharId)) {
+                characterId = roomCharId;
+            } else if (!hairCharId.empty() && owned.actors.contains(hairCharId)) {
+                characterId = hairCharId;
+            } else if (!costumeCharId.empty() && owned.actors.contains(costumeCharId)) {
+                characterId = costumeCharId;
+            } else if (!owned.actors.empty()) {
+                characterId = owned.actors.begin()->first;
+            }
             std::string chosenCostume, chosenHair;
             if (!FindOwnedOutfitPair(owned, characterId, reqCostume, reqHair, nullptr, chosenCostume, chosenHair)) {
                 Log::ErrorFmt("PhotoRequests: %s unchanged, no owned outfit for %s", name.c_str(), characterId.c_str());
@@ -1181,7 +1202,13 @@ namespace {
     void SetValidators(CostumeValidator costume, HairValidator hair) {
         validateCostume = costume;
         validateHair = hair;
-        Log::Info("PhotoRequests: native revision=fast-paths-v7-costume-pose-only");
+        Log::Info("PhotoRequests: native revision=fast-paths-v8-cross-costume");
+    }
+
+    void SetCostumeRoomCharacter(const std::string& characterId) {
+        if (characterId.empty()) return;
+        std::lock_guard lock(costumeRoomMutex);
+        activeCostumeRoomCharacterId = characterId;
     }
 
     void* FindOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit, void* costumeSpecifier) {

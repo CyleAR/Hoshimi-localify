@@ -27,6 +27,8 @@ namespace HoshimiLocal::Config {
     extern int targetFrameRate;
     extern bool skipLiveToResult;
     extern bool unlockAllLiveCostume;
+    extern bool unlockCrossCharacterCostume;
+    extern bool unlockCrossCharacterHair;
     extern bool unlockAllPhotoPose;
 
     extern bool enableLiveCustomeDress;
