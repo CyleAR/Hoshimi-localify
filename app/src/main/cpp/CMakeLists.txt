@@ -39,6 +39,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         libHoshimiLocalify.cpp
         HoshimiLocalify/Plugin.cpp
         HoshimiLocalify/Hook.cpp
+        HoshimiLocalify/LiveSeek.cpp
         HoshimiLocalify/PrivateServer.cpp
         HoshimiLocalify/PrivateServerCert.cpp
         HoshimiLocalify/PhotoRequests.cpp

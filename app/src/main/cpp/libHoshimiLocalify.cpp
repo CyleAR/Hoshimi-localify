@@ -2,10 +2,31 @@
 #include "HoshimiLocalify/Log.h"
 #include "HoshimiLocalify/Local.h"
 #include "HoshimiLocalify/Hook.h"
+#include "HoshimiLocalify/LiveSeek.hpp"
 #include "HoshimiLocalify/Misc.hpp"
 
 #include <jni.h>
 #include <atomic>
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_liveSeekSnapshot(JNIEnv*, jclass) {
+    return HoshimiLocal::LiveSeek::Snapshot();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_requestLiveSeek(JNIEnv*, jclass, jint session, jfloat fraction) {
+    HoshimiLocal::LiveSeek::Request(session, fraction);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_setLivePaused(JNIEnv*, jclass, jint session, jboolean paused) {
+    HoshimiLocal::LiveSeek::SetPaused(session, paused == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_cylear_hoshimi_localify_HoshimiHookMain_stepLiveSeek(JNIEnv*, jclass, jint session, jint direction) {
+    HoshimiLocal::LiveSeek::Step(session, direction);
+}
 
 namespace HoshimiLocal::HookMain {
     extern std::atomic<bool> clearUserDataRequested;

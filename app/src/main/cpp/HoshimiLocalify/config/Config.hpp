@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 
 namespace HoshimiLocal::Config {
     extern bool privateServerEnabled;
@@ -25,6 +26,7 @@ namespace HoshimiLocal::Config {
     extern bool debugAudioLog;
     extern bool enableFreeCamera;
     extern bool hideLiveViewingUiOnStart;
+    extern std::atomic<bool> showLiveSeekBar;
     extern int targetFrameRate;
     extern bool skipLiveToResult;
     extern bool unlockAllLiveCostume;

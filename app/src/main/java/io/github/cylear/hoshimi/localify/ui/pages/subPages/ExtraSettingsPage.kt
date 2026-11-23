@@ -64,6 +64,9 @@ fun ExtraSettingsPage(
                     ) {
                         context?.onHideLiveViewingUiOnStartChanged(it)
                     }
+                    IPSwitch(modifier, stringResource(R.string.show_live_seek_bar), checked = config.showLiveSeekBar) {
+                        context?.onShowLiveSeekBarChanged(it)
+                    }
                 }
             }
         }

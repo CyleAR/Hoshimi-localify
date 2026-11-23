@@ -13,6 +13,7 @@
 #include "GraphicsQuality.hpp"
 #include "BreastMotion.hpp"
 #include "PhotoRequests.hpp"
+#include "LiveSeek.hpp"
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
@@ -2750,11 +2751,45 @@ namespace HoshimiLocal::HookMain {
         return value;
     }
 
+
+    DEFINE_HOOK(SolisUniTask, SeekLivePlay, (void* self, SolisCancellationToken token, void* method)) {
+        auto task = SeekLivePlay_Orig(self, token, method);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), false);
+        return task;
+    }
+
+    DEFINE_HOOK(void, SeekLiveEnd, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekLiveEnd_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, SeekLiveDestroy, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekLiveDestroy_Orig(self, method);
+    }
+
+    DEFINE_HOOK(SolisUniTask, SeekPanoramaPlay, (void* self, SolisCancellationToken token, void* method)) {
+        auto task = SeekPanoramaPlay_Orig(self, token, method);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), true);
+        return task;
+    }
+
+    DEFINE_HOOK(void, SeekPanoramaEnd, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekPanoramaEnd_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, SeekPanoramaDestroy, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekPanoramaDestroy_Orig(self, method);
+    }
+
     DEFINE_HOOK(SolisUniTask, PhotographyPreviewContent_InitializeAsync,
                 (void* self, void* transition, void* captureController, SolisCancellationToken cancellationToken,
                  void* method)) {
         auto task = PhotographyPreviewContent_InitializeAsync_Orig(
                 self, transition, captureController, cancellationToken, method);
+        LiveSeek::BindVisibility(ReadManagedObjectField(self, "_content"), ReadManagedObjectField(self, "_model"));
         if (!Config::hideLiveViewingUiOnStart || !transition) return task;
 
         static const auto liveTransitionClass = Il2cppUtils::GetClass(
@@ -2779,6 +2814,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, Photography360LiveContent_Bind, (void* self, void* method)) {
+        LiveSeek::BindVisibility(ReadManagedObjectField(self, "_livePresenter"), ReadManagedObjectField(self, "_model"));
         if (Config::hideLiveViewingUiOnStart && self) {
             static const auto isPreviewField = UnityResolve::Invoke<void*>(
                     "il2cpp_class_get_field_from_name", Il2cppUtils::get_class_from_instance(self), "_isPreview");
@@ -3969,6 +4005,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     DEFINE_HOOK(void, SolisQualityManager_Update, (void* self, void* method)) {
+        LiveSeek::Update();
         TrackGraphicQualityManager(self);
         const int requested = GetRequestedGraphicQuality();
         const bool renderOverride = Config::useCustomeGraphicSettings;
@@ -5175,6 +5212,18 @@ namespace HoshimiLocal::HookMain {
         const auto previewInitializeAddress = previewInitialize
                 ? reinterpret_cast<void*>(previewInitialize->methodPointer) : nullptr;
         ADD_HOOK(PhotographyPreviewContent_InitializeAsync, previewInitializeAddress);
+        ADD_HOOK(SeekLivePlay, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyLivePresenter", "PlayPhotographyAsync"));
+        ADD_HOOK(SeekLiveEnd, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyLivePresenter", "End"));
+        ADD_HOOK(SeekLiveDestroy, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyLivePresenter", "OnDestroy"));
+        ADD_HOOK(SeekPanoramaPlay, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveControlPresenter", "PlayPhotographyAsync"));
+        ADD_HOOK(SeekPanoramaEnd, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveControlPresenter", "End"));
+        ADD_HOOK(SeekPanoramaDestroy, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveControlPresenter", "OnDestroy"));
         ADD_HOOK(Photography360LiveContent_Bind, Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveContentPresenter", "Bind"));
 

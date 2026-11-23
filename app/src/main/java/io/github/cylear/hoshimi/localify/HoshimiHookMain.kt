@@ -41,6 +41,7 @@ import io.github.cylear.hoshimi.localify.mainUtils.json
 import io.github.cylear.hoshimi.localify.models.NativeInitProgress
 import io.github.cylear.hoshimi.localify.models.ProgramConfig
 import io.github.cylear.hoshimi.localify.ui.game_attach.InitProgressUI
+import io.github.cylear.hoshimi.localify.ui.game_attach.LiveSeekOverlay
 
 val TAG = "HoshimiLocalify"
 
@@ -235,10 +236,21 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
             val interval = 1000L / 30
             var lastFrameStartInit = NativeInitProgress.startInit
             val initProgressUI = InitProgressUI()
+            val seekOverlay = LiveSeekOverlay()
+            var lastSeekState = 0L
+            var lastSeekActivity: java.lang.ref.WeakReference<Activity>? = null
 
             while (isActive) {
                 val timeTaken = measureTimeMillis {
                     val returnValue = pluginCallbackLooper()  // plugin main thread loop
+                    val seekState = liveSeekSnapshot()
+                    val activity = gameActivity
+                    if (activity != null && (seekState != lastSeekState ||
+                                (seekState != 0L && lastSeekActivity?.get() !== activity))) {
+                        lastSeekState = seekState
+                        if (lastSeekActivity?.get() !== activity) lastSeekActivity = java.lang.ref.WeakReference(activity)
+                        activity.runOnUiThread { seekOverlay.render(activity, seekState) }
+                    }
                     val clearResult = pollClearUserData()
                     if (clearResult != 0) ServerProfileStore.onClearUserDataDone(clearResult > 0)
                     if (returnValue == 9) {
@@ -592,6 +604,14 @@ class HoshimiHookMain : IXposedHookLoadPackage, IXposedHookZygoteInit {
         external fun requestClearUserData()
         @JvmStatic
         external fun pollClearUserData(): Int
+        @JvmStatic
+        external fun liveSeekSnapshot(): Long
+        @JvmStatic
+        external fun requestLiveSeek(session: Int, fraction: Float)
+        @JvmStatic
+        external fun setLivePaused(session: Int, paused: Boolean)
+        @JvmStatic
+        external fun stepLiveSeek(session: Int, direction: Int)
 
         // Toast fast switch content
         private var toast: Toast? = null
