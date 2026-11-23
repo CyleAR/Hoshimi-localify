@@ -32,6 +32,7 @@ namespace HoshimiLocal::Config {
     bool debugMasterDbLog = false;
     bool debugAudioLog = false;
     bool enableFreeCamera = false;
+    bool hideLiveViewingUiOnStart = false;
     int targetFrameRate = 0;
     bool skipLiveToResult = false;
     bool unlockAllLiveCostume = false;
@@ -112,6 +113,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(debugAudioLog);
             GetConfigItem(targetFrameRate);
             GetConfigItem(enableFreeCamera);
+            GetConfigItem(hideLiveViewingUiOnStart);
             GetConfigItem(skipLiveToResult);
             GetConfigItem(unlockAllLiveCostume);
             GetConfigItem(unlockCrossCharacterCostume);
@@ -174,6 +176,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(debugAudioLog);
             SetConfigItem(targetFrameRate);
             SetConfigItem(enableFreeCamera);
+            SetConfigItem(hideLiveViewingUiOnStart);
             SetConfigItem(skipLiveToResult);
             SetConfigItem(unlockAllLiveCostume);
             SetConfigItem(unlockCrossCharacterCostume);

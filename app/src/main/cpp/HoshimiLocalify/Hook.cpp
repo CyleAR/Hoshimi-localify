@@ -2750,6 +2750,53 @@ namespace HoshimiLocal::HookMain {
         return value;
     }
 
+    DEFINE_HOOK(SolisUniTask, PhotographyPreviewContent_InitializeAsync,
+                (void* self, void* transition, void* captureController, SolisCancellationToken cancellationToken,
+                 void* method)) {
+        auto task = PhotographyPreviewContent_InitializeAsync_Orig(
+                self, transition, captureController, cancellationToken, method);
+        if (!Config::hideLiveViewingUiOnStart || !transition) return task;
+
+        static const auto liveTransitionClass = Il2cppUtils::GetClass(
+                "Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographyLiveScreenTransitionData");
+        if (!liveTransitionClass || Il2cppUtils::get_class_from_instance(transition) != liveTransitionClass->address) {
+            return task;
+        }
+        static const auto isPreview = Il2cppUtils::GetMethod(
+                "Assembly-CSharp.dll", "Solis.Photography.Data", "AbstPhotographyTransitionData", "get_IsPreview");
+        static const auto isMvMusic = Il2cppUtils::GetMethod(
+                "Assembly-CSharp.dll", "Solis.Photography.Data", "AbstPhotographyTransitionData", "get_IsMvMusic");
+        static const auto setUiActive = Il2cppUtils::GetMethod(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyPreviewContentModel", "set_IsUIActive");
+        if (isPreview && isMvMusic && setUiActive &&
+            isPreview->Invoke<bool>(transition, isPreview->address) &&
+            !isMvMusic->Invoke<bool>(transition, isMvMusic->address)) {
+            if (auto model = ReadManagedObjectField(self, "_model")) {
+                setUiActive->Invoke<void>(model, false, setUiActive->address);
+            }
+        }
+        return task;
+    }
+
+    DEFINE_HOOK(void, Photography360LiveContent_Bind, (void* self, void* method)) {
+        if (Config::hideLiveViewingUiOnStart && self) {
+            static const auto isPreviewField = UnityResolve::Invoke<void*>(
+                    "il2cpp_class_get_field_from_name", Il2cppUtils::get_class_from_instance(self), "_isPreview");
+            bool isPreview = false;
+            if (isPreviewField) {
+                UnityResolve::Invoke<void>("il2cpp_field_get_value", self, isPreviewField, &isPreview);
+            }
+            if (isPreview) {
+                static const auto setUiActive = Il2cppUtils::GetMethod(
+                        "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveContentModel", "set_IsUIActive");
+                if (auto model = ReadManagedObjectField(self, "_model"); model && setUiActive) {
+                    setUiActive->Invoke<void>(model, false, setUiActive->address);
+                }
+            }
+        }
+        Photography360LiveContent_Bind_Orig(self, method);
+    }
+
     void* GetActorCostumeCostume(void* actorCostume) {
         if (!actorCostume) return nullptr;
         static const auto getCostume = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
@@ -5121,6 +5168,16 @@ namespace HoshimiLocal::HookMain {
                                                "Hair", "IsWearableCostume"));
         PhotoRequests::SetValidators(Solis_CostumeSpecifierExtensions_IsAppropriateCostume_Orig,
                                      Solis_Hair_IsWearableCostume_Orig);
+        const auto previewContentClass = Il2cppUtils::GetClass(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyPreviewContentPresenter");
+        const auto previewInitialize = previewContentClass ? Il2cppUtils::il2cpp_class_get_method_from_name(
+                previewContentClass->address, "OnInitializeAsync", 3) : nullptr;
+        const auto previewInitializeAddress = previewInitialize
+                ? reinterpret_cast<void*>(previewInitialize->methodPointer) : nullptr;
+        ADD_HOOK(PhotographyPreviewContent_InitializeAsync, previewInitializeAddress);
+        ADD_HOOK(Photography360LiveContent_Bind, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveContentPresenter", "Bind"));
+
         const auto hookNestedMethod = [](const char* ns, const char* outerName, const char* nestedName,
                                          const char* methodName, int argCount, void** outNestedClass = nullptr) -> void* {
             const auto outer = Il2cppUtils::GetClass("Assembly-CSharp.dll", ns, outerName);

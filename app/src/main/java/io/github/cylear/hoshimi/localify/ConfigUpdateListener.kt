@@ -27,6 +27,7 @@ interface ConfigListener {
     fun onDisplayUserNameChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onLazyInitChanged(value: Boolean)
     fun onEnableFreeCameraChanged(value: Boolean)
+    fun onHideLiveViewingUiOnStartChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onSkipLiveToResultChanged(value: Boolean)
     fun onUnlockAllLiveCostumeChanged(value: Boolean)
@@ -184,6 +185,11 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onEnableFreeCameraChanged(value: Boolean) {
         config.enableFreeCamera = value
+        saveConfig()
+    }
+
+    override fun onHideLiveViewingUiOnStartChanged(value: Boolean) {
+        config.hideLiveViewingUiOnStart = value
         saveConfig()
     }
 

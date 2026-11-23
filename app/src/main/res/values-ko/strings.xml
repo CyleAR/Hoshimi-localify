@@ -13,6 +13,7 @@
     <string name="enable_free_camera">자유 시점 카메라 활성화</string>
     <string name="start_game">게임 시작 / 설정 새로고침</string>
     <string name="setFpsTitle">최대 FPS (0은 게임 내 설정값 사용)</string>
+    <string name="hide_live_viewing_ui_on_start">3D 라이브 감상 시 UI 숨기고 시작</string>
     <string name="skip_live_to_result">라이브 결과로 바로 이동</string>
     <string name="unlockAllLiveCostume">모든 의상/헤어 해금</string>
     <string name="unlockCrossCharacterCostume">타 캐릭터 의상 해금</string>

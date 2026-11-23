@@ -53,8 +53,17 @@ fun ExtraSettingsPage(
     ) {
         item {
             IPGroupBox(modifier, stringResource(R.string.camera_settings)) {
-                IPSwitch(modifier, stringResource(R.string.enable_free_camera), checked = config.enableFreeCamera) {
-                    context?.onEnableFreeCameraChanged(it)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IPSwitch(modifier, stringResource(R.string.enable_free_camera), checked = config.enableFreeCamera) {
+                        context?.onEnableFreeCameraChanged(it)
+                    }
+                    IPSwitch(
+                        modifier,
+                        stringResource(R.string.hide_live_viewing_ui_on_start),
+                        checked = config.hideLiveViewingUiOnStart
+                    ) {
+                        context?.onHideLiveViewingUiOnStartChanged(it)
+                    }
                 }
             }
         }
