@@ -92,7 +92,7 @@ namespace HoshimiLocal::LiveSeek {
         pauseSource = PauseSource::None;
         playbackRequest.store(0);
         panorama = panoramic;
-        session = session % 0x3fffff + 1;
+        session = session % 0x1fffff + 1;
         nextUpdate = {};
         nextSeek = {};
         ReplaceWeak(playerHandle, player);
@@ -191,7 +191,7 @@ namespace HoshimiLocal::LiveSeek {
             controls.seek->Invoke<void>(player, current, controls.seek->address);
             nextSeek = Clock::now() + std::chrono::milliseconds(33);
         }
-        snapshot.store((int64_t(session) << 41) | (int64_t(paused) << 40) |
+        snapshot.store((int64_t(session) << 42) | (int64_t(panorama) << 41) | (int64_t(paused) << 40) |
                        (int64_t(std::lround(duration * ticksPerSecond)) << 20) |
                        int64_t(std::lround(std::clamp(current, 0.f, duration) * ticksPerSecond)));
     }
@@ -199,12 +199,12 @@ namespace HoshimiLocal::LiveSeek {
     int64_t Snapshot() { return Config::showLiveSeekBar.load() ? snapshot.load() : 0; }
 
     void Request(int targetSession, float fraction) {
-        if (targetSession <= 0 || targetSession != (Snapshot() >> 41) || !std::isfinite(fraction)) return;
+        if (targetSession <= 0 || targetSession != (Snapshot() >> 42) || !std::isfinite(fraction)) return;
         request.store((int64_t(targetSession) << 20) | int64_t(std::clamp(fraction, 0.f, 1.f) * timeMask));
     }
 
     void SetPaused(int targetSession, bool paused) {
-        if (targetSession > 0 && targetSession == (Snapshot() >> 41))
+        if (targetSession > 0 && targetSession == (Snapshot() >> 42))
             playbackRequest.store(paused ? targetSession : -targetSession);
     }
 
@@ -212,7 +212,7 @@ namespace HoshimiLocal::LiveSeek {
         if (direction != -1 && direction != 1) return;
         auto pending = steps.load();
         do {
-            if (targetSession <= 0 || targetSession != (Snapshot() >> 41)) return;
+            if (targetSession <= 0 || targetSession != (Snapshot() >> 42)) return;
             const int count = (pending >> 20) == targetSession ? int(pending & timeMask) - stepBias : 0;
             const auto next = (int64_t(targetSession) << 20) |
                     std::clamp(stepBias + count + direction, 0, timeMask);

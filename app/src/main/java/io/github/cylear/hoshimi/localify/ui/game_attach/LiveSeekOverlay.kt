@@ -12,6 +12,7 @@ import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.PathShape
+import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -41,7 +42,7 @@ internal class LiveSeekOverlay {
 
     fun render(activity: Activity, state: Long) {
         val host = activity.findViewById<FrameLayout>(android.R.id.content)
-        val nextSession = (state ushr 41).toInt()
+        val nextSession = (state ushr 42).toInt()
         if (session != nextSession || panel?.parent !== host) detach()
         if (state == 0L || host == null || activity.isDestroyed || activity.isFinishing) {
             detach()
@@ -49,7 +50,8 @@ internal class LiveSeekOverlay {
         }
         session = nextSession
         total = ((state ushr 20) and 0xfffff).toInt()
-        if (panel == null) attach(activity, host)
+        val isPanorama = (state and (1L shl 41)) != 0L
+        if (panel == null) attach(activity, host, isPanorama)
         val isPaused = (state and (1L shl 40)) != 0L
         if (paused != isPaused) {
             paused = isPaused
@@ -109,7 +111,7 @@ internal class LiveSeekOverlay {
         }
     }
 
-    private fun attach(activity: Activity, host: FrameLayout) {
+    private fun attach(activity: Activity, host: FrameLayout, top: Boolean) {
         fun dp(size: Int) = (size * activity.resources.displayMetrics.density).roundToInt()
         fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
             cornerRadius = dp(radius).toFloat()
@@ -220,12 +222,34 @@ internal class LiveSeekOverlay {
         controls.addView(stepRow)
         controls.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28)))
         panel = controls
-        fun width() = minOf(dp(400), maxOf(dp(250), (host.width * 0.68f).roundToInt()), (host.width - dp(16)).coerceAtLeast(0))
-        host.addView(controls, FrameLayout.LayoutParams(width(), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-            bottomMargin = dp(36)
+        fun width(): Int {
+            val maxW = dp(360)
+            val minW = if (top) dp(230) else dp(250)
+            val ratio = if (top) 0.62f else 0.68f
+            return minOf(maxW, maxOf(minW, (host.width * ratio).roundToInt()), (host.width - dp(16)).coerceAtLeast(0))
+        }
+        val edgeMargin = dp(34)
+        fun topOffset(): Int {
+            val safeTop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                host.rootWindowInsets?.displayCutout?.safeInsetTop ?: 0
+            } else {
+                0
+            }
+            return safeTop + edgeMargin
+        }
+        val gravity = (if (top) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+        host.addView(controls, FrameLayout.LayoutParams(width(), ViewGroup.LayoutParams.WRAP_CONTENT, gravity).apply {
+            if (top) topMargin = topOffset() else bottomMargin = edgeMargin
         })
         val resize = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (controls.layoutParams.width != width()) controls.layoutParams = controls.layoutParams.apply { width = width() }
+            val lp = controls.layoutParams as FrameLayout.LayoutParams
+            val targetWidth = width()
+            val targetTop = if (top) topOffset() else lp.topMargin
+            if (lp.width != targetWidth || lp.topMargin != targetTop) {
+                lp.width = targetWidth
+                lp.topMargin = targetTop
+                controls.layoutParams = lp
+            }
         }
         host.addOnLayoutChangeListener(resize)
         controls.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
