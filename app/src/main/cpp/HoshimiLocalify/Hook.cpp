@@ -2379,7 +2379,7 @@ namespace HoshimiLocal::HookMain {
             std::lock_guard<std::mutex> lock(cacheMutex);
             body3DCache.emplace(costumeIdStr, has3D);
         }
-        if (!has3D) {
+        if (!has3D && Config::dbgMode) {
             Log::InfoFmt("Costume 3D filter: hiding SD-only costume=%s bodyAsset=%s",
                          costumeIdStr.c_str(), bodyAssetNameStr.c_str());
         }
@@ -3227,7 +3227,9 @@ namespace HoshimiLocal::HookMain {
         if (PhotoOwnedEntryEnabled() && actorCostume) {
             if (auto selected = FindPhotoAppearance(actorCostume)) {
                 origCharId = GetCostumeCharacterId(GetActorCostumeCostume(actorCostume));
-                Log::DebugFmt("PhotoDisplay: CreateLiveData descriptor swapped %p -> %p", actorCostume, selected);
+                if (Config::dbgMode) {
+                    Log::DebugFmt("PhotoDisplay: CreateLiveData descriptor swapped %p -> %p", actorCostume, selected);
+                }
                 actorCostume = selected;
             }
         }
@@ -3284,7 +3286,9 @@ namespace HoshimiLocal::HookMain {
                     origCharId = GetCostumeCharacterId(costume);
                     costume = selectedCostume;
                     hair = GetActorCostumeHair(selected);
-                    Log::DebugFmt("PhotoDisplay: applied selected appearance costume=%p hair=%p", costume, hair);
+                    if (Config::dbgMode) {
+                        Log::DebugFmt("PhotoDisplay: applied selected appearance costume=%p hair=%p", costume, hair);
+                    }
                 }
             }
         }
@@ -3781,7 +3785,7 @@ namespace HoshimiLocal::HookMain {
          void* characterPassFilter, bool isAddForceCostume, bool showThumbnailPoseTypeIcon, void* mtd)) {
         const bool allowSdOnly = IsSdScheduleCostumeSpecifier(costumeSpecifier);
         g_activeCostumeSheetAllowsSdOnly.store(allowSdOnly, std::memory_order_relaxed);
-        if (Config::unlockAllLiveCostume) {
+        if (Config::unlockAllLiveCostume && Config::dbgMode) {
             auto specKlass = costumeSpecifier ? Il2cppUtils::get_class_from_instance(costumeSpecifier) : nullptr;
             Log::InfoFmt("Costume sheet init: specifier=%s allowSdOnly=%d",
                          (specKlass && specKlass->name) ? specKlass->name : "null",
@@ -3883,7 +3887,9 @@ namespace HoshimiLocal::HookMain {
         // accepting every costume in this character's collection.
         if (Config::unlockAllLiveCostume && passFilter) {
             passFilter = nullptr;
-            Log::Info("Costume UI: location filter cleared for selection list");
+            if (Config::dbgMode) {
+                Log::Info("Costume UI: location filter cleared for selection list");
+            }
         }
         Scoped3DCostumeFilter filterGuard(
                 Config::unlockAllLiveCostume && !g_activeCostumeSheetAllowsSdOnly.load(std::memory_order_relaxed));
@@ -5108,10 +5114,12 @@ namespace HoshimiLocal::HookMain {
                 break;
             }
         }
-        Log::InfoFmt("ActivityProgress visual hooks ready: promo=%d refresh=%d fanevent=%d",
-                     Solis_PromotionProgress_InternalMergeFrom_Orig != nullptr,
-                     Solis_RefreshProgress_InternalMergeFrom_Orig != nullptr,
-                     Solis_FanEventProgress_InternalMergeFrom_Orig != nullptr);
+        if (Config::dbgMode) {
+            Log::InfoFmt("ActivityProgress visual hooks ready: promo=%d refresh=%d fanevent=%d",
+                         Solis_PromotionProgress_InternalMergeFrom_Orig != nullptr,
+                         Solis_RefreshProgress_InternalMergeFrom_Orig != nullptr,
+                         Solis_FanEventProgress_InternalMergeFrom_Orig != nullptr);
+        }
 
         uintptr_t sharedUserCollectionGetAllListPtr = 0;
         uintptr_t sharedUserCollectionExistsPtr = 0;
@@ -5288,22 +5296,24 @@ namespace HoshimiLocal::HookMain {
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common",
                                                "SolisActorUtility", "CreateActorDescriptor",
                                                {"Solis.Common.Proto.Master.Costume", "Solis.Common.Proto.Master.Hair", "*"}));
-        Log::InfoFmt("PhotoEntry/Display hooks ready: live=%d act=%d expr=%d contest=%d/%d special=%d/%d pano=%d dl=%d/%d render=%d/%d/%d/%d desc=%d",
-                     Solis_Photography_ResolveConfirmOutfit_Orig != nullptr,
-                     Solis_ActivityPhotography_ResolveConfirmOutfit_Orig != nullptr,
-                     Solis_ExpressionPhotography_OnExecuteConfirmMoveNext_Orig != nullptr,
-                     Solis_PhotoContestLive_CheckShootingMoveNext_Orig != nullptr,
-                     Solis_PhotoContestActivity_CheckShootingMoveNext_Orig != nullptr,
-                     Solis_SpecialLivePhotography_ResolveConfirmOutfit_Orig != nullptr,
-                     Solis_SpecialActivityPhotography_ResolveConfirmOutfit_Orig != nullptr,
-                     Solis_PanoramaPhotography_ResolveConfirmOutfit_Orig != nullptr,
-                     Solis_PhotographyDataUtility_LiveAssetNamesMoveNext_Orig != nullptr,
-                     Solis_PhotographyDataUtility_ActivityAssetNamesMoveNext_Orig != nullptr,
-                     Solis_Photography_CreateLiveData_Orig != nullptr,
-                     Solis_Photography_CreateLiveDataDescriptor_Orig != nullptr,
-                     Solis_PhotographyLiveModePresenter_InitializeMoveNext_Orig != nullptr,
-                     Solis_PhotographySpotData_InitializeMoveNext_Orig != nullptr,
-                     Solis_SolisActorUtility_CreateActorDescriptor_Orig != nullptr);
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoEntry/Display hooks ready: live=%d act=%d expr=%d contest=%d/%d special=%d/%d pano=%d dl=%d/%d render=%d/%d/%d/%d desc=%d",
+                         Solis_Photography_ResolveConfirmOutfit_Orig != nullptr,
+                         Solis_ActivityPhotography_ResolveConfirmOutfit_Orig != nullptr,
+                         Solis_ExpressionPhotography_OnExecuteConfirmMoveNext_Orig != nullptr,
+                         Solis_PhotoContestLive_CheckShootingMoveNext_Orig != nullptr,
+                         Solis_PhotoContestActivity_CheckShootingMoveNext_Orig != nullptr,
+                         Solis_SpecialLivePhotography_ResolveConfirmOutfit_Orig != nullptr,
+                         Solis_SpecialActivityPhotography_ResolveConfirmOutfit_Orig != nullptr,
+                         Solis_PanoramaPhotography_ResolveConfirmOutfit_Orig != nullptr,
+                         Solis_PhotographyDataUtility_LiveAssetNamesMoveNext_Orig != nullptr,
+                         Solis_PhotographyDataUtility_ActivityAssetNamesMoveNext_Orig != nullptr,
+                         Solis_Photography_CreateLiveData_Orig != nullptr,
+                         Solis_Photography_CreateLiveDataDescriptor_Orig != nullptr,
+                         Solis_PhotographyLiveModePresenter_InitializeMoveNext_Orig != nullptr,
+                         Solis_PhotographySpotData_InitializeMoveNext_Orig != nullptr,
+                         Solis_SolisActorUtility_CreateActorDescriptor_Orig != nullptr);
+        }
         ADD_HOOK(Solis_Costume_get_IsUserUnavailable,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                "Costume", "get_IsUserUnavailable"));
@@ -5361,10 +5371,12 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Solis_CostumeSheetCellModel_set_ActorCostume,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
                                                "CostumeSheetCellModel", "set_ActorCostume"));
-        Log::InfoFmt("CrossCostume UI hooks ready: select=%d baseHair=%d cellOwner=%d",
-                     Solis_CostumeChangeSheetPresenter_OnSelectCostume_Orig != nullptr,
-                     Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels_Orig != nullptr,
-                     Solis_CostumeSheetCellModel_set_ActorCostume_Orig != nullptr);
+        if (Config::dbgMode) {
+            Log::InfoFmt("CrossCostume UI hooks ready: select=%d baseHair=%d cellOwner=%d",
+                         Solis_CostumeChangeSheetPresenter_OnSelectCostume_Orig != nullptr,
+                         Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels_Orig != nullptr,
+                         Solis_CostumeSheetCellModel_set_ActorCostume_Orig != nullptr);
+        }
         auto Solis_CostumeSheetPresenter_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.OutGame",
                                                                        "CostumeSheetPresenter");
         if (Solis_CostumeSheetPresenter_klass) {
@@ -5397,20 +5409,22 @@ namespace HoshimiLocal::HookMain {
                 if (!name || count != 4) continue;
                 const std::string_view callback(name);
                 if (callback.starts_with("<StartPromotionAsync>")) {
-                    Log::InfoFmt("Activity hook resolved: %s", name);
+                    if (Config::dbgMode) Log::InfoFmt("Activity hook resolved: %s", name);
                     ADD_HOOK(Solis_Activity_StartPromotionAsync_Call, method->methodPointer);
                 } else if (callback.starts_with("<StartRefreshAsync>")) {
-                    Log::InfoFmt("Activity hook resolved: %s", name);
+                    if (Config::dbgMode) Log::InfoFmt("Activity hook resolved: %s", name);
                     ADD_HOOK(Solis_Activity_StartRefreshAsync_Call, method->methodPointer);
                 } else if (callback.starts_with("<StartFanEventAsync>")) {
-                    Log::InfoFmt("Activity hook resolved: %s", name);
+                    if (Config::dbgMode) Log::InfoFmt("Activity hook resolved: %s", name);
                     ADD_HOOK(Solis_Activity_StartFanEventAsync_Call, method->methodPointer);
                 }
             }
-            Log::InfoFmt("Activity hooks ready: promotion=%d refresh=%d fan-event=%d",
-                         Solis_Activity_StartPromotionAsync_Call_Orig != nullptr,
-                         Solis_Activity_StartRefreshAsync_Call_Orig != nullptr,
-                         Solis_Activity_StartFanEventAsync_Call_Orig != nullptr);
+            if (Config::dbgMode) {
+                Log::InfoFmt("Activity hooks ready: promotion=%d refresh=%d fan-event=%d",
+                             Solis_Activity_StartPromotionAsync_Call_Orig != nullptr,
+                             Solis_Activity_StartRefreshAsync_Call_Orig != nullptr,
+                             Solis_Activity_StartFanEventAsync_Call_Orig != nullptr);
+            }
         } else {
             Log::Error("Activity hooks unavailable: Api.Activity.<>c declaring type was not resolved");
         }

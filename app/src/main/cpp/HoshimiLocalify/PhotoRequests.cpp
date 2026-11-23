@@ -585,7 +585,9 @@ namespace {
                 return PreparedRequest(request);
             }
             if (chosenCostume == reqCostume && chosenHair == reqHair) {
-                Log::InfoFmt("PhotoRequests: %s forwarded original (costume already owned)", name.c_str());
+                if (Config::dbgMode) {
+                    Log::InfoFmt("PhotoRequests: %s forwarded original (costume already owned)", name.c_str());
+                }
                 return PreparedRequest(request);
             }
             const auto originalFingerprint = RequestFingerprint(request);
@@ -597,9 +599,11 @@ namespace {
                 Log::ErrorFmt("PhotoRequests: %s failed to write owned outfit on clone", name.c_str());
                 return PreparedRequest(request);
             }
-            Log::InfoFmt("PhotoRequests: %s prepared fast on clone (%s,%s) -> (%s,%s)",
-                         name.c_str(), reqCostume.c_str(), reqHair.c_str(),
-                         chosenCostume.c_str(), chosenHair.c_str());
+            if (Config::dbgMode) {
+                Log::InfoFmt("PhotoRequests: %s prepared fast on clone (%s,%s) -> (%s,%s)",
+                             name.c_str(), reqCostume.c_str(), reqHair.c_str(),
+                             chosenCostume.c_str(), chosenHair.c_str());
+            }
             return candidate;
         }
         if (name == "CostumeCheckBulkRequest") {
@@ -622,7 +626,9 @@ namespace {
                 }
             }
             if (filteredCostumes == origCostumes && filteredHairs == origHairs) {
-                Log::InfoFmt("PhotoRequests: %s forwarded original (bulk ids already owned)", name.c_str());
+                if (Config::dbgMode) {
+                    Log::InfoFmt("PhotoRequests: %s forwarded original (bulk ids already owned)", name.c_str());
+                }
                 return PreparedRequest(request);
             }
             if (filteredCostumes.empty() && filteredHairs.empty() && !owned.costumes.empty()) {
@@ -644,9 +650,11 @@ namespace {
                 Log::ErrorFmt("PhotoRequests: %s failed to write owned bulk ids on clone", name.c_str());
                 return PreparedRequest(request);
             }
-            Log::InfoFmt("PhotoRequests: %s prepared fast on clone costumes=%zu->%zu hairs=%zu->%zu",
-                         name.c_str(), origCostumes.size(), filteredCostumes.size(),
-                         origHairs.size(), filteredHairs.size());
+            if (Config::dbgMode) {
+                Log::InfoFmt("PhotoRequests: %s prepared fast on clone costumes=%zu->%zu hairs=%zu->%zu",
+                             name.c_str(), origCostumes.size(), filteredCostumes.size(),
+                             origHairs.size(), filteredHairs.size());
+            }
             return candidate;
         }
         return PreparedRequest(request);
@@ -816,7 +824,9 @@ namespace {
         }
 
         if (!actorsChanged && !posesChanged) {
-            Log::Info("PhotoRequests: PhotoCreateExpressionShootingsRequest forwarded original (expression outfits & poses valid)");
+            if (Config::dbgMode) {
+                Log::Info("PhotoRequests: PhotoCreateExpressionShootingsRequest forwarded original (expression outfits & poses valid)");
+            }
             return PreparedRequest(request);
         }
 
@@ -854,8 +864,10 @@ namespace {
             Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest clone integrity check failed");
             return PreparedRequest(request);
         }
-        Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast on clone actorsChanged=%d posesChanged=%d params=%zu bytes=%d",
-                     actorsChanged ? 1 : 0, posesChanged ? 1 : 0, plannedPoses.size(), Get<int>(clone, "CalculateSize"));
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast on clone actorsChanged=%d posesChanged=%d params=%zu bytes=%d",
+                         actorsChanged ? 1 : 0, posesChanged ? 1 : 0, plannedPoses.size(), Get<int>(clone, "CalculateSize"));
+        }
         return candidate;
     }
 
@@ -958,8 +970,10 @@ namespace {
             Log::ErrorFmt("PhotoRequests: %s fallback clone integrity check failed", name.c_str());
             return PreparedRequest(request);
         }
-        Log::InfoFmt("PhotoRequests: %s prepared fallback outfits on clone bytes=%d",
-                     name.c_str(), Get<int>(clone, "CalculateSize"));
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: %s prepared fallback outfits on clone bytes=%d",
+                         name.c_str(), Get<int>(clone, "CalculateSize"));
+        }
         return candidate;
     }
 
@@ -1083,11 +1097,15 @@ namespace {
             }
             SaveActivityVisualsLocked();
         }
-        Log::InfoFmt("ActivityVisual: recorded %s/%s matching=%zu/%zu",
-                     kind.c_str(), sceneId.c_str(), visualCount, chars.size());
+        if (Config::dbgMode) {
+            Log::InfoFmt("ActivityVisual: recorded %s/%s matching=%zu/%zu",
+                         kind.c_str(), sceneId.c_str(), visualCount, chars.size());
+        }
 
         if (!changed) {
-            Log::InfoFmt("PhotoRequests: %s forwarded original (activity entry valid)", name.c_str());
+            if (Config::dbgMode) {
+                Log::InfoFmt("PhotoRequests: %s forwarded original (activity entry valid)", name.c_str());
+            }
             return PreparedRequest(request);
         }
 
@@ -1105,10 +1123,11 @@ namespace {
             Log::ErrorFmt("PhotoRequests: %s activity clone integrity check failed", name.c_str());
             return PreparedRequest(request);
         }
-        Log::InfoFmt("PhotoRequests: %s prepared fast on clone, actors=%zu visual-overrides=%zu bytes=%d",
-                     name.c_str(), chars.size(), visualCount, Get<int>(clone, "CalculateSize"));
-        if (Config::dbgMode)
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: %s prepared fast on clone, actors=%zu visual-overrides=%zu bytes=%d",
+                         name.c_str(), chars.size(), visualCount, Get<int>(clone, "CalculateSize"));
             Log::DebugFmt("PhotoRequests: prepared activity=%s", Text(clone, "ToString").c_str());
+        }
         return candidate;
     }
 }
@@ -1119,8 +1138,10 @@ namespace {
         if (!ReadInventory(response, fresh, true)) return;
         std::lock_guard lock(inventoryMutex);
         inventory = std::move(fresh);
-        Log::InfoFmt("PhotoRequests: server inventory ready=%d actors=%zu costumes=%zu hairs=%zu poses=%zu",
-                     inventory.ready, inventory.actors.size(), inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size());
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: server inventory ready=%d actors=%zu costumes=%zu hairs=%zu poses=%zu",
+                         inventory.ready, inventory.actors.size(), inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size());
+        }
     }
 
     void CaptureUpdate(void* data) {
@@ -1193,7 +1214,7 @@ namespace {
                 }
             }
         }
-        if (applied > 0) {
+        if (applied > 0 && Config::dbgMode) {
             Log::InfoFmt("ActivityVisual: applied %s/%s overrides=%d/%zu",
                          kind.c_str(), sceneId.c_str(), applied, characters.size());
         }
@@ -1202,7 +1223,9 @@ namespace {
     void SetValidators(CostumeValidator costume, HairValidator hair) {
         validateCostume = costume;
         validateHair = hair;
-        Log::Info("PhotoRequests: native revision=fast-paths-v8-cross-costume");
+        if (Config::dbgMode) {
+            Log::Info("PhotoRequests: native revision=fast-paths-v8-cross-costume");
+        }
     }
 
     void SetCostumeRoomCharacter(const std::string& characterId) {
@@ -1248,9 +1271,11 @@ namespace {
             reinterpret_cast<void (*)(void*, void*, void*, const Method*)>(ctor->methodPointer)(
                 actor, costumeMaster, hairMaster, ctor);
             if (Text(actor, "get_CostumeId") == costumeId && Text(actor, "get_HairId") == hairId) {
-                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> owned=(%s,%s)",
-                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
-                             costumeId.c_str(), hairId.c_str());
+                if (Config::dbgMode) {
+                    Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> owned=(%s,%s)",
+                                 characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
+                                 costumeId.c_str(), hairId.c_str());
+                }
                 return actor;
             }
         }
@@ -1261,14 +1286,18 @@ namespace {
                 if (forceCostumeId == selectedCostumeId && forceHairId == selectedHairId) {
                     return nullptr;
                 }
-                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> force=(%s,%s)",
-                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
-                             forceCostumeId.c_str(), forceHairId.c_str());
+                if (Config::dbgMode) {
+                    Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> force=(%s,%s)",
+                                 characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
+                                 forceCostumeId.c_str(), forceHairId.c_str());
+                }
                 return forceActor;
             }
         }
-        Log::InfoFmt("PhotoEntry: no owned/force candidate for character=%s selected=(%s,%s)",
-                     characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str());
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoEntry: no owned/force candidate for character=%s selected=(%s,%s)",
+                         characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str());
+        }
         return nullptr;
     }
 
@@ -1308,7 +1337,9 @@ namespace {
         }
         if (IsPhotoRequestName(name)) {
             if (ArePhotoRequestActorsOwnedValid(request, name, owned)) {
-                Log::InfoFmt("PhotoRequests: %s forwarded original (server-owned entry valid)", name.c_str());
+                if (Config::dbgMode) {
+                    Log::InfoFmt("PhotoRequests: %s forwarded original (server-owned entry valid)", name.c_str());
+                }
                 return PreparedRequest(request);
             }
             return PreparePhotoActorsFallback(request, name, owned);
