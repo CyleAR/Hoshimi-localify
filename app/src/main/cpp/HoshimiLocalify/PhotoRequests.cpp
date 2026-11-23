@@ -301,58 +301,7 @@ namespace {
                 scene.positions[slot.number] = slot;
             }
         }
-        if (!scene.forcedCostumeType.empty() && (kind == "Promotion" || kind == "FanEvent" || kind == "Refresh")) {
-            std::vector<std::string> characters;
-            { std::lock_guard lock(inventoryMutex); for (const auto& [cid, actor] : inventory.actors) characters.push_back(cid); }
-            for (const auto& cid : characters) {
-                auto actor = BuildForceActorCostume(cid, specifier);
-                if (!actor) continue;
-                const auto costumeId = Text(actor, "get_CostumeId");
-                if (!costumeId.empty()) scene.systemOutfits[cid] = {{cid, costumeId, Text(actor, "get_HairId")}, {}};
-            }
-            Log::InfoFmt("PhotoRequests: activity uniform %s/%s type=%s provided=%zu", kind.c_str(), id.c_str(),
-                         scene.forcedCostumeType.c_str(), scene.systemOutfits.size());
-        }
         return scene;
-    }
-
-    void RefreshActivityRules() {
-        const auto info = [](const char* getter) -> void* {
-            auto method = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.User", "UserDataManager", getter);
-            return method ? reinterpret_cast<void* (*)(void*)>(method->function)(method->address) : nullptr;
-        };
-        SceneCatalog fresh;
-        for (const auto& [getter, rowsGetter, kind] : {
-                std::tuple{"get_PromotionInfo", "get_Promotions", "Promotion"},
-                std::tuple{"get_FanEventInfo", "get_FanEvents", "FanEvent"}}) {
-            for (auto item : Items(Get(info(getter), rowsGetter))) {
-                const auto id = Text(item, "get_Id");
-                if (!id.empty()) fresh[SceneKey(kind, id)] = ReadScene(item, kind, id);
-            }
-        }
-        for (auto refresh : Items(Get(info("get_RefreshInfo"), "get_Refreshes"))) {
-            const auto id = Text(refresh, "get_Id");
-            for (auto level : Items(Get(refresh, "get_Levels"))) {
-                const auto key = id + "/" + std::to_string(Get<int>(level, "get_Level"));
-                fresh[SceneKey("Refresh", key)] = ReadScene(level, "Refresh", key);
-            }
-        }
-        std::lock_guard lock(catalogMutex);
-        bool changed = false;
-        for (auto& [key, scene] : fresh) {
-            const auto existing = dynamicScenes.find(key);
-            if (existing != dynamicScenes.end() && existing->second.costumeTypes == scene.costumeTypes &&
-                existing->second.forcedCostumeType == scene.forcedCostumeType &&
-                existing->second.allowedCharacters == scene.allowedCharacters &&
-                existing->second.forbiddenCharacters == scene.forbiddenCharacters &&
-                existing->second.systemOutfits.size() == scene.systemOutfits.size()) continue;
-            dynamicScenes[key] = std::move(scene);
-            changed = true;
-        }
-        if (changed) {
-            catalogRevision = ~uint64_t{};
-            Log::InfoFmt("PhotoRequests: live activity rules captured=%zu", fresh.size());
-        }
     }
 
     struct BaseOutfit {
@@ -402,26 +351,6 @@ namespace {
             for (auto& [type, poses] : option.poses)
                 std::erase_if(poses, [&](const auto& id) { return has(scene.forbiddenPoses, id); });
             scene.outfits[actor.character].push_back(std::move(option));
-        }
-        const auto has = [](const auto& list, const auto& id) { return std::find(list.begin(), list.end(), id) != list.end(); };
-        for (const auto& [character, uniform] : scene.systemOutfits) {
-            if (has(scene.forbiddenCharacters, character) ||
-                (!scene.allowedCharacters.empty() && !has(scene.allowedCharacters, character))) continue;
-            auto option = uniform;
-            if (option.poses.empty() && scene.expression) {
-                for (const auto& base : outfits) {
-                    if (base.option.actor.character != character) continue;
-                    option.poses = base.option.poses;
-                    break;
-                }
-                for (auto master : {Find("get_CostumeMaster", option.actor.costume),
-                                    Find("get_HairMaster", option.actor.hair)}) {
-                    for (const int type : Items<int>(Field(master, "impossiblePhotoPoseTypes_"))) option.poses.erase(type);
-                }
-                for (auto& [type, poses] : option.poses)
-                    std::erase_if(poses, [&](const auto& id) { return has(scene.forbiddenPoses, id); });
-            }
-            scene.outfits[character].push_back(std::move(option));
         }
     }
 
@@ -504,7 +433,6 @@ namespace {
         std::set<std::string> droppedSources;
         ActorSelection primary;
         int capacityLimit{};
-        bool preserveCharacters{};
 
         int MaxActors() const {
             const int sceneLimit = rules ? rules->maxActors : 0;
@@ -638,7 +566,7 @@ namespace {
                             if (Pair(id, costumes[i], hairs[i], selected)) domains[i].push_back(id);
                         }
                     }
-                    assignment = MatchRoster(characters, domains, preserveCharacters);
+                    assignment = MatchRoster(characters, domains);
                     if (!assignment.empty()) break;
                 }
                 if (assignment.empty()) {
@@ -836,15 +764,6 @@ namespace {
         return result;
     }
 
-    bool CostumeMatchesSceneTypes(const SceneRules* rules, const std::string& costumeId) {
-        if (!rules || !rules->hasCostumeRules) return true;
-        auto costumeMaster = Find("get_CostumeMaster", costumeId);
-        if (!costumeMaster) return false;
-        const auto type = Text(costumeMaster, "get_CostumeTypeId");
-        return !type.empty() &&
-               std::find(rules->costumeTypes.begin(), rules->costumeTypes.end(), type) != rules->costumeTypes.end();
-    }
-
     bool Sanitize(void* request, Context& context, const std::string& name) {
         const auto useScene = [&](const std::string& kind, const std::string& id) {
             if (!context.scenes) return false;
@@ -854,42 +773,6 @@ namespace {
             return true;
         };
         useScene("Owned", "default");
-        if (name.starts_with("ActivityStart")) {
-            context.preserveCharacters = true;
-            context.step = "activity costume conditions";
-            bool found = false;
-            if (name == "ActivityStartPromotionRequest")
-                found = useScene("Promotion", Text(request, "get_ActivityPromotionId"));
-            else if (name == "ActivityStartFanEventRequest")
-                found = useScene("FanEvent", Text(request, "get_ActivityFanEventId"));
-            else if (name == "ActivityStartRefreshRequest")
-                found = useScene("Refresh", Text(request, "get_ActivityRefreshId") + "/" +
-                                             std::to_string(Get<int>(request, "get_ActivityRefreshLevel")));
-            if (!found) return false;
-            if (context.rules && !context.rules->forcedCostumeType.empty()) {
-                auto chars = Strings(Get(request, "get_CharacterIds"));
-                auto costumes = Strings(Get(request, "get_CostumeIds"));
-                auto hairs = Strings(Get(request, "get_HairIds"));
-                if (Aligned(chars, costumes, hairs)) {
-                    bool forcedAny = false;
-                    for (size_t i = 0; i < chars.size(); ++i) {
-                        if (CostumeMatchesSceneTypes(context.rules, costumes[i])) continue;
-                        const auto uniform = context.rules->systemOutfits.find(chars[i]);
-                        if (uniform == context.rules->systemOutfits.end()) continue;
-                        costumes[i] = uniform->second.actor.costume;
-                        hairs[i] = uniform->second.actor.hair;
-                        forcedAny = true;
-                    }
-                    if (forcedAny) {
-                        if (!Replace(Get(request, "get_CostumeIds"), costumes) ||
-                            !Replace(Get(request, "get_HairIds"), hairs)) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return context.Actors(request, "get_CharacterIds", "get_CostumeIds", "get_HairIds");
-        }
         if (name == "CostumeSetRequest" || name == "CostumeLiveSetRequest") {
             auto costume = Find("get_CostumeMaster", Text(request, "get_CostumeId"));
             auto hair = Find("get_HairMaster", Text(request, "get_HairId"));
@@ -1556,7 +1439,7 @@ namespace {
             std::lock_guard lock(inventoryMutex);
             revision = inventoryRevision;
             const auto saved = storedPlans.find(planKey);
-            if (!activity && saved != storedPlans.end() && saved->second.revision == revision) context.selections = saved->second.selections;
+            if (saved != storedPlans.end() && saved->second.revision == revision) context.selections = saved->second.selections;
         }
         const auto originalFingerprint = RequestFingerprint(request);
         auto clone = Get(request, "Clone");
@@ -1574,11 +1457,7 @@ namespace {
             Log::ErrorFmt("PhotoRequests: %s clone isolation failed", name.c_str());
             return PreparedRequest(request);
         }
-        if (activity && ActivityIdentity(clone) != ActivityIdentity(request)) {
-            Log::ErrorFmt("PhotoRequests: %s activity identity changed; original retained", name.c_str());
-            return PreparedRequest(request);
-        }
-        if (!activity && !context.selections.empty()) {
+        if (!context.selections.empty()) {
             std::lock_guard lock(inventoryMutex);
             if (revision == inventoryRevision) storedPlans[planKey] = {revision, context.selections};
         }
@@ -1590,8 +1469,6 @@ namespace {
                      name.c_str(), context.selections.size(), Get<int>(clone, "CalculateSize"));
         if (Config::dbgMode && name.find("Check") != std::string::npos)
             Log::DebugFmt("PhotoRequests: prepared check=%s", Text(clone, "ToString").c_str());
-        if (Config::dbgMode && activity)
-            Log::DebugFmt("PhotoRequests: prepared activity=%s", Text(clone, "ToString").c_str());
         return candidate;
     }
 }
