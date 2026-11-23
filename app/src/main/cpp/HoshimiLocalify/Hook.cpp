@@ -45,23 +45,28 @@ extern std::filesystem::path hoshimiLocalPath;
 	returnType name##_Hook params
 
 #define ADD_HOOK(name, addr)                                                                       \
-	name##_Addr = reinterpret_cast<name##_Type>(addr);                                             \
-	if (addr) {                                                                                    \
-    	auto stub = hookInstaller->InstallHook(reinterpret_cast<void*>(addr),                      \
-                                               reinterpret_cast<void*>(name##_Hook),               \
-                                               reinterpret_cast<void**>(&name##_Orig));            \
-        if (stub == NULL) {                                                                        \
-            int error_num = shadowhook_get_errno();                                                \
-            const char *error_msg = shadowhook_to_errmsg(error_num);                               \
-            Log::ErrorFmt("ADD_HOOK: %s at %p failed: %s", #name, addr, error_msg);                \
+    do {                                                                                           \
+        const auto addHookAddr__ = (addr);                                                         \
+        name##_Addr = reinterpret_cast<name##_Type>(addHookAddr__);                                \
+        if (addHookAddr__) {                                                                       \
+            auto stub = hookInstaller->InstallHook(reinterpret_cast<void*>(addHookAddr__),         \
+                                                   reinterpret_cast<void*>(name##_Hook),           \
+                                                   reinterpret_cast<void**>(&name##_Orig));        \
+            if (stub == NULL) {                                                                    \
+                int error_num = shadowhook_get_errno();                                            \
+                const char *error_msg = shadowhook_to_errmsg(error_num);                           \
+                Log::ErrorFmt("ADD_HOOK: %s at %p failed: %s", #name,                              \
+                              reinterpret_cast<void*>(addHookAddr__), error_msg);                  \
+            }                                                                                      \
+            else {                                                                                 \
+                hookedStubs.emplace(stub);                                                         \
+                HoshimiLocal::Log::InfoFmt("ADD_HOOK: %s at %p", #name,                            \
+                                           reinterpret_cast<void*>(addHookAddr__));                \
+            }                                                                                      \
         }                                                                                          \
-        else {                                                                                     \
-            hookedStubs.emplace(stub);                                                             \
-            HoshimiLocal::Log::InfoFmt("ADD_HOOK: %s at %p", #name, addr);                         \
-        }                                                                                          \
-    }                                                                                              \
-    else HoshimiLocal::Log::ErrorFmt("Hook failed: %s is NULL", #name, addr);                      \
-    if (Config::lazyInit) UnityResolveProgress::classProgress.current++
+        else HoshimiLocal::Log::ErrorFmt("Hook failed: %s is NULL", #name);                        \
+        if (Config::lazyInit) UnityResolveProgress::classProgress.current++;                       \
+    } while (0)
 
 /*
 void UnHookAll() {
@@ -118,6 +123,31 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void, Solis_FanEventProgress_InternalMergeFrom, (void* self, void* input, void* mtd)) {
         Solis_FanEventProgress_InternalMergeFrom_Orig(self, input, mtd);
         PhotoRequests::ApplyActivityVisualOutfits(self);
+    }
+
+    DEFINE_HOOK(void, Solis_Transaction_UserDeckPosition_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_Transaction_UserDeckPosition_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyDeckVisualOutfit(self);
+    }
+    DEFINE_HOOK(void, Solis_Transaction_UserLeagueDeckPosition_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_Transaction_UserLeagueDeckPosition_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyDeckVisualOutfit(self);
+    }
+    DEFINE_HOOK(void, Solis_LiveUserInfo_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_LiveUserInfo_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyLiveVisualOutfits(self);
+    }
+    DEFINE_HOOK(void, Solis_QuestListAssetResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_QuestListAssetResponse_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyLiveVisualOutfits(self);
+    }
+    DEFINE_HOOK(void, Solis_MarathonQuestListAssetResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_MarathonQuestListAssetResponse_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyLiveVisualOutfits(self);
+    }
+    DEFINE_HOOK(void, Solis_RaceQuestListAssetResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_RaceQuestListAssetResponse_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::ApplyLiveVisualOutfits(self);
     }
 
     void LogImageResourceDebug(const char* source, void* component, const std::string& assetName, bool replaced) {
@@ -3293,10 +3323,87 @@ namespace HoshimiLocal::HookMain {
             }
         }
         auto descriptor = Solis_SolisActorUtility_CreateActorDescriptor_Orig(costume, hair, props, mtd);
-        if (descriptor && !origCharId.empty() && GetCostumeCharacterId(costume) != origCharId) {
-            SetActorDescriptorNameFromCharacterId(descriptor, origCharId);
+        if (descriptor) {
+            if (!origCharId.empty() && GetCostumeCharacterId(costume) != origCharId) {
+                SetActorDescriptorNameFromCharacterId(descriptor, origCharId);
+            } else if (origCharId.empty() && Config::unlockAllLiveCostume && Config::unlockCrossCharacterCostume &&
+                       !Config::unlockCrossCharacterHair && costume && hair) {
+                static const auto getHairCharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll",
+                        "Solis.Common.Proto.Master", "Hair", "get_CharacterId");
+                auto hairCharIdObj = getHairCharacterId ? getHairCharacterId->Invoke<Il2cppString*>(hair, getHairCharacterId->address) : nullptr;
+                const auto hairCharId = hairCharIdObj ? hairCharIdObj->ToString() : std::string{};
+                if (!hairCharId.empty() && GetCostumeCharacterId(costume) != hairCharId) {
+                    SetActorDescriptorNameFromCharacterId(descriptor, hairCharId);
+                }
+            }
         }
         return descriptor;
+    }
+
+    DEFINE_HOOK(void*, Solis_Deck_SaveAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Deck_SaveAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_League_SaveDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_League_SaveDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Dice_SaveDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Dice_SaveDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Race_SaveDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Race_SaveDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_SaveDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_SaveDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_SaveRaidDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_SaveRaidDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_BuddyDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_BuddyDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_ListDeckAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_ListDeckAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_StartQuestAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_StartQuestAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Marathon_ListQuestAssetAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Marathon_ListQuestAssetAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Quest_StartAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Quest_StartAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Quest_ListAssetAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Quest_ListAssetAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
+    }
+    DEFINE_HOOK(void*, Solis_Dream_StartQuestAsync_Call, (void* self, void* request, void* metadata,
+        void* deadline, void* ct, void* mtd)) {
+        auto prepared = PhotoRequests::Prepare(request);
+        return Solis_Dream_StartQuestAsync_Call_Orig(self, prepared.get(), metadata, deadline, ct, mtd);
     }
 
     DEFINE_HOOK(void*, Solis_Photo_CheckShootingAsync_Call, (void* self, void* request, void* metadata,
@@ -3668,6 +3775,81 @@ namespace HoshimiLocal::HookMain {
         return ret;
     }
 
+    void* CreateSyntheticUserCollectionItem(const std::string& collectionClassName, Il2cppString* id) {
+        if (!id) return nullptr;
+        const bool isCostume = Config::unlockAllLiveCostume && collectionClassName == "UserCostumeCollection";
+        const bool isHair = Config::unlockAllLiveCostume && collectionClassName == "UserHairCollection";
+        const bool isPose = Config::unlockAllPhotoPose && collectionClassName == "UserPhotoPoseCollection";
+        if (!isCostume && !isHair && !isPose) return nullptr;
+
+        const auto idStr = id->ToString();
+        if (idStr.empty()) return nullptr;
+
+        if (isCostume) {
+            if (!IsSolisMasterIdExists(idStr, SolisMasterIdType::CostumeId)) return nullptr;
+            static auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserCostume");
+            static auto ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserCostume", ".ctor");
+            static auto setId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserCostume", "set_CostumeId");
+            static auto setChecked = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserCostume", "set_Checked");
+            if (!klass || !ctor || !setId) return nullptr;
+            auto obj = klass->New<void*>();
+            if (!obj) return nullptr;
+            ctor->Invoke<void>(obj);
+            setId->Invoke<void>(obj, id);
+            if (setChecked) setChecked->Invoke<void>(obj, true);
+            return obj;
+        }
+        if (isHair) {
+            if (!IsSolisMasterIdExists(idStr, SolisMasterIdType::HairId)) return nullptr;
+            static auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserHair");
+            static auto ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserHair", ".ctor");
+            static auto setId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserHair", "set_HairId");
+            static auto setChecked = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserHair", "set_Checked");
+            if (!klass || !ctor || !setId) return nullptr;
+            auto obj = klass->New<void*>();
+            if (!obj) return nullptr;
+            ctor->Invoke<void>(obj);
+            setId->Invoke<void>(obj, id);
+            if (setChecked) setChecked->Invoke<void>(obj, true);
+            return obj;
+        }
+        if (isPose) {
+            if (!IsSolisMasterIdExists(idStr, SolisMasterIdType::PhotoPoseId)) return nullptr;
+            static auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserPhotoPose");
+            static auto ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserPhotoPose", ".ctor");
+            static auto setId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", "UserPhotoPose", "set_PhotoPoseId");
+            if (!klass || !ctor || !setId) return nullptr;
+            auto obj = klass->New<void*>();
+            if (!obj) return nullptr;
+            ctor->Invoke<void>(obj);
+            setId->Invoke<void>(obj, id);
+            return obj;
+        }
+        return nullptr;
+    }
+
+    DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindById, (void* self, Il2cppString* id, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_FindById_Orig(self, id, mtd);
+        if (ret || !self || !id) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || !this_klass->name) return ret;
+        return CreateSyntheticUserCollectionItem(this_klass->name, id);
+    }
+
+    DEFINE_HOOK(bool, Solis_UserCostumeCollection_TryGetValue, (void* self, Il2cppString* id, void** value, void* mtd)) {
+        auto ret = Solis_UserCostumeCollection_TryGetValue_Orig(self, id, value, mtd);
+        if (ret || !self || !id || !value) return ret;
+
+        auto this_klass = Il2cppUtils::get_class_from_instance(self);
+        if (!this_klass || !this_klass->name) return ret;
+        if (auto synth = CreateSyntheticUserCollectionItem(this_klass->name, id)) {
+            *value = synth;
+            return true;
+        }
+        return false;
+    }
+
     DEFINE_HOOK(bool, Solis_UserCostumeCollection_Exists, (void* self, Il2cppString* costumeId, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_Exists_Orig(self, costumeId, mtd);
         if (!costumeId) return ret;
@@ -3864,6 +4046,14 @@ namespace HoshimiLocal::HookMain {
             }
         }
         Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels_Orig(self, selectOrnamentHair, mtd);
+    }
+
+    DEFINE_HOOK(void, Solis_CostumeChangeSheetPresenter_SetOrnamentHairItemModels,
+        (void* self, void* selectOrnamentHair, void* selectBaseHair, void* mtd)) {
+        if (Config::unlockAllLiveCostume && !selectBaseHair) {
+            return;
+        }
+        Solis_CostumeChangeSheetPresenter_SetOrnamentHairItemModels_Orig(self, selectOrnamentHair, selectBaseHair, mtd);
     }
 
     DEFINE_HOOK(void, Solis_CostumeSheetCellModel_set_ActorCostume,
@@ -5089,7 +5279,9 @@ namespace HoshimiLocal::HookMain {
 
         // Capture complete protobuf messages before UI collection/availability hooks run.
         for (const auto className : {"UserGetResponse", "UpdatedData", "PhotoListSpecialShootingResponse",
-                                    "PromotionProgress", "RefreshProgress", "FanEventProgress"}) {
+                                    "PromotionProgress", "RefreshProgress", "FanEventProgress",
+                                    "LiveUserInfo", "QuestListAssetResponse",
+                                    "MarathonQuestListAssetResponse", "RaceQuestListAssetResponse"}) {
             auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Api", className);
             if (!klass) continue;
             void* iterator = nullptr;
@@ -5110,15 +5302,46 @@ namespace HoshimiLocal::HookMain {
                     ADD_HOOK(Solis_RefreshProgress_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "FanEventProgress") {
                     ADD_HOOK(Solis_FanEventProgress_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "LiveUserInfo") {
+                    ADD_HOOK(Solis_LiveUserInfo_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "QuestListAssetResponse") {
+                    ADD_HOOK(Solis_QuestListAssetResponse_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "MarathonQuestListAssetResponse") {
+                    ADD_HOOK(Solis_MarathonQuestListAssetResponse_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "RaceQuestListAssetResponse") {
+                    ADD_HOOK(Solis_RaceQuestListAssetResponse_InternalMergeFrom, method->methodPointer);
+                }
+                break;
+            }
+        }
+        for (const auto className : {"UserDeckPosition", "UserLeagueDeckPosition"}) {
+            auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction", className);
+            if (!klass) continue;
+            void* iterator = nullptr;
+            while (auto method = UnityResolve::Invoke<Il2cppUtils::MethodInfo*>(
+                    "il2cpp_class_get_methods", klass->address, &iterator)) {
+                const auto name = UnityResolve::Invoke<const char*>("il2cpp_method_get_name", method);
+                const auto count = UnityResolve::Invoke<int>("il2cpp_method_get_param_count", method);
+                if (count != 1 || !name || !std::string_view(name).ends_with("InternalMergeFrom")) continue;
+                if (std::string_view(className) == "UserDeckPosition") {
+                    ADD_HOOK(Solis_Transaction_UserDeckPosition_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "UserLeagueDeckPosition") {
+                    ADD_HOOK(Solis_Transaction_UserLeagueDeckPosition_InternalMergeFrom, method->methodPointer);
                 }
                 break;
             }
         }
         if (Config::dbgMode) {
-            Log::InfoFmt("ActivityProgress visual hooks ready: promo=%d refresh=%d fanevent=%d",
+            Log::InfoFmt("Activity/Deck visual hooks ready: promo=%d refresh=%d fanevent=%d deckPos=%d leaguePos=%d liveUser=%d listAsset=%d/%d/%d",
                          Solis_PromotionProgress_InternalMergeFrom_Orig != nullptr,
                          Solis_RefreshProgress_InternalMergeFrom_Orig != nullptr,
-                         Solis_FanEventProgress_InternalMergeFrom_Orig != nullptr);
+                         Solis_FanEventProgress_InternalMergeFrom_Orig != nullptr,
+                         Solis_Transaction_UserDeckPosition_InternalMergeFrom_Orig != nullptr,
+                         Solis_Transaction_UserLeagueDeckPosition_InternalMergeFrom_Orig != nullptr,
+                         Solis_LiveUserInfo_InternalMergeFrom_Orig != nullptr,
+                         Solis_QuestListAssetResponse_InternalMergeFrom_Orig != nullptr,
+                         Solis_MarathonQuestListAssetResponse_InternalMergeFrom_Orig != nullptr,
+                         Solis_RaceQuestListAssetResponse_InternalMergeFrom_Orig != nullptr);
         }
 
         uintptr_t sharedUserCollectionGetAllListPtr = 0;
@@ -5146,6 +5369,30 @@ namespace HoshimiLocal::HookMain {
                 if (Solis_UserCostumeCollection_Exists_Orig) {
                     sharedUserCollectionExistsPtr = Exists_mtd->methodPointer;
                 }
+            }
+
+            const Il2cppUtils::MethodInfo* FindById_mtd = nullptr;
+            for (void* cur = Solis_UserCostumeCollection_klass->address; cur && !FindById_mtd;
+                 cur = UnityResolve::Invoke<void*>("il2cpp_class_get_parent", cur)) {
+                void* iter = nullptr;
+                while (auto m = UnityResolve::Invoke<Il2cppUtils::MethodInfo*>("il2cpp_class_get_methods", cur, &iter)) {
+                    const auto mName = UnityResolve::Invoke<const char*>("il2cpp_method_get_name", m);
+                    const auto pCount = UnityResolve::Invoke<int>("il2cpp_method_get_param_count", m);
+                    if (!mName || pCount != 1 || std::string_view(mName) != "FindById") continue;
+                    const auto pType = UnityResolve::Invoke<const Il2cppUtils::Il2CppType*>("il2cpp_method_get_param", m, 0);
+                    if (pType && pType->type == Il2cppUtils::IL2CPP_TYPE_STRING) {
+                        FindById_mtd = m;
+                        break;
+                    }
+                }
+            }
+            if (FindById_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_FindById, FindById_mtd->methodPointer);
+            }
+
+            auto TryGetValue_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "TryGetValue", 2);
+            if (TryGetValue_mtd) {
+                ADD_HOOK(Solis_UserCostumeCollection_TryGetValue, TryGetValue_mtd->methodPointer);
             }
 
             auto GetSortedCharacterCostumes_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
@@ -5368,6 +5615,9 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Solis_CostumeChangeSheetPresenter_SetBaseHairItemModels,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
                                                "CostumeChangeSheetPresenter", "SetBaseHairItemModels"));
+        ADD_HOOK(Solis_CostumeChangeSheetPresenter_SetOrnamentHairItemModels,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CostumeChangeSheetPresenter", "SetOrnamentHairItemModels"));
         ADD_HOOK(Solis_CostumeSheetCellModel_set_ActorCostume,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
                                                "CostumeSheetCellModel", "set_ActorCostume"));
@@ -5427,6 +5677,63 @@ namespace HoshimiLocal::HookMain {
             }
         } else {
             Log::Error("Activity hooks unavailable: Api.Activity.<>c declaring type was not resolved");
+        }
+
+        const auto hookApiCallbacks = [&](const char* subName, const auto& matcher) {
+            auto subType = apiRoot ? Il2cppUtils::find_nested_class_from_name(apiRoot->address, subName) : nullptr;
+            auto callbacks = subType ? Il2cppUtils::find_nested_class_from_name(subType, "<>c") : nullptr;
+            if (!callbacks) return;
+            void* iterator = nullptr;
+            while (auto method = UnityResolve::Invoke<Il2cppUtils::MethodInfo*>(
+                    "il2cpp_class_get_methods", callbacks, &iterator)) {
+                const auto name = UnityResolve::Invoke<const char*>("il2cpp_method_get_name", method);
+                const auto count = UnityResolve::Invoke<int>("il2cpp_method_get_param_count", method);
+                if (!name || count != 4) continue;
+                matcher(std::string_view(name), method->methodPointer);
+            }
+        };
+        hookApiCallbacks("Deck", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<SaveAsync>")) { ADD_HOOK(Solis_Deck_SaveAsync_Call, ptr); }
+        });
+        hookApiCallbacks("League", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<SaveDeckAsync>")) { ADD_HOOK(Solis_League_SaveDeckAsync_Call, ptr); }
+        });
+        hookApiCallbacks("Dice", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<SaveDeckAsync>")) { ADD_HOOK(Solis_Dice_SaveDeckAsync_Call, ptr); }
+        });
+        hookApiCallbacks("Race", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<SaveDeckAsync>")) { ADD_HOOK(Solis_Race_SaveDeckAsync_Call, ptr); }
+        });
+        hookApiCallbacks("Marathon", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<SaveDeckAsync>")) { ADD_HOOK(Solis_Marathon_SaveDeckAsync_Call, ptr); }
+            else if (cb.starts_with("<SaveRaidDeckAsync>")) { ADD_HOOK(Solis_Marathon_SaveRaidDeckAsync_Call, ptr); }
+            else if (cb.starts_with("<BuddyDeckAsync>")) { ADD_HOOK(Solis_Marathon_BuddyDeckAsync_Call, ptr); }
+            else if (cb.starts_with("<ListDeckAsync>")) { ADD_HOOK(Solis_Marathon_ListDeckAsync_Call, ptr); }
+            else if (cb.starts_with("<StartQuestAsync>")) { ADD_HOOK(Solis_Marathon_StartQuestAsync_Call, ptr); }
+            else if (cb.starts_with("<ListQuestAssetAsync>")) { ADD_HOOK(Solis_Marathon_ListQuestAssetAsync_Call, ptr); }
+        });
+        hookApiCallbacks("Quest", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<StartAsync>")) { ADD_HOOK(Solis_Quest_StartAsync_Call, ptr); }
+            else if (cb.starts_with("<ListAssetAsync>")) { ADD_HOOK(Solis_Quest_ListAssetAsync_Call, ptr); }
+        });
+        hookApiCallbacks("Dream", [&](std::string_view cb, uintptr_t ptr) {
+            if (cb.starts_with("<StartQuestAsync>")) { ADD_HOOK(Solis_Dream_StartQuestAsync_Call, ptr); }
+        });
+        if (Config::dbgMode) {
+            Log::InfoFmt("Deck/Quest hooks ready: deck=%d league=%d dice=%d race=%d marathon=%d/%d/%d/%d/%d/%d quest=%d/%d dream=%d",
+                         Solis_Deck_SaveAsync_Call_Orig != nullptr,
+                         Solis_League_SaveDeckAsync_Call_Orig != nullptr,
+                         Solis_Dice_SaveDeckAsync_Call_Orig != nullptr,
+                         Solis_Race_SaveDeckAsync_Call_Orig != nullptr,
+                         Solis_Marathon_SaveDeckAsync_Call_Orig != nullptr,
+                         Solis_Marathon_SaveRaidDeckAsync_Call_Orig != nullptr,
+                         Solis_Marathon_BuddyDeckAsync_Call_Orig != nullptr,
+                         Solis_Marathon_ListDeckAsync_Call_Orig != nullptr,
+                         Solis_Marathon_StartQuestAsync_Call_Orig != nullptr,
+                         Solis_Marathon_ListQuestAssetAsync_Call_Orig != nullptr,
+                         Solis_Quest_StartAsync_Call_Orig != nullptr,
+                         Solis_Quest_ListAssetAsync_Call_Orig != nullptr,
+                         Solis_Dream_StartQuestAsync_Call_Orig != nullptr);
         }
 
         auto Solis_ApiPhoto_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network",

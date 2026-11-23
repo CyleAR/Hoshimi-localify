@@ -37,6 +37,73 @@ namespace {
     bool activityVisualLoaded = false;
     std::map<std::string, ActivityVisualRecord> activityVisuals;
 
+    struct DeckVisualSlot {
+        std::string cardId;
+        std::string characterId;
+        std::string costumeId;
+        std::string hairId;
+    };
+    std::mutex deckVisualMutex;
+    bool deckVisualLoaded = false;
+    std::map<std::string, std::map<int, DeckVisualSlot>> deckVisuals;
+    std::string activeLiveDeckKey;
+    std::string selfPublicUserId;
+
+    void LoadDeckVisualsLocked() {
+        if (deckVisualLoaded) return;
+        deckVisualLoaded = true;
+        try {
+            const auto path = Local::GetBasePath() / "deck-visual-outfits.json";
+            std::ifstream input(path, std::ios::binary);
+            if (!input) return;
+            auto root = nlohmann::json::parse(input, nullptr, false);
+            if (!root.is_object()) return;
+            for (const auto& [deckKey, slots] : root.items()) {
+                if (!slots.is_object()) continue;
+                std::map<int, DeckVisualSlot> deckSlots;
+                for (const auto& [posStr, entry] : slots.items()) {
+                    if (!entry.is_object()) continue;
+                    int pos = 0;
+                    try { pos = std::stoi(posStr); } catch (...) { continue; }
+                    DeckVisualSlot slot{
+                        entry.value("cardId", ""),
+                        entry.value("characterId", ""),
+                        entry.value("costume", ""),
+                        entry.value("hair", "")
+                    };
+                    if (!slot.cardId.empty() && (!slot.costumeId.empty() || !slot.hairId.empty())) {
+                        deckSlots[pos] = std::move(slot);
+                    }
+                }
+                if (!deckSlots.empty()) deckVisuals[deckKey] = std::move(deckSlots);
+            }
+        } catch (...) {
+        }
+    }
+
+    void SaveDeckVisualsLocked() {
+        try {
+            nlohmann::json root = nlohmann::json::object();
+            for (const auto& [deckKey, slots] : deckVisuals) {
+                if (slots.empty()) continue;
+                nlohmann::json slotsJson = nlohmann::json::object();
+                for (const auto& [pos, slot] : slots) {
+                    slotsJson[std::to_string(pos)] = {
+                        {"cardId", slot.cardId},
+                        {"characterId", slot.characterId},
+                        {"costume", slot.costumeId},
+                        {"hair", slot.hairId}
+                    };
+                }
+                root[deckKey] = std::move(slotsJson);
+            }
+            const auto path = Local::GetBasePath() / "deck-visual-outfits.json";
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            if (output) output << root.dump(2);
+        } catch (...) {
+        }
+    }
+
     void LoadActivityVisualsLocked() {
         if (activityVisualLoaded) return;
         activityVisualLoaded = true;
@@ -1015,6 +1082,216 @@ namespace {
         return nullptr;
     }
 
+    bool IsDeckRequestName(const std::string& name) {
+        return name == "DeckSaveRequest" ||
+               name == "LeagueSaveDeckRequest" ||
+               name == "DiceSaveDeckRequest" ||
+               name == "RaceSaveDeckRequest" ||
+               name == "MarathonDeckSaveRequest" ||
+               name == "MarathonRaidDeckSaveRequest" ||
+               name == "MarathonBuddyDeckRequest" ||
+               name == "MarathonListDeckRequest" ||
+               name == "MarathonQuestStartRequest" ||
+               name == "MarathonQuestListAssetRequest" ||
+               name == "QuestStartRequest" ||
+               name == "QuestListAssetRequest" ||
+               name == "DreamStartQuestRequest";
+    }
+
+    PreparedRequest PrepareDeckRequest(void* request, const std::string& name, const Inventory& owned) {
+        std::string deckKey;
+        const bool isSaveDeck = name == "DeckSaveRequest" ||
+                                name == "LeagueSaveDeckRequest" ||
+                                name == "DiceSaveDeckRequest" ||
+                                name == "RaceSaveDeckRequest" ||
+                                name == "MarathonDeckSaveRequest" ||
+                                name == "MarathonRaidDeckSaveRequest";
+        if (name == "DeckSaveRequest") {
+            deckKey = "Deck/" + std::to_string(Get<int>(request, "get_Number"));
+        } else if (name == "LeagueSaveDeckRequest") {
+            deckKey = "League/" + Text(request, "get_SeasonId") + "/" + std::to_string(Get<int>(request, "get_DeckType"));
+        } else if (name == "DiceSaveDeckRequest") {
+            deckKey = "Dice/" + std::to_string(Get<int>(request, "get_Number"));
+        } else if (name == "RaceSaveDeckRequest") {
+            deckKey = "Race/" + std::to_string(Get<int>(request, "get_Number"));
+        } else if (name == "MarathonDeckSaveRequest" || name == "MarathonRaidDeckSaveRequest") {
+            deckKey = "Marathon/" + std::to_string(Get<int>(request, "get_Number"));
+        } else if (name == "QuestStartRequest" || name == "QuestListAssetRequest" || name == "DreamStartQuestRequest") {
+            deckKey = "Deck/" + std::to_string(Get<int>(request, "get_DeckNumber"));
+        } else if (name == "MarathonQuestStartRequest" || name == "MarathonQuestListAssetRequest") {
+            deckKey = "Marathon/" + std::to_string(Get<int>(request, "get_DeckNumber"));
+        }
+
+        if (!deckKey.empty()) {
+            std::lock_guard lock(deckVisualMutex);
+            activeLiveDeckKey = deckKey;
+        }
+
+        struct PositionListRef {
+            const char* listGetter;
+            int buddyDeckIndex; // -1 for top-level list
+        };
+        struct PlannedPositionFix {
+            size_t listRefIndex;
+            size_t itemIndex;
+            std::string costumeId;
+            std::string hairId;
+        };
+
+        std::vector<PositionListRef> listRefs;
+        std::vector<std::vector<void*>> rawLists;
+        const auto addTopList = [&](const char* getter) {
+            if (!MethodOf(request, getter)) return;
+            auto list = Get(request, getter);
+            if (!list) return;
+            listRefs.push_back({getter, -1});
+            rawLists.push_back(Items(list));
+        };
+        addTopList("get_UserDeckPositions");
+        addTopList("get_DeckPositions");
+        addTopList("get_UserBuddyDeckPositions");
+        if (MethodOf(request, "get_MarathonBuddyDecks")) {
+            auto decks = Items(Get(request, "get_MarathonBuddyDecks"));
+            for (size_t di = 0; di < decks.size(); ++di) {
+                if (!decks[di]) continue;
+                auto list = Get(decks[di], "get_UserBuddyDeckPositions");
+                if (!list) continue;
+                listRefs.push_back({"get_UserBuddyDeckPositions", static_cast<int>(di)});
+                rawLists.push_back(Items(list));
+            }
+        }
+
+        std::vector<PlannedPositionFix> fixes;
+        std::map<int, DeckVisualSlot> savedSlots;
+        std::set<int> clearedPositions;
+
+        for (size_t li = 0; li < rawLists.size(); ++li) {
+            const auto& positions = rawLists[li];
+            for (size_t pi = 0; pi < positions.size(); ++pi) {
+                void* pos = positions[pi];
+                if (!pos) continue;
+                if (!Text(pos, "get_BuddyUserId").empty()) continue;
+
+                const int positionNum = Get<int>(pos, "get_Position");
+                const auto cardId = Text(pos, "get_CardId");
+                const auto costumeId = Text(pos, "get_CostumeId");
+                const auto hairId = Text(pos, "get_HairId");
+
+                if (cardId.empty() || (costumeId.empty() && hairId.empty())) {
+                    if (isSaveDeck && !deckKey.empty()) clearedPositions.insert(positionNum);
+                    continue;
+                }
+
+                auto cardMaster = Find("get_CardMaster", cardId);
+                const auto characterId = Text(cardMaster, "get_CharacterId");
+                if (characterId.empty() || !owned.actors.contains(characterId)) continue;
+
+                bool alreadyValid = false;
+                if (!costumeId.empty() && !hairId.empty()) {
+                    alreadyValid = IsActorOutfitValid(owned, characterId, costumeId, hairId, nullptr, nullptr);
+                } else if (!costumeId.empty()) {
+                    alreadyValid = owned.costumes.contains(costumeId) &&
+                                   CostumeAllowed(Find("get_CostumeMaster", costumeId), nullptr, characterId);
+                } else {
+                    const auto& liveCos = owned.actors.at(characterId).liveCostume;
+                    alreadyValid = owned.hairs.contains(hairId) &&
+                                   HairAllowed(Find("get_HairMaster", hairId), characterId, liveCos);
+                }
+
+                if (alreadyValid) {
+                    if (isSaveDeck && !deckKey.empty()) clearedPositions.insert(positionNum);
+                    continue;
+                }
+
+                std::string chosenCostume, chosenHair;
+                if (!FindOwnedOutfitPair(owned, characterId, costumeId, hairId, nullptr, chosenCostume, chosenHair)) {
+                    Log::ErrorFmt("PhotoRequests: %s unchanged, no owned outfit for deck card=%s char=%s",
+                                  name.c_str(), cardId.c_str(), characterId.c_str());
+                    return PreparedRequest(request);
+                }
+
+                if (isSaveDeck && !deckKey.empty() && (!costumeId.empty() || !hairId.empty())) {
+                    savedSlots[positionNum] = {cardId, characterId, costumeId, hairId};
+                }
+                fixes.push_back({li, pi, costumeId.empty() ? "" : chosenCostume, hairId.empty() ? "" : chosenHair});
+            }
+        }
+
+        if (isSaveDeck && !deckKey.empty()) {
+            std::lock_guard lock(deckVisualMutex);
+            LoadDeckVisualsLocked();
+            auto itDeck = deckVisuals.find(deckKey);
+            bool dirty = false;
+            if (itDeck != deckVisuals.end()) {
+                for (auto it = itDeck->second.begin(); it != itDeck->second.end(); ) {
+                    if (!savedSlots.contains(it->first)) {
+                        it = itDeck->second.erase(it);
+                        dirty = true;
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+            if (!savedSlots.empty()) {
+                auto& deckMap = deckVisuals[deckKey];
+                for (const auto& [pos, slot] : savedSlots) {
+                    const auto it = deckMap.find(pos);
+                    if (it == deckMap.end() || it->second.cardId != slot.cardId ||
+                        it->second.costumeId != slot.costumeId || it->second.hairId != slot.hairId) {
+                        deckMap[pos] = slot;
+                        dirty = true;
+                    }
+                }
+            } else if (itDeck != deckVisuals.end() && itDeck->second.empty()) {
+                deckVisuals.erase(itDeck);
+            }
+            if (dirty) SaveDeckVisualsLocked();
+        }
+
+        if (fixes.empty()) {
+            if (Config::dbgMode) {
+                Log::InfoFmt("PhotoRequests: %s forwarded original (deck outfits owned)", name.c_str());
+            }
+            return PreparedRequest(request);
+        }
+
+        auto candidate = CloneRequest(request);
+        auto clone = candidate.get();
+        if (clone == request) return PreparedRequest(request);
+
+        std::vector<void*> cloneBuddyDecks;
+        if (MethodOf(clone, "get_MarathonBuddyDecks")) {
+            cloneBuddyDecks = Items(Get(clone, "get_MarathonBuddyDecks"));
+        }
+
+        for (const auto& fix : fixes) {
+            const auto& ref = listRefs[fix.listRefIndex];
+            void* targetList = nullptr;
+            if (ref.buddyDeckIndex < 0) {
+                targetList = Get(clone, ref.listGetter);
+            } else if (static_cast<size_t>(ref.buddyDeckIndex) < cloneBuddyDecks.size()) {
+                targetList = Get(cloneBuddyDecks[ref.buddyDeckIndex], ref.listGetter);
+            }
+            auto cloneItems = Items(targetList);
+            if (fix.itemIndex >= cloneItems.size() || !cloneItems[fix.itemIndex]) {
+                Log::ErrorFmt("PhotoRequests: %s failed to locate cloned deck position", name.c_str());
+                return PreparedRequest(request);
+            }
+            void* clonePos = cloneItems[fix.itemIndex];
+            if ((!fix.costumeId.empty() && !SetText(clonePos, "set_CostumeId", fix.costumeId)) ||
+                (!fix.hairId.empty() && !SetText(clonePos, "set_HairId", fix.hairId))) {
+                Log::ErrorFmt("PhotoRequests: %s failed to write owned outfit on cloned deck position", name.c_str());
+                return PreparedRequest(request);
+            }
+        }
+
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: %s prepared fast on clone deck=%s sanitized=%zu savedVisual=%zu bytes=%d",
+                         name.c_str(), deckKey.c_str(), fixes.size(), savedSlots.size(), Get<int>(clone, "CalculateSize"));
+        }
+        return candidate;
+    }
+
     PreparedRequest PrepareActivityStart(void* request, const std::string& name, const Inventory& owned) {
         std::string kind, sceneId;
         void* specifier = ResolveActivityStartSpecifier(request, name, kind, sceneId);
@@ -1134,6 +1411,13 @@ namespace {
 
     void CaptureInitial(void* response) {
         if (!response || std::string(Il2cppUtils::get_class_from_instance(response)->name) != "UserGetResponse") return;
+        if (auto userPublic = Get(response, "get_UserPublic")) {
+            const auto uid = Text(userPublic, "get_PublicUserId");
+            if (!uid.empty()) {
+                std::lock_guard lock(deckVisualMutex);
+                selfPublicUserId = uid;
+            }
+        }
         Inventory fresh;
         if (!ReadInventory(response, fresh, true)) return;
         std::lock_guard lock(inventoryMutex);
@@ -1220,11 +1504,164 @@ namespace {
         }
     }
 
+    void ApplyDeckVisualOutfit(void* deckPosition) {
+        if (!deckPosition || !Config::unlockAllLiveCostume) return;
+        auto klass = Il2cppUtils::get_class_from_instance(deckPosition);
+        if (!klass || !klass->name) return;
+        const std::string className = klass->name;
+        std::string deckKey;
+        if (className == "UserDeckPosition") {
+            deckKey = "Deck/" + std::to_string(Get<int>(deckPosition, "get_Number"));
+        } else if (className == "UserLeagueDeckPosition") {
+            deckKey = "League/" + Text(deckPosition, "get_LeagueSeasonId") + "/" +
+                      std::to_string(Get<int>(deckPosition, "get_DeckType"));
+        } else {
+            return;
+        }
+        const int position = Get<int>(deckPosition, "get_Position");
+        const auto cardId = Text(deckPosition, "get_CardId");
+        if (cardId.empty()) return;
+
+        DeckVisualSlot saved;
+        {
+            std::lock_guard lock(deckVisualMutex);
+            LoadDeckVisualsLocked();
+            const auto deckIt = deckVisuals.find(deckKey);
+            if (deckIt == deckVisuals.end()) return;
+            const auto slotIt = deckIt->second.find(position);
+            if (slotIt == deckIt->second.end() || slotIt->second.cardId != cardId) return;
+            saved = slotIt->second;
+        }
+        if (saved.costumeId.empty() && saved.hairId.empty()) return;
+        bool changed = false;
+        if (!saved.costumeId.empty() && Text(deckPosition, "get_CostumeId") != saved.costumeId) {
+            if (SetText(deckPosition, "set_CostumeId", saved.costumeId)) changed = true;
+        }
+        if (!saved.hairId.empty() && Text(deckPosition, "get_HairId") != saved.hairId) {
+            if (SetText(deckPosition, "set_HairId", saved.hairId)) changed = true;
+        }
+        if (changed && Config::dbgMode) {
+            Log::InfoFmt("DeckVisual: applied %s pos=%d card=%s -> (%s,%s)",
+                         deckKey.c_str(), position, cardId.c_str(),
+                         saved.costumeId.c_str(), saved.hairId.c_str());
+        }
+    }
+
+    void ApplyLiveVisualOutfits(void* liveMessage) {
+        if (!liveMessage || !Config::unlockAllLiveCostume) return;
+        auto klass = Il2cppUtils::get_class_from_instance(liveMessage);
+        if (!klass || !klass->name) return;
+        const std::string className = klass->name;
+
+        std::map<std::string, std::map<int, DeckVisualSlot>> snapshot;
+        std::string activeKey;
+        std::string selfUid;
+        {
+            std::lock_guard lock(deckVisualMutex);
+            LoadDeckVisualsLocked();
+            if (deckVisuals.empty()) return;
+            snapshot = deckVisuals;
+            activeKey = activeLiveDeckKey;
+            selfUid = selfPublicUserId;
+        }
+
+        const auto findByCard = [&](const std::string& cardId, DeckVisualSlot& out) -> bool {
+            if (cardId.empty()) return false;
+            if (!activeKey.empty()) {
+                if (const auto deckIt = snapshot.find(activeKey); deckIt != snapshot.end()) {
+                    for (const auto& [pos, slot] : deckIt->second) {
+                        if (slot.cardId == cardId) { out = slot; return true; }
+                    }
+                }
+            }
+            for (const auto& [key, slots] : snapshot) {
+                for (const auto& [pos, slot] : slots) {
+                    if (slot.cardId == cardId) { out = slot; return true; }
+                }
+            }
+            return false;
+        };
+
+        if (className == "LiveUserInfo") {
+            const int index = Get<int>(liveMessage, "get_Index");
+            const bool isNpc = Get<bool>(liveMessage, "get_IsNpc");
+            const auto userId = Text(liveMessage, "get_UserId");
+            const bool isSelf = (!selfUid.empty() && !userId.empty())
+                ? (userId == selfUid)
+                : (index == 1 && !isNpc);
+            if (!isSelf) return;
+            auto userDeck = Get(liveMessage, "get_UserDeck");
+            if (!userDeck) return;
+            int applied = 0;
+            const auto cards = Items(Get(userDeck, "get_Cards"));
+            for (auto card : cards) {
+                if (!card) continue;
+                if (Get<bool>(card, "get_IsFriendBuddy") || Get<bool>(card, "get_IsTourScout")) continue;
+                DeckVisualSlot saved;
+                if (!findByCard(Text(card, "get_CardId"), saved)) continue;
+                bool cardApplied = false;
+                if (!saved.costumeId.empty() && SetText(card, "set_DisplayCostumeId", saved.costumeId)) {
+                    cardApplied = true;
+                }
+                if (!saved.hairId.empty() && SetText(card, "set_DisplayHairId", saved.hairId)) {
+                    cardApplied = true;
+                }
+                if (cardApplied) ++applied;
+            }
+            if (applied > 0 && Config::dbgMode) {
+                Log::InfoFmt("DeckVisual: applied LiveUserInfo idx=%d overrides=%d/%zu deck=%s",
+                             index, applied, cards.size(), activeKey.c_str());
+            }
+            return;
+        }
+
+        if (className == "QuestListAssetResponse" ||
+            className == "MarathonQuestListAssetResponse" ||
+            className == "RaceQuestListAssetResponse") {
+            if (activeKey.empty()) return;
+            const auto deckIt = snapshot.find(activeKey);
+            if (deckIt == snapshot.end()) return;
+            int applied = 0;
+            std::set<int> usedPositions;
+            const auto assets = Items(Get(liveMessage, "get_CharacterAssets"));
+            for (auto info : assets) {
+                if (!info) continue;
+                const auto cid = Text(info, "get_CharacterId");
+                if (cid.empty()) continue;
+                const DeckVisualSlot* chosen = nullptr;
+                int chosenPos = -1;
+                for (const auto& [pos, slot] : deckIt->second) {
+                    if (slot.characterId == cid && !usedPositions.contains(pos)) {
+                        chosen = &slot;
+                        chosenPos = pos;
+                        break;
+                    }
+                }
+                if (!chosen) continue;
+                bool infoApplied = false;
+                if (!chosen->costumeId.empty() && SetText(info, "set_CostumeId", chosen->costumeId)) {
+                    infoApplied = true;
+                }
+                if (!chosen->hairId.empty() && SetText(info, "set_HairId", chosen->hairId)) {
+                    infoApplied = true;
+                }
+                if (infoApplied) {
+                    usedPositions.insert(chosenPos);
+                    ++applied;
+                }
+            }
+            if (applied > 0 && Config::dbgMode) {
+                Log::InfoFmt("DeckVisual: applied %s asset overrides=%d/%zu deck=%s",
+                             className.c_str(), applied, assets.size(), activeKey.c_str());
+            }
+        }
+    }
+
     void SetValidators(CostumeValidator costume, HairValidator hair) {
         validateCostume = costume;
         validateHair = hair;
         if (Config::dbgMode) {
-            Log::Info("PhotoRequests: native revision=fast-paths-v8-cross-costume");
+            Log::Info("PhotoRequests: native revision=fast-paths-v9-deck-live");
         }
     }
 
@@ -1319,6 +1756,8 @@ namespace {
         if (costume && !Config::unlockAllLiveCostume) return PreparedRequest(request);
         const bool activity = name.starts_with("ActivityStart");
         if (activity && !Config::unlockAllLiveCostume) return PreparedRequest(request);
+        const bool deck = IsDeckRequestName(name);
+        if (deck && !Config::unlockAllLiveCostume) return PreparedRequest(request);
 
         Inventory owned;
         { std::lock_guard lock(inventoryMutex); owned = inventory; }
@@ -1331,6 +1770,9 @@ namespace {
         }
         if (activity) {
             return PrepareActivityStart(request, name, owned);
+        }
+        if (deck) {
+            return PrepareDeckRequest(request, name, owned);
         }
         if (name == "PhotoCreateExpressionShootingsRequest") {
             return PrepareExpressionPoseRequest(request, owned);

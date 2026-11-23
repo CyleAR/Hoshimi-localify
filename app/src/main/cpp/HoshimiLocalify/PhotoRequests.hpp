@@ -8,6 +8,8 @@ namespace HoshimiLocal::PhotoRequests {
     void CaptureUpdate(void* updatedData);
     void CaptureAvailability(void* response);
     void ApplyActivityVisualOutfits(void* progress);
+    void ApplyDeckVisualOutfit(void* deckPosition);
+    void ApplyLiveVisualOutfits(void* liveMessage);
     using CostumeValidator = bool (*)(void* specifier, void* costume, void* method);
     using HairValidator = bool (*)(void* hair, void* costume, void* method);
     void SetValidators(CostumeValidator costume, HairValidator hair);
