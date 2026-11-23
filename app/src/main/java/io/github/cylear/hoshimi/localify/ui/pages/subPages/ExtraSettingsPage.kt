@@ -52,7 +52,7 @@ fun ExtraSettingsPage(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         item {
-            IPGroupBox(modifier, stringResource(R.string.camera_settings)) {
+            IPGroupBox(modifier, stringResource(R.string.live_photo_settings)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     IPSwitch(modifier, stringResource(R.string.enable_free_camera), checked = config.enableFreeCamera) {
                         context?.onEnableFreeCameraChanged(it)
@@ -66,6 +66,47 @@ fun ExtraSettingsPage(
                     }
                     IPSwitch(modifier, stringResource(R.string.show_live_seek_bar), checked = config.showLiveSeekBar) {
                         context?.onShowLiveSeekBarChanged(it)
+                    }
+                    IPSwitch(modifier, stringResource(R.string.skip_live_to_result), checked = config.skipLiveToResult) {
+                        context?.onSkipLiveToResultChanged(it)
+                    }
+                }
+            }
+        }
+
+        item {
+            IPGroupBox(modifier, stringResource(R.string.costume_pose_unlock_settings)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IPSwitch(modifier, stringResource(R.string.unlockAllLiveCostume), checked = config.unlockAllLiveCostume) {
+                        context?.onUnlockAllLiveCostumeChanged(it)
+                    }
+                    AnimatedVisibility(
+                        visible = config.unlockAllLiveCostume,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IPSwitch(
+                                modifier = modifier,
+                                text = stringResource(R.string.unlockCrossCharacterCostume),
+                                checked = config.unlockCrossCharacterCostume
+                            ) {
+                                context?.onUnlockCrossCharacterCostumeChanged(it)
+                            }
+                            IPSwitch(
+                                modifier = modifier,
+                                text = stringResource(R.string.unlockCrossCharacterHair),
+                                checked = config.unlockCrossCharacterHair
+                            ) {
+                                context?.onUnlockCrossCharacterHairChanged(it)
+                            }
+                        }
+                    }
+                    IPSwitch(modifier, stringResource(R.string.unlockAllPhotoPose), checked = config.unlockAllPhotoPose) {
+                        context?.onUnlockAllPhotoPoseChanged(it)
                     }
                 }
             }
@@ -122,47 +163,6 @@ fun ExtraSettingsPage(
                             stringResource(R.string.breast_auto_hint),
                             style = MaterialTheme.typography.bodySmall
                         )
-                    }
-                }
-            }
-        }
-
-        item {
-            IPGroupBox(modifier, stringResource(R.string.test_mode_live)) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IPSwitch(modifier, stringResource(R.string.skip_live_to_result), checked = config.skipLiveToResult) {
-                        context?.onSkipLiveToResultChanged(it)
-                    }
-                    IPSwitch(modifier, stringResource(R.string.unlockAllLiveCostume), checked = config.unlockAllLiveCostume) {
-                        context?.onUnlockAllLiveCostumeChanged(it)
-                    }
-                    AnimatedVisibility(
-                        visible = config.unlockAllLiveCostume,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IPSwitch(
-                                modifier = modifier,
-                                text = stringResource(R.string.unlockCrossCharacterCostume),
-                                checked = config.unlockCrossCharacterCostume
-                            ) {
-                                context?.onUnlockCrossCharacterCostumeChanged(it)
-                            }
-                            IPSwitch(
-                                modifier = modifier,
-                                text = stringResource(R.string.unlockCrossCharacterHair),
-                                checked = config.unlockCrossCharacterHair
-                            ) {
-                                context?.onUnlockCrossCharacterHairChanged(it)
-                            }
-                        }
-                    }
-                    IPSwitch(modifier, stringResource(R.string.unlockAllPhotoPose), checked = config.unlockAllPhotoPose) {
-                        context?.onUnlockAllPhotoPoseChanged(it)
                     }
                 }
             }
