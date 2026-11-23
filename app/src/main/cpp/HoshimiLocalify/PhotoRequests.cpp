@@ -2,35 +2,29 @@
 #include "PhotoRequestPlan.hpp"
 #include "Il2cppUtils.hpp"
 #include "config/Config.hpp"
-#include <mutex>
-#include <optional>
-#include <utility>
-#include <memory>
-#include <fstream>
-#include <filesystem>
-#include <nlohmann/json.hpp>
 #include "Local.h"
-#include <tuple>
-#include <chrono>
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <mutex>
+#include <set>
+#include <utility>
+#include <vector>
+#include <nlohmann/json.hpp>
 
 namespace HoshimiLocal::PhotoRequests {
 namespace {
     using String = UnityResolve::UnityType::String;
     using Method = Il2cppUtils::MethodInfo;
+
     std::mutex inventoryMutex;
     Inventory inventory;
     CostumeValidator validateCostume{};
     HairValidator validateHair{};
-    uint64_t inventoryRevision{};
-    std::mutex catalogMutex;
-    std::shared_ptr<const SceneCatalog> catalog;
-    uint64_t catalogRevision = ~uint64_t{};
-    SceneCatalog dynamicScenes;
-    struct StoredPlan {
-        uint64_t revision;
-        std::map<std::string, ActorSelection> selections;
-    };
-    std::map<std::string, StoredPlan> storedPlans;
+
+    std::mutex specialSceneMutex;
+    SceneCatalog specialScenes;
 
     struct ActivityVisualRecord {
         std::string sceneId;
@@ -112,19 +106,6 @@ namespace {
         return value ? value->ToString() : "";
     }
 
-    bool IsPhotoRequestName(const std::string& name) {
-        return name.starts_with("Photo") &&
-               (name.find("Check") != std::string::npos ||
-                name.find("Create") != std::string::npos ||
-                name.find("Submit") != std::string::npos);
-    }
-
-    bool PhotoRequestsEqual(void* original, void* candidate) {
-        const auto equals = MethodOf(original, "Equals", 1);
-        if (!equals || !equals->methodPointer) return false;
-        return reinterpret_cast<bool (*)(void*, void*, const Method*)>(equals->methodPointer)(
-            original, candidate, equals);
-    }
     bool SetText(void* object, const char* setter, const std::string& value) {
         return Set(object, setter, String::New(value));
     }
@@ -166,18 +147,20 @@ namespace {
         return Strings(list) == values;
     }
 
-    bool ReplaceNumbers(void* list, const std::vector<int>& values) {
-        auto clear = MethodOf(list, "Clear");
-        if (!clear || !MethodOf(list, "Add", 1)) return false;
-        reinterpret_cast<void (*)(void*, const Method*)>(clear->methodPointer)(list, clear);
-        Il2cppUtils::Tools::CSListEditor<int> editor(list);
-        for (const int value : values) editor.Add(value);
-        return Items<int>(list) == values;
-    }
-
     bool Contains(void* list, const std::string& value) {
         auto strings = Strings(list);
         return std::find(strings.begin(), strings.end(), value) != strings.end();
+    }
+
+    bool ContainsStr(const std::vector<std::string>& list, const std::string& value) {
+        return std::find(list.begin(), list.end(), value) != list.end();
+    }
+
+    bool IsPhotoRequestName(const std::string& name) {
+        return name.starts_with("Photo") &&
+               (name.find("Check") != std::string::npos ||
+                name.find("Create") != std::string::npos ||
+                name.find("Submit") != std::string::npos);
     }
 
     void* Master(const char* getter) {
@@ -225,13 +208,13 @@ namespace {
         return true;
     }
 
-    bool CostumeAllowed(void* costume, void* expression, const std::string& character) {
+    bool CostumeAllowed(void* costume, void* specifier, const std::string& character) {
         if (!costume || Text(costume, "get_CharacterId") != character ||
             Field<bool>(costume, "isDisableAdmin_") || Field<bool>(costume, "isUserUnavailable_")) return false;
-        if (!expression) return true;
+        if (!specifier) return true;
         // Use the unhooked game predicate. ForceCostumeTypeId is not an additional AND
         // constraint in IsAppropriateCostume (verified against the 6.1.1 ARM64 code).
-        return validateCostume && validateCostume(expression, costume, nullptr);
+        return validateCostume && validateCostume(specifier, costume, nullptr);
     }
 
     bool HairAllowed(void* hair, const std::string& character, const std::string& costume) {
@@ -240,49 +223,28 @@ namespace {
         return costumeMaster && validateHair && validateHair(hair, costumeMaster, nullptr);
     }
 
-    bool FindOwnedOutfitPair(const Inventory& owned, const std::string& characterId,
-                             const std::string& preferredCostumeId, const std::string& preferredHairId,
-                             void* specifier, std::string& outCostume, std::string& outHair) {
-        const auto actorIt = owned.actors.find(characterId);
-        if (actorIt == owned.actors.end()) return false;
-        const auto& equipped = actorIt->second;
+    std::set<int> CollectExpressionPoseTypes(void* specifier) {
+        std::set<int> types;
+        if (!specifier || !MethodOf(specifier, "GetStagePositionList")) return types;
+        for (auto position : Items(Get(specifier, "GetStagePositionList"))) {
+            const int poseType = Get<int>(position, "get_PossiblePhotoPoseType");
+            if (poseType != 0) types.insert(poseType);
+        }
+        return types;
+    }
 
-        std::vector<std::string> costumeOrder;
-        const auto pushCostume = [&](const std::string& id) {
-            if (!id.empty() && owned.costumes.contains(id) &&
-                std::find(costumeOrder.begin(), costumeOrder.end(), id) == costumeOrder.end()) {
-                costumeOrder.push_back(id);
-            }
-        };
-        pushCostume(preferredCostumeId);
-        pushCostume(equipped.liveCostume);
-        pushCostume(equipped.favoriteCostume);
-        for (const auto& id : owned.costumes) pushCostume(id);
-
-        std::vector<std::string> hairOrder;
-        const auto pushHair = [&](const std::string& id) {
-            if (!id.empty() && owned.hairs.contains(id) &&
-                std::find(hairOrder.begin(), hairOrder.end(), id) == hairOrder.end()) {
-                hairOrder.push_back(id);
-            }
-        };
-        pushHair(preferredHairId);
-        pushHair(equipped.liveHair);
-        pushHair(equipped.favoriteHair);
-        for (const auto& id : owned.hairs) pushHair(id);
-
-        for (const auto& costumeId : costumeOrder) {
-            auto costumeMaster = Find("get_CostumeMaster", costumeId);
-            if (!CostumeAllowed(costumeMaster, specifier, characterId)) continue;
-            for (const auto& hairId : hairOrder) {
-                auto hairMaster = Find("get_HairMaster", hairId);
-                if (!HairAllowed(hairMaster, characterId, costumeId)) continue;
-                outCostume = costumeId;
-                outHair = hairId;
-                return true;
+    bool OutfitSupportsPoseTypes(void* costumeMaster, void* hairMaster, const std::set<int>& requiredPoseTypes) {
+        if (requiredPoseTypes.empty()) return true;
+        for (auto master : {costumeMaster, hairMaster}) {
+            if (!master) continue;
+            const auto blocked = Items<int>(Field(master, "impossiblePhotoPoseTypes_"));
+            for (const int required : requiredPoseTypes) {
+                if (required != 0 && std::find(blocked.begin(), blocked.end(), required) != blocked.end()) {
+                    return false;
+                }
             }
         }
-        return false;
+        return true;
     }
 
     bool ResolveExpressionStagePoseType(void* expression, int number, int& outPoseType) {
@@ -316,20 +278,84 @@ namespace {
         });
     }
 
-    std::string AvailabilityId(void* item) {
-        for (const auto getter : {"get_Id", "get_PhotoExpressionId", "get_MusicId", "get_StageId"}) {
-            auto id = Text(item, getter);
-            if (!id.empty()) return id;
+    bool OutfitHasOwnedPosesForTypes(const Inventory& owned, void* expression, const std::string& characterId,
+                                     const std::string& costumeId, const std::string& hairId,
+                                     const std::set<int>& requiredPoseTypes) {
+        for (const int poseType : requiredPoseTypes) {
+            if (FindOwnedCompatiblePose(owned, expression, "", characterId, costumeId, hairId, poseType).empty()) {
+                return false;
+            }
         }
-        return {};
+        return true;
     }
 
-    std::vector<void*> AllMasterRows(const char* getter) {
-        auto master = Master(getter);
-        auto method = MethodOf(master, "GetAllWithSortByKey", 1);
-        if (!method) return {};
-        auto rows = reinterpret_cast<void* (*)(void*, int, const Method*)>(method->methodPointer)(master, 0, method);
-        return Items(rows);
+    bool FindOwnedOutfitPair(const Inventory& owned, const std::string& characterId,
+                             const std::string& preferredCostumeId, const std::string& preferredHairId,
+                             void* specifier, std::string& outCostume, std::string& outHair,
+                             const SceneRules* specialRules = nullptr,
+                             const std::set<int>& preferredPoseTypes = {},
+                             bool requirePoseTypes = false,
+                             void* expressionForPoseCheck = nullptr) {
+        const auto actorIt = owned.actors.find(characterId);
+        if (actorIt == owned.actors.end()) return false;
+        const auto& equipped = actorIt->second;
+
+        std::vector<std::string> costumeOrder;
+        const auto pushCostume = [&](const std::string& id) {
+            if (!id.empty() && owned.costumes.contains(id) &&
+                std::find(costumeOrder.begin(), costumeOrder.end(), id) == costumeOrder.end()) {
+                costumeOrder.push_back(id);
+            }
+        };
+        pushCostume(preferredCostumeId);
+        pushCostume(equipped.liveCostume);
+        pushCostume(equipped.favoriteCostume);
+        for (const auto& id : owned.costumes) pushCostume(id);
+
+        std::vector<std::string> hairOrder;
+        const auto pushHair = [&](const std::string& id) {
+            if (!id.empty() && owned.hairs.contains(id) &&
+                std::find(hairOrder.begin(), hairOrder.end(), id) == hairOrder.end()) {
+                hairOrder.push_back(id);
+            }
+        };
+        pushHair(preferredHairId);
+        pushHair(equipped.liveHair);
+        pushHair(equipped.favoriteHair);
+        for (const auto& id : owned.hairs) pushHair(id);
+
+        const auto search = [&](bool checkPoses) -> bool {
+            for (const auto& costumeId : costumeOrder) {
+                auto costumeMaster = Find("get_CostumeMaster", costumeId);
+                if (!CostumeAllowed(costumeMaster, specifier, characterId)) continue;
+                if (specialRules && specialRules->hasCostumeRules &&
+                    !ContainsStr(specialRules->costumeTypes, Text(costumeMaster, "get_CostumeTypeId"))) {
+                    continue;
+                }
+                for (const auto& hairId : hairOrder) {
+                    auto hairMaster = Find("get_HairMaster", hairId);
+                    if (!HairAllowed(hairMaster, characterId, costumeId)) continue;
+                    if (checkPoses) {
+                        if (!OutfitSupportsPoseTypes(costumeMaster, hairMaster, preferredPoseTypes)) continue;
+                        if (expressionForPoseCheck &&
+                            !OutfitHasOwnedPosesForTypes(owned, expressionForPoseCheck, characterId,
+                                                         costumeId, hairId, preferredPoseTypes)) {
+                            continue;
+                        }
+                    }
+                    outCostume = costumeId;
+                    outHair = hairId;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!preferredPoseTypes.empty()) {
+            if (search(true)) return true;
+            if (requirePoseTypes) return false;
+        }
+        return search(false);
     }
 
     void* BuildForceActorCostume(const std::string& characterId, void* costumeSpecifier) {
@@ -353,407 +379,19 @@ namespace {
         return Text(actor, "get_CostumeId").empty() ? nullptr : actor;
     }
 
-    SceneRules ReadScene(void* specifier, const std::string& kind, const std::string& id) {
+    SceneRules ReadSpecialActivityRules(void* specifier, const std::string& id) {
         SceneRules scene;
-        scene.kind = kind; scene.id = id;
-        scene.expression = kind == "PhotoExpression";
+        scene.kind = "SpecialPhotoActivity";
+        scene.id = id;
         scene.hasCostumeRules = MethodOf(specifier, "get_CostumeTypes") != nullptr;
-        scene.stage = Text(specifier, "get_StageId");
-        if (scene.stage.empty()) scene.stage = Text(specifier, "get_PhotoStageId");
         scene.forcedCostumeType = Text(specifier, "get_ForceCostumeTypeId");
         if (scene.forcedCostumeType.empty()) scene.forcedCostumeType = Text(Get(specifier, "get_ForceCostumeType"), "get_Id");
-        // This is the expanded list consumed by the original IsAppropriateCostume predicate.
         for (auto type : Items(Get(specifier, "get_CostumeTypes"))) scene.costumeTypes.push_back(Text(type, "get_Id"));
         scene.forbiddenCharacters = Strings(Get(specifier, "get_ImpossibleShootingCharacterIds"));
         scene.allowedCharacters = Strings(Get(specifier, "get_CharacterIds"));
-        scene.forbiddenPoses = Strings(Get(specifier, "get_ImpossiblePhotoPoseIds"));
         scene.action = MethodOf(specifier, "get_ActionType") ? Get<int>(specifier, "get_ActionType") : Get<int>(specifier, "get_Type");
-        scene.maxActors = Get<int>(specifier, "get_MaxCapacity");
-        scene.characterAmounts = Items<int>(Get(specifier, "get_CharacterAmountArray"));
-        if (scene.expression) {
-            scene.maxActors = Get<int>(specifier, "GetMaxCharacterAmount");
-            for (auto position : Items(Get(specifier, "GetStagePositionList"))) {
-                ScenePosition slot{Get<int>(position, "get_Number"), Get<int>(position, "get_PossiblePhotoPoseType"),
-                                   static_cast<int>(Items<float>(Get(position, "get_CharacterPositions")).size() / 3)};
-                scene.positions[slot.number] = slot;
-            }
-        }
         return scene;
     }
-
-    struct BaseOutfit {
-        SceneOutfit option;
-        std::string costumeType;
-    };
-
-    std::vector<BaseOutfit> BuildOwnedOutfits(const Inventory& owned) {
-        std::vector<BaseOutfit> result;
-        std::map<std::string, void*> costumes, hairs, poses;
-        for (const auto& id : owned.costumes) costumes[id] = Find("get_CostumeMaster", id);
-        for (const auto& id : owned.hairs) hairs[id] = Find("get_HairMaster", id);
-        for (const auto& id : owned.poses) poses[id] = Find("get_PhotoPoseMaster", id);
-        std::map<std::string, std::map<int, std::vector<std::string>>> actorPoses;
-        for (const auto& [character, data] : owned.actors) {
-            for (const auto& [id, pose] : poses) {
-                if (pose && MotionExists(id, character)) actorPoses[character][Get<int>(pose, "get_PoseType")].push_back(id);
-            }
-        }
-        for (const auto& [costumeId, costume] : costumes) {
-            const auto character = Text(costume, "get_CharacterId");
-            if (!owned.actors.contains(character) || !CostumeAllowed(costume, nullptr, character)) continue;
-            for (const auto& [hairId, hair] : hairs) {
-                if (Text(hair, "get_CharacterId") != character || !HairAllowed(hair, character, costumeId)) continue;
-                BaseOutfit outfit{{{character, costumeId, hairId}, actorPoses[character]}, Text(costume, "get_CostumeTypeId")};
-                for (auto master : {costume, hair}) {
-                    for (const int type : Items<int>(Field(master, "impossiblePhotoPoseTypes_"))) outfit.option.poses.erase(type);
-                }
-                result.push_back(std::move(outfit));
-            }
-        }
-        return result;
-    }
-
-    void PopulateScene(SceneRules& scene, const std::vector<BaseOutfit>& outfits) {
-        scene.outfits.clear();
-        for (const auto& base : outfits) {
-            const auto& actor = base.option.actor;
-            if (actor.character == "char-mna" || actor.character == "char-mng") continue;
-            const auto has = [](const auto& list, const auto& id) { return std::find(list.begin(), list.end(), id) != list.end(); };
-            if (has(scene.forbiddenCharacters, actor.character) ||
-                (!scene.allowedCharacters.empty() && !has(scene.allowedCharacters, actor.character))) continue;
-            // Every costume-specifier scene supplies an expanded allowed-type list.
-            // Quest/music stages have no costume specifier and intentionally leave this list empty.
-            if (scene.hasCostumeRules && !has(scene.costumeTypes, base.costumeType)) continue;
-            auto option = base.option;
-            for (auto& [type, poses] : option.poses)
-                std::erase_if(poses, [&](const auto& id) { return has(scene.forbiddenPoses, id); });
-            scene.outfits[actor.character].push_back(std::move(option));
-        }
-    }
-
-    void ExportCatalog(const SceneCatalog& scenes, uint64_t revision) {
-        using Json = nlohmann::json;
-        Json report{{"revision", revision}, {"scenes", Json::array()}};
-        for (const auto& [key, scene] : scenes) {
-            Json row{{"key", key}, {"stage", scene.stage}, {"action", scene.action}, {"maxActors", scene.maxActors},
-                     {"costumeTypes", scene.costumeTypes}, {"forcedCostumeType", scene.forcedCostumeType},
-                     {"forbiddenCharacters", scene.forbiddenCharacters}, {"allowedCharacters", scene.allowedCharacters},
-                     {"forbiddenPoses", scene.forbiddenPoses}, {"characterAmounts", scene.characterAmounts},
-                     {"positions", Json::array()}, {"outfits", Json::array()}};
-            for (const auto& [number, position] : scene.positions)
-                row["positions"].push_back({{"number", number}, {"poseType", position.poseType}, {"capacity", position.capacity}});
-            for (const auto& [character, choices] : scene.outfits) {
-                for (const auto& choice : choices) {
-                    Json poses = Json::object();
-                    for (const auto& [type, ids] : choice.poses) poses[std::to_string(type)] = ids;
-                    row["outfits"].push_back({{"character", character}, {"costume", choice.actor.costume},
-                                              {"hair", choice.actor.hair}, {"poses", std::move(poses)}});
-                }
-            }
-            report["scenes"].push_back(std::move(row));
-        }
-        std::ofstream output(Local::GetBasePath() / "photo-scene-catalog.json", std::ios::binary | std::ios::trunc);
-        if (output) output << report.dump(2);
-    }
-
-    std::shared_ptr<const SceneCatalog> EnsureCatalog() {
-        std::lock_guard buildLock(catalogMutex);
-        Inventory owned;
-        uint64_t revision;
-        { std::lock_guard lock(inventoryMutex); owned = inventory; revision = inventoryRevision; }
-        if (catalog && catalogRevision == revision) return catalog;
-        if (!owned.ready || !validateCostume || !validateHair) return {};
-        auto scenes = std::make_shared<SceneCatalog>();
-        const auto started = std::chrono::steady_clock::now();
-        const auto outfits = BuildOwnedOutfits(owned);
-        SceneRules unrestricted;
-        unrestricted.kind = "Owned"; unrestricted.id = "default";
-        PopulateScene(unrestricted, outfits);
-        (*scenes)["Owned/default"] = std::move(unrestricted);
-        for (const auto kind : {"PhotoExpression", "PhotoActivity", "PhotoContestActivity", "PhotoQuestStage", "PhotoContestQuestStage"}) {
-            const auto getter = std::string("get_") + kind + "Master";
-            for (auto row : AllMasterRows(getter.c_str())) {
-                auto scene = ReadScene(row, kind, Text(row, "get_Id"));
-                if (scene.id.empty()) continue;
-                PopulateScene(scene, outfits);
-                (*scenes)[SceneKey(scene.kind, scene.id)] = std::move(scene);
-            }
-        }
-        for (const auto& [key, rules] : dynamicScenes) {
-            auto scene = rules;
-            PopulateScene(scene, outfits);
-            (*scenes)[key] = std::move(scene);
-        }
-        ExportCatalog(*scenes, revision);
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
-        Log::InfoFmt("PhotoRequests: catalog precomputed scenes=%zu owned-outfits=%zu revision=%llu elapsed-ms=%lld",
-                     scenes->size(), outfits.size(), static_cast<unsigned long long>(revision), static_cast<long long>(elapsed));
-        if (const auto pool = scenes->find("PhotoExpression/photo_expression-pool"); pool != scenes->end()) {
-            size_t choices = 0;
-            for (const auto& [character, options] : pool->second.outfits) choices += options.size();
-            Log::InfoFmt("PhotoRequests: pool catalog eligible-actors=%zu outfits=%zu positions=%zu max-actors=%d",
-                         pool->second.outfits.size(), choices, pool->second.positions.size(), pool->second.maxActors);
-        }
-        catalog = scenes; catalogRevision = revision;
-        return catalog;
-    }
-
-    struct Context {
-        Inventory owned;
-        std::shared_ptr<const SceneCatalog> scenes;
-        const SceneRules* rules{};
-        std::set<int> requiredPoseTypes;
-        void* expression{};
-        std::string expressionId;
-        const char* step = "request shape";
-        std::map<std::string, ActorSelection> selections;
-        std::set<std::string> droppedSources;
-        ActorSelection primary;
-        int capacityLimit{};
-
-        int MaxActors() const {
-            const int sceneLimit = rules ? rules->maxActors : 0;
-            return capacityLimit > 0 && (sceneLimit <= 0 || capacityLimit < sceneLimit) ? capacityLimit : sceneLimit;
-        }
-
-        bool Pair(const std::string& character, const std::string& requestedCostume,
-                  const std::string& requestedHair, ActorSelection& result) {
-            if (!owned.actors.contains(character)) return false;
-            if (rules) {
-                const auto found = rules->outfits.find(character);
-                if (found == rules->outfits.end()) return false;
-                const SceneOutfit* best = nullptr;
-                int bestScore = -1;
-                for (const auto& option : found->second) {
-                    if (rules->expression && !HasPoseType(option, 0)) continue;
-                    if (std::any_of(requiredPoseTypes.begin(), requiredPoseTypes.end(),
-                                    [&](int type) { return !HasPoseType(option, type); })) continue;
-                    const auto& equipped = owned.actors.at(character);
-                    const int score = (option.actor.costume == requestedCostume ? 8 : 0) +
-                                      (option.actor.hair == requestedHair ? 4 : 0) +
-                                      (option.actor.costume == equipped.liveCostume ? 2 : 0) +
-                                      (option.actor.hair == equipped.liveHair ? 1 : 0);
-                    if (score > bestScore) { best = &option; bestScore = score; }
-                }
-                if (!best) return false;
-                result = best->actor;
-                return true;
-            }
-            auto pickHair = [&](const std::string& costume) {
-                return SelectOwnedId(owned.hairs, requestedHair, [&](const auto& id) {
-                    return HairAllowed(Find("get_HairMaster", id), character, costume);
-                });
-            };
-            std::string hair;
-            auto costume = SelectOwnedId(owned.costumes, requestedCostume, [&](const auto& id) {
-                if (!CostumeAllowed(Find("get_CostumeMaster", id), expression, character)) return false;
-                hair = pickHair(id);
-                return !hair.empty();
-            });
-            if (costume.empty()) return false;
-            result = {character, costume, hair};
-            return true;
-        }
-
-        bool Actor(const std::string& original, const std::string& costume, const std::string& hair,
-                   ActorSelection& result) {
-            if (auto it = selections.find(original); it != selections.end()) { result = it->second; return true; }
-            if (droppedSources.contains(original) && !primary.character.empty()) { result = primary; return true; }
-            ActorSelection candidate;
-            auto chosen = SelectCharacter(owned, original, [&](const auto& id) {
-                if (Config::unlockAllPhotoPose && (id == "char-mna" || id == "char-mng")) return false;
-                if (expression && Contains(Field(expression, "impossibleShootingCharacterIds_"), id)) return false;
-                for (const auto& [source, selected] : selections)
-                    if (source != original && selected.character == id) return false;
-                return Pair(id, costume, hair, candidate);
-            });
-            if (chosen.empty()) {
-                step = "owned costume/hair candidates";
-                Log::ErrorFmt("PhotoRequests: no actor candidate for %s expression=%s forced=%s",
-                             original.c_str(), expressionId.c_str(), Text(expression, "get_ForceCostumeTypeId").c_str());
-                return false;
-            }
-            result = candidate;
-            selections[original] = result;
-            return true;
-        }
-
-        bool Actors(void* object, const char* charactersGetter, const char* costumesGetter,
-                    const char* hairsGetter) {
-            auto characterField = Get(object, charactersGetter);
-            auto costumeField = Get(object, costumesGetter);
-            auto hairField = Get(object, hairsGetter);
-            auto characters = Strings(characterField), costumes = Strings(costumeField), hairs = Strings(hairField);
-            if (characters.empty() && costumes.empty() && hairs.empty()) return true;
-            if (!Aligned(characters, costumes, hairs)) {
-                step = "actor roster lengths";
-                Log::ErrorFmt("PhotoRequests: roster sizes characters=%zu costumes=%zu hairs=%zu",
-                             characters.size(), costumes.size(), hairs.size());
-                return false;
-            }
-            if (rules && MaxActors() > 0 && characters.size() > static_cast<size_t>(MaxActors())) {
-                std::vector<int> preference;
-                for (const auto& id : characters)
-                    preference.push_back(selections.contains(id) ? 2 : rules->outfits.contains(id) ? 1 : 0);
-                const auto keep = ProjectRoster(characters.size(), MaxActors(), preference);
-                std::vector<std::string> projectedCharacters, projectedCostumes, projectedHairs;
-                for (size_t i = 0; i < characters.size(); ++i) {
-                    if (std::find(keep.begin(), keep.end(), i) == keep.end()) droppedSources.insert(characters[i]);
-                    else {
-                        projectedCharacters.push_back(characters[i]); projectedCostumes.push_back(costumes[i]); projectedHairs.push_back(hairs[i]);
-                    }
-                }
-                Log::InfoFmt("PhotoRequests: catalog roster projected %zu -> %zu for %s/%s",
-                             characters.size(), projectedCharacters.size(), rules->kind.c_str(), rules->id.c_str());
-                characters = std::move(projectedCharacters); costumes = std::move(projectedCostumes); hairs = std::move(projectedHairs);
-            }
-            if (!selections.empty() && std::all_of(characters.begin(), characters.end(),
-                                                 [&](const auto& id) { return selections.contains(id); })) {
-                for (size_t i = 0; i < characters.size(); ++i) {
-                    const auto saved = selections.at(characters[i]);
-                    if (i == 0) primary = saved;
-                    ActorSelection verified;
-                    if (!Pair(saved.character, saved.costume, saved.hair, verified) ||
-                        verified.costume != saved.costume || verified.hair != saved.hair) {
-                        step = "stored check plan incompatible with capture"; return false;
-                    }
-                    characters[i] = saved.character; costumes[i] = saved.costume; hairs[i] = saved.hair;
-                }
-                return Replace(characterField, characters) && Replace(costumeField, costumes) && Replace(hairField, hairs);
-            }
-            if (rules) {
-                if (MaxActors() > 0 && characters.size() > static_cast<size_t>(MaxActors())) {
-                    step = "catalog actor capacity"; return false;
-                }
-                std::vector<std::set<int>> poseRequirements{requiredPoseTypes};
-                if (rules->expression && requiredPoseTypes.empty() && !rules->positions.empty()) {
-                    poseRequirements.clear();
-                    for (const auto& [number, position] : rules->positions) {
-                        if (position.capacity > 0 && static_cast<size_t>(position.capacity) < characters.size()) continue;
-                        poseRequirements.push_back(position.poseType ? std::set<int>{position.poseType} : std::set<int>{});
-                    }
-                }
-                std::vector<std::string> assignment;
-                for (const auto& requirement : poseRequirements) {
-                    requiredPoseTypes = requirement;
-                    std::vector<std::vector<std::string>> domains(characters.size());
-                    for (size_t i = 0; i < characters.size(); ++i) {
-                        for (const auto& [id, options] : rules->outfits) {
-                            ActorSelection selected;
-                            if (Pair(id, costumes[i], hairs[i], selected)) domains[i].push_back(id);
-                        }
-                    }
-                    assignment = MatchRoster(characters, domains);
-                    if (!assignment.empty()) break;
-                }
-                if (assignment.empty()) {
-                    step = "catalog has no complete roster";
-                    Log::ErrorFmt("PhotoRequests: catalog %s/%s eligible-actors=%zu requested=%zu",
-                                 rules->kind.c_str(), rules->id.c_str(), rules->outfits.size(), characters.size());
-                    return false;
-                }
-                for (size_t i = 0; i < characters.size(); ++i) {
-                    ActorSelection actor;
-                    if (!Pair(assignment[i], costumes[i], hairs[i], actor)) return false;
-                    selections[characters[i]] = actor;
-                    if (i == 0) primary = actor;
-                    characters[i] = actor.character; costumes[i] = actor.costume; hairs[i] = actor.hair;
-                }
-                step = "catalog roster write";
-                return Replace(characterField, characters) && Replace(costumeField, costumes) && Replace(hairField, hairs);
-            }
-            for (size_t i = 0; i < characters.size(); ++i) {
-                ActorSelection actor;
-                if (!Actor(characters[i], costumes[i], hairs[i], actor)) return false;
-                characters[i] = actor.character; costumes[i] = actor.costume; hairs[i] = actor.hair;
-            }
-            step = "actor list write";
-            return Replace(characterField, characters) && Replace(costumeField, costumes) && Replace(hairField, hairs);
-        }
-
-        bool MapCharacter(void* object, const char* getter, const char* setter) {
-            if (!MethodOf(object, getter)) return true;
-            const auto original = Text(object, getter);
-            if (original.empty()) return true;
-            auto it = selections.find(original);
-            if (it == selections.end()) {
-                return droppedSources.contains(original) && !primary.character.empty() && SetText(object, setter, primary.character);
-            }
-            return SetText(object, setter, it->second.character);
-        }
-
-        std::string Pose(const std::string& requested, const ActorSelection& actor, int allowedType) {
-            if (rules) {
-                const auto candidates = rules->outfits.find(actor.character);
-                if (candidates == rules->outfits.end()) return {};
-                for (const auto& outfit : candidates->second) {
-                    if (outfit.actor.costume != actor.costume || outfit.actor.hair != actor.hair) continue;
-                    std::set<std::string> poses;
-                    for (const auto& [type, ids] : outfit.poses)
-                        if (!allowedType || type == allowedType) poses.insert(ids.begin(), ids.end());
-                    return SelectOwnedId(poses, requested, [](const auto&) { return true; });
-                }
-                return {};
-            }
-            return FindOwnedCompatiblePose(owned, expression, requested, actor.character, actor.costume, actor.hair, allowedType);
-        }
-
-        bool ExpressionParams(void* request) {
-            // get_CreateShootingParams() creates an empty temporary collection in 6.1.1.
-            auto parameters = Get(request, "get_CreateExpressionShootingParams");
-            for (auto param : Items(parameters)) {
-                if (!MapCharacter(param, "get_MainCharacterId", "set_MainCharacterId")) return false;
-                const auto number = Get<int>(param, "get_StagePositionNumber");
-                int type = 0;
-                if (!ResolveExpressionStagePoseType(expression, number, type)) return false;
-                auto idsField = Get(param, "get_CharacterIds");
-                auto posesField = Get(param, "get_PhotoPoseIds");
-                auto ids = Strings(idsField), poses = Strings(posesField);
-                if (ids.size() != poses.size()) return false;
-                auto facesField = Get(param, "get_PhotoFacialIds");
-                auto looksField = Get(param, "get_PhotoLookingTypes");
-                auto faces = Strings(facesField);
-                auto looks = Items<int>(looksField);
-                if ((!faces.empty() && faces.size() != ids.size()) || (!looks.empty() && looks.size() != ids.size())) return false;
-                std::vector<size_t> keep;
-                for (size_t i = 0; i < ids.size(); ++i) if (selections.contains(ids[i])) keep.push_back(i);
-                // A capture whose original subject was removed still needs a valid canonical subject.
-                if (keep.empty() && !ids.empty() && !primary.character.empty()) keep.push_back(0);
-                std::vector<std::string> projectedIds, projectedPoses, projectedFaces;
-                std::vector<int> projectedLooks;
-                for (const size_t i : keep) {
-                    const auto selected = selections.find(ids[i]);
-                    const auto& actor = selected != selections.end() ? selected->second : primary;
-                    const auto pose = Pose(poses[i], actor, type);
-                    if (pose.empty()) return false;
-                    projectedIds.push_back(actor.character); projectedPoses.push_back(pose);
-                    if (!faces.empty()) projectedFaces.push_back(faces[i]);
-                    if (!looks.empty()) projectedLooks.push_back(looks[i]);
-                }
-                if (!Replace(idsField, projectedIds) || !Replace(posesField, projectedPoses) ||
-                    (!faces.empty() && !Replace(facesField, projectedFaces)) ||
-                    (!looks.empty() && !ReplaceNumbers(looksField, projectedLooks))) return false;
-                if (!projectedIds.empty() && !Contains(idsField, Text(param, "get_MainCharacterId")) &&
-                    !SetText(param, "set_MainCharacterId", projectedIds.front())) return false;
-                const auto main = Text(param, "get_MainCharacterId");
-                if (!main.empty()) {
-                    auto actor = std::find_if(selections.begin(), selections.end(), [&](const auto& pair) {
-                        return pair.second.character == main;
-                    });
-                    if (actor == selections.end()) return false;
-                    auto pose = Pose(Text(param, "get_PhotoPoseId"), actor->second, type);
-                    if (pose.empty() || !SetText(param, "set_PhotoPoseId", pose)) return false;
-                    const auto mainIndex = std::find(projectedIds.begin(), projectedIds.end(), main);
-                    if (mainIndex != projectedIds.end()) {
-                        const size_t index = mainIndex - projectedIds.begin();
-                        if (!projectedFaces.empty() && !SetText(param, "set_PhotoFacialId", projectedFaces[index])) return false;
-                        if (!projectedLooks.empty() && !Set(param, "set_PhotoLookingType", projectedLooks[index])) return false;
-                    }
-                }
-            }
-            return parameters != nullptr;
-        }
-    };
 
     std::string RequestFingerprint(void* request) {
         std::string result;
@@ -775,42 +413,6 @@ namespace {
         return result;
     }
 
-    std::string PlanKey(void* request, const std::string& name) {
-        std::string key;
-        const auto append = [&](std::initializer_list<const char*> getters) {
-            for (const auto getter : getters) key += '\n' + Text(request, getter);
-        };
-        // Only include real wire identity fields, never the creation-only convenience properties.
-        if (name.find("Expression") != std::string::npos) {
-            key = "expression"; append({"get_PhotoExpressionId"});
-        } else if (name.starts_with("PhotoContest")) {
-            key = "contest"; append({"get_PhotoContestId", "get_SectionId", "get_PhotoContestActivityId",
-                                    "get_PhotoContestQuestMusicId", "get_PhotoContestQuestStageId"});
-        } else if (name.starts_with("PhotoPanorama")) {
-            key = "panorama"; append({"get_PhotoMusicId"});
-        } else if (name.find("Special") != std::string::npos) {
-            key = "special"; append({"get_SpecialPhotoShootingId", "get_MusicId", "get_StageId"});
-        } else {
-            key = "photo"; append({"get_PhotoActivityId", "get_PhotoMusicId", "get_PhotoStageId"});
-        }
-        if (name.find("Expression") == std::string::npos && !name.starts_with("PhotoPanorama"))
-            key += '\n' + std::to_string(Get<int>(request, "get_ActionType"));
-        auto ids = Strings(Get(request, "get_CharacterIds"));
-        auto costumes = Strings(Get(request, "get_CostumeIds"));
-        auto hairs = Strings(Get(request, "get_HairIds"));
-        if (ids.empty()) {
-            ids = Strings(Get(request, "get_SelectedCharacterIds"));
-            costumes = Strings(Get(request, "get_SelectedCostumeIds"));
-            hairs = Strings(Get(request, "get_SelectedHairIds"));
-        }
-        for (const auto& values : {ids, costumes, hairs}) {
-            key += '|'; for (const auto& value : values) key += '\n' + value;
-        }
-        // Expression APIs also support the legacy singular representation.
-        if (ids.empty()) for (const auto getter : {"get_CharacterId", "get_CostumeId", "get_HairId"}) key += '\n' + Text(request, getter);
-        return key;
-    }
-
     std::string ActivityIdentity(void* request) {
         std::string result;
         for (const auto getter : {"get_ActivityFanEventId", "get_ActivityPromotionId", "get_ActivityRefreshId"})
@@ -820,255 +422,6 @@ namespace {
             result += '|'; for (const auto& id : Strings(Get(request, getter))) result += '\n' + id;
         }
         return result;
-    }
-
-    bool Sanitize(void* request, Context& context, const std::string& name) {
-        const auto useScene = [&](const std::string& kind, const std::string& id) {
-            if (!context.scenes) return false;
-            const auto scene = context.scenes->find(SceneKey(kind, id));
-            if (scene == context.scenes->end()) return false;
-            context.rules = &scene->second;
-            return true;
-        };
-        useScene("Owned", "default");
-        const bool expression = name == "PhotoCheckExpressionShootingRequest" || name == "PhotoCreateExpressionShootingsRequest";
-        if (expression) {
-            context.expressionId = Text(request, "get_PhotoExpressionId");
-            context.step = "expression master";
-            auto known = context.owned.unlocked.find("PhotoExpression");
-            // IsUnlocked getters can be inlined by IL2CPP. An unobserved value is not a locked scene.
-            // With scene unlocking off, keep the scene selected by the game's normal UI.
-            if (Config::unlockAllLive && IsKnownLocked(context.owned, "PhotoExpression", context.expressionId)) {
-                context.expressionId.clear();
-                for (const auto& [id, unlocked] : known->second) {
-                    if (unlocked) { context.expressionId = id; break; }
-                }
-                if (context.expressionId.empty() || !SetText(request, "set_PhotoExpressionId", context.expressionId)) return false;
-            }
-            context.expression = Find("get_PhotoExpressionMaster", context.expressionId);
-            if (!context.expression || !useScene("PhotoExpression", context.expressionId)) return false;
-            if (name == "PhotoCreateExpressionShootingsRequest") {
-                for (auto param : Items(Get(request, "get_CreateExpressionShootingParams"))) {
-                    const int number = Get<int>(param, "get_StagePositionNumber");
-                    const auto position = context.rules->positions.find(number);
-                    if (position == context.rules->positions.end()) { context.step = "unknown stage position"; return false; }
-                    if (position->second.poseType) context.requiredPoseTypes.insert(position->second.poseType);
-                }
-            }
-        }
-        if (Config::unlockAllLive && (name == "PhotoCheckShootingRequest" || name == "PhotoCreateShootingsRequest")) {
-            const auto pick = [&](const char* kind, const char* getter, const char* setter) {
-                const auto known = context.owned.unlocked.find(kind);
-                if (known == context.owned.unlocked.end()) return false;
-                const auto current = Text(request, getter);
-                if (known->second.contains(current) && known->second.at(current)) return true;
-                for (const auto& [id, unlocked] : known->second) if (unlocked) return SetText(request, setter, id);
-                return false;
-            };
-            const int action = Get<int>(request, "get_ActionType");
-            if (action == 1 || action == 2) {
-                if (!pick("PhotoActivity", "get_PhotoActivityId", "set_PhotoActivityId")) return false;
-                if (!SetText(request, "set_PhotoMusicId", "") || !SetText(request, "set_PhotoStageId", "")) return false;
-            } else if (action == 3) {
-                if (!pick("PhotoMusic", "get_PhotoMusicId", "set_PhotoMusicId") ||
-                    !pick("PhotoStage", "get_PhotoStageId", "set_PhotoStageId") ||
-                    !SetText(request, "set_PhotoActivityId", "")) return false;
-            }
-        }
-        if (!expression) {
-            const int action = Get<int>(request, "get_ActionType");
-            if (name.starts_with("PhotoContest")) {
-                if (action == 1 || action == 2)
-                    useScene("PhotoContestActivity", Text(request, "get_PhotoContestActivityId"));
-                else if (action == 3) useScene("PhotoContestQuestStage", Text(request, "get_PhotoContestQuestStageId"));
-            } else if (name.find("Special") != std::string::npos) {
-                if (action == 1 || action == 2) useScene("SpecialPhotoActivity", std::to_string(action));
-                else if (action == 3) {
-                    useScene("SpecialPhotoQuestMusic", Text(request, "get_MusicId"));
-                    if (context.scenes) {
-                        const auto stage = context.scenes->find(SceneKey("SpecialPhotoQuestStage", Text(request, "get_StageId")));
-                        if (stage != context.scenes->end()) context.capacityLimit = stage->second.maxActors;
-                    }
-                }
-            } else if (action == 1 || action == 2) useScene("PhotoActivity", Text(request, "get_PhotoActivityId"));
-            else if (action == 3) useScene("PhotoQuestStage", Text(request, "get_PhotoStageId"));
-        }
-        context.step = "actor roster";
-        if (MethodOf(request, "get_CharacterIds") &&
-            !context.Actors(request, "get_CharacterIds", "get_CostumeIds", "get_HairIds")) return false;
-        if (MethodOf(request, "get_SelectedCharacterIds") &&
-            !context.Actors(request, "get_SelectedCharacterIds", "get_SelectedCostumeIds", "get_SelectedHairIds")) return false;
-        if (expression && !Text(request, "get_CharacterId").empty()) {
-            context.step = "single actor costume/hair";
-            ActorSelection actor;
-            if (!context.Actor(Text(request, "get_CharacterId"), Text(request, "get_CostumeId"), Text(request, "get_HairId"), actor) ||
-                !SetText(request, "set_CharacterId", actor.character) || !SetText(request, "set_CostumeId", actor.costume) ||
-                !SetText(request, "set_HairId", actor.hair)) return false;
-        }
-        if (context.expression) {
-            context.step = "expression actor count";
-            auto count = Strings(Get(request, "get_CharacterIds")).size();
-            if (count == 0) count = 1;
-            const int maximum = Get<int>(context.expression, "GetMaxCharacterAmount");
-            if (maximum > 0 && count > static_cast<size_t>(maximum)) return false;
-        }
-        context.step = "main/start actor mapping";
-        if (!context.MapCharacter(request, "get_MainCharacterId", "set_MainCharacterId") ||
-            !context.MapCharacter(request, "get_StartCharacterId", "set_StartCharacterId")) return false;
-        context.step = "nested shooting parameters";
-        if (name == "PhotoCreateExpressionShootingsRequest") return context.ExpressionParams(request);
-        // These collections are actual protobuf fields. The contest convenience property is not serialized.
-        if (name != "PhotoContestSubmitShootingRequest") {
-            for (auto param : Items(Get(request, "get_CreateShootingParams")))
-                if (!context.MapCharacter(param, "get_MainCharacterId", "set_MainCharacterId")) return false;
-        }
-        return !context.selections.empty();
-    }
-
-
-}
-
-    void CaptureInitial(void* response) {
-        if (!response || std::string(Il2cppUtils::get_class_from_instance(response)->name) != "UserGetResponse") return;
-        Inventory fresh;
-        if (!ReadInventory(response, fresh, true)) return;
-        std::lock_guard lock(inventoryMutex);
-        // Initial responses can be read repeatedly; preserve unlock observations for the same account data.
-        if (inventory.actors == fresh.actors) fresh.unlocked = std::move(inventory.unlocked);
-        inventory = std::move(fresh);
-        ++inventoryRevision;
-        storedPlans.clear();
-        Log::InfoFmt("PhotoRequests: server inventory ready=%d actors=%zu costumes=%zu hairs=%zu poses=%zu",
-                     inventory.ready, inventory.actors.size(), inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size());
-    }
-
-    void CaptureUpdate(void* data) {
-        if (!data || std::string(Il2cppUtils::get_class_from_instance(data)->name) != "UpdatedData") return;
-        std::lock_guard lock(inventoryMutex);
-        if (inventory.ready) {
-            const auto before = std::tuple{inventory.actors, inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size()};
-            ReadInventory(data, inventory, false);
-            if (before != std::tuple{inventory.actors, inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size()})
-                ++inventoryRevision;
-        }
-    }
-
-    void CaptureAvailability(void* response) {
-        if (!response) return;
-        const std::string name = Il2cppUtils::get_class_from_instance(response)->name;
-        auto source = name == "PhotoContestTopResponse" ? Get(response, "get_PhotoContestInfo") : response;
-        if (!source) return;
-        std::map<std::string, std::map<std::string, bool>> observations;
-        SceneCatalog additional;
-        const auto collect = [&](const char* getter, const char* kind) {
-            for (auto item : Items(Get(source, getter))) {
-                auto id = AvailabilityId(item);
-                if (std::string_view(kind) == "SpecialPhotoActivity") id = std::to_string(Get<int>(item, "get_ActionType"));
-                if (id.empty()) continue;
-                observations[kind][id] = Field<bool>(item, "isUnlocked_");
-                if (std::string_view(kind).starts_with("SpecialPhoto")) {
-                    auto scene = ReadScene(item, kind, id);
-                    additional[SceneKey(kind, id)] = std::move(scene);
-                    for (auto stage : Items(Get(item, "get_PhotoStages"))) {
-                        const auto stageId = Text(stage, "get_StageId");
-                        auto stageRules = ReadScene(stage, "SpecialPhotoQuestStage", stageId);
-                        additional[SceneKey("SpecialPhotoQuestStage", stageId)] = std::move(stageRules);
-                    }
-                }
-            }
-        };
-        if (name == "PhotoListShootingResponse") {
-            collect("get_Expressions", "PhotoExpression"); collect("get_Activities", "PhotoActivity");
-            collect("get_Musics", "PhotoMusic"); collect("get_Stages", "PhotoStage");
-        } else if (name == "PhotoListSpecialShootingResponse") {
-            collect("get_Activities", "SpecialPhotoActivity"); collect("get_Musics", "SpecialPhotoQuestMusic");
-        } else if (name == "PhotoContestTopResponse") {
-            collect("get_Activities", "PhotoContestActivity"); collect("get_Musics", "PhotoContestQuestMusic");
-            collect("get_Stages", "PhotoContestQuestStage");
-        } else return;
-        bool changed = !additional.empty();
-        {
-            std::lock_guard lock(inventoryMutex);
-            for (const auto& [kind, rows] : observations)
-                for (const auto& [id, unlocked] : rows) {
-                    auto& known = inventory.unlocked[kind];
-                    changed |= !known.contains(id) || known[id] != unlocked;
-                    known[id] = unlocked;
-                }
-            if (changed) ++inventoryRevision;
-        }
-        if (!additional.empty()) {
-            std::lock_guard lock(catalogMutex);
-            for (auto& [key, scene] : additional) dynamicScenes[key] = std::move(scene);
-        }
-        // Response parsing must remain short: build the catalog only when a request needs it.
-    }
-
-    void ApplyActivityVisualOutfits(void* progress) {
-        if (!progress || !Config::unlockAllLiveCostume) return;
-        auto klass = Il2cppUtils::get_class_from_instance(progress);
-        if (!klass || !klass->name) return;
-        const std::string className = klass->name;
-        std::string kind, sceneId;
-        if (className == "PromotionProgress") {
-            kind = "Promotion";
-            sceneId = Text(progress, "get_ActivityPromotionId");
-        } else if (className == "RefreshProgress") {
-            kind = "Refresh";
-            sceneId = Text(progress, "get_ActivityRefreshId") + "/" +
-                      std::to_string(Get<int>(progress, "get_ActivityRefreshLevel"));
-        } else if (className == "FanEventProgress") {
-            kind = "FanEvent";
-            sceneId = Text(progress, "get_ActivityFanEventId");
-        } else {
-            return;
-        }
-        if (sceneId.empty()) return;
-
-        ActivityVisualRecord saved;
-        {
-            std::lock_guard lock(activityVisualMutex);
-            LoadActivityVisualsLocked();
-            const auto it = activityVisuals.find(kind);
-            if (it == activityVisuals.end() || it->second.sceneId != sceneId) return;
-            saved = it->second;
-        }
-
-        const auto characters = Items(Get(progress, "get_Characters"));
-        int applied = 0;
-        for (auto info : characters) {
-            const auto cid = Text(info, "get_CharacterId");
-            const auto found = saved.outfits.find(cid);
-            if (found == saved.outfits.end()) continue;
-            const auto& [costumeId, hairId] = found->second;
-            if (costumeId.empty() || hairId.empty()) continue;
-            const auto currentCostume = Text(info, "get_CostumeId");
-            const auto currentHair = Text(info, "get_HairId");
-            if (currentCostume != costumeId || currentHair != hairId) {
-                if (SetText(info, "set_CostumeId", costumeId) && SetText(info, "set_HairId", hairId)) {
-                    ++applied;
-                }
-            }
-        }
-        if (applied > 0) {
-            Log::InfoFmt("ActivityVisual: applied %s/%s overrides=%d/%zu",
-                         kind.c_str(), sceneId.c_str(), applied, characters.size());
-        }
-    }
-
-    void ObserveUnlock(void* item, bool unlocked) {
-        if (!item) return;
-        const std::string kind = Il2cppUtils::get_class_from_instance(item)->name;
-        auto id = AvailabilityId(item);
-        if (id.empty()) return;
-        std::lock_guard lock(inventoryMutex);
-        inventory.unlocked[kind][id] = unlocked;
-    }
-
-    void SetValidators(CostumeValidator costume, HairValidator hair) {
-        validateCostume = costume;
-        validateHair = hair;
-        Log::Info("PhotoRequests: native revision=fast-paths-v6-bulk-filter");
     }
 
     void* ResolveRequestCostumeSpecifier(void* request, const std::string& name) {
@@ -1087,67 +440,83 @@ namespace {
         return nullptr;
     }
 
-    bool ArePhotoRequestActorsOwnedValid(void* request, const std::string& name, const Inventory& owned,
-                                         std::map<std::string, ActorSelection>* outActors = nullptr) {
+    bool ResolveRequestRules(void* request, const std::string& name,
+                             void*& outSpecifier, SceneRules& outSpecialRules, bool& outHasSpecialRules) {
+        outSpecifier = nullptr;
+        outHasSpecialRules = false;
         const bool isExpression = name == "PhotoCheckExpressionShootingRequest" ||
                                   name == "PhotoCreateExpressionShootingsRequest";
         const int action = MethodOf(request, "get_ActionType") ? Get<int>(request, "get_ActionType") : 0;
         const bool isSpecialActivity = name.find("Special") != std::string::npos && (action == 1 || action == 2);
-
-        SceneRules specialRules;
-        bool hasSpecialRules = false;
-        void* specifier = nullptr;
         if (isSpecialActivity) {
-            std::lock_guard lock(catalogMutex);
-            const auto it = dynamicScenes.find(SceneKey("SpecialPhotoActivity", std::to_string(action)));
-            if (it == dynamicScenes.end()) return false;
-            specialRules = it->second;
-            hasSpecialRules = true;
-        } else {
-            specifier = ResolveRequestCostumeSpecifier(request, name);
-            if ((isExpression || action == 1 || action == 2) && !specifier) return false;
+            std::lock_guard lock(specialSceneMutex);
+            const auto it = specialScenes.find(SceneKey("SpecialPhotoActivity", std::to_string(action)));
+            if (it == specialScenes.end()) return false;
+            outSpecialRules = it->second;
+            outHasSpecialRules = true;
+            return true;
         }
+        outSpecifier = ResolveRequestCostumeSpecifier(request, name);
+        return !(isExpression || action == 1 || action == 2) || outSpecifier != nullptr;
+    }
 
-        const auto containsStr = [](const std::vector<std::string>& list, const std::string& value) {
-            return std::find(list.begin(), list.end(), value) != list.end();
-        };
-
-        const auto actorValid = [&](const std::string& characterId, const std::string& costumeId,
-                                    const std::string& hairId) -> bool {
-            if (characterId.empty() || costumeId.empty() || hairId.empty()) return false;
-            if (!owned.actors.contains(characterId)) return false;
-            if (hasSpecialRules) {
-                if (containsStr(specialRules.forbiddenCharacters, characterId)) return false;
-                if (!specialRules.allowedCharacters.empty() && !containsStr(specialRules.allowedCharacters, characterId)) {
-                    return false;
-                }
+    bool IsActorOutfitValid(const Inventory& owned, const std::string& characterId,
+                            const std::string& costumeId, const std::string& hairId,
+                            void* specifier, const SceneRules* specialRules) {
+        if (characterId.empty() || costumeId.empty() || hairId.empty()) return false;
+        if (!owned.actors.contains(characterId)) return false;
+        if (specialRules) {
+            if (ContainsStr(specialRules->forbiddenCharacters, characterId)) return false;
+            if (!specialRules->allowedCharacters.empty() && !ContainsStr(specialRules->allowedCharacters, characterId)) {
+                return false;
             }
-            if (owned.costumes.contains(costumeId) && owned.hairs.contains(hairId)) {
-                auto costumeMaster = Find("get_CostumeMaster", costumeId);
-                auto hairMaster = Find("get_HairMaster", hairId);
-                bool costumeOk = CostumeAllowed(costumeMaster, specifier, characterId);
-                if (costumeOk && hasSpecialRules && specialRules.hasCostumeRules) {
-                    costumeOk = containsStr(specialRules.costumeTypes, Text(costumeMaster, "get_CostumeTypeId"));
-                }
-                if (costumeOk && HairAllowed(hairMaster, characterId, costumeId)) {
-                    if (outActors) (*outActors)[characterId] = {characterId, costumeId, hairId};
-                    return true;
-                }
+        }
+        if (owned.costumes.contains(costumeId) && owned.hairs.contains(hairId)) {
+            auto costumeMaster = Find("get_CostumeMaster", costumeId);
+            auto hairMaster = Find("get_HairMaster", hairId);
+            bool costumeOk = CostumeAllowed(costumeMaster, specifier, characterId);
+            if (costumeOk && specialRules && specialRules->hasCostumeRules) {
+                costumeOk = ContainsStr(specialRules->costumeTypes, Text(costumeMaster, "get_CostumeTypeId"));
             }
-            if (specifier) {
-                if (auto forceActor = BuildForceActorCostume(characterId, specifier)) {
-                    if (Text(forceActor, "get_CostumeId") == costumeId) {
-                        if (Text(forceActor, "get_HairId") == hairId ||
-                            (owned.hairs.contains(hairId) &&
-                             HairAllowed(Find("get_HairMaster", hairId), characterId, costumeId))) {
-                            if (outActors) (*outActors)[characterId] = {characterId, costumeId, hairId};
-                            return true;
-                        }
+            if (costumeOk && HairAllowed(hairMaster, characterId, costumeId)) {
+                return true;
+            }
+        }
+        if (specifier) {
+            if (auto forceActor = BuildForceActorCostume(characterId, specifier)) {
+                if (Text(forceActor, "get_CostumeId") == costumeId) {
+                    if (Text(forceActor, "get_HairId") == hairId ||
+                        (owned.hairs.contains(hairId) &&
+                         HairAllowed(Find("get_HairMaster", hairId), characterId, costumeId))) {
+                        return true;
                     }
                 }
             }
-            return false;
-        };
+        }
+        if (specialRules && !specialRules->forcedCostumeType.empty()) {
+            auto costumeMaster = Find("get_CostumeMaster", costumeId);
+            if (costumeMaster && Text(costumeMaster, "get_CharacterId") == characterId &&
+                !Field<bool>(costumeMaster, "isDisableAdmin_") &&
+                !Field<bool>(costumeMaster, "isUserUnavailable_") &&
+                Text(costumeMaster, "get_CostumeTypeId") == specialRules->forcedCostumeType) {
+                if (Text(costumeMaster, "get_DefaultHairId") == hairId ||
+                    (owned.hairs.contains(hairId) &&
+                     HairAllowed(Find("get_HairMaster", hairId), characterId, costumeId))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool ArePhotoRequestActorsOwnedValid(void* request, const std::string& name, const Inventory& owned) {
+        const bool isExpression = name == "PhotoCheckExpressionShootingRequest" ||
+                                  name == "PhotoCreateExpressionShootingsRequest";
+        void* specifier = nullptr;
+        SceneRules specialRules;
+        bool hasSpecialRules = false;
+        if (!ResolveRequestRules(request, name, specifier, specialRules, hasSpecialRules)) return false;
+        const SceneRules* specialPtr = hasSpecialRules ? &specialRules : nullptr;
 
         bool checkedAny = false;
         const auto checkRoster = [&](const char* cGetter, const char* cosGetter, const char* hGetter) -> bool {
@@ -1159,7 +528,7 @@ namespace {
             if (!Aligned(chars, costumes, hairs)) return false;
             checkedAny = true;
             for (size_t i = 0; i < chars.size(); ++i) {
-                if (!actorValid(chars[i], costumes[i], hairs[i])) return false;
+                if (!IsActorOutfitValid(owned, chars[i], costumes[i], hairs[i], specifier, specialPtr)) return false;
             }
             return true;
         };
@@ -1168,82 +537,10 @@ namespace {
         if (!checkRoster("get_SelectedCharacterIds", "get_SelectedCostumeIds", "get_SelectedHairIds")) return false;
         if (isExpression && !Text(request, "get_CharacterId").empty()) {
             checkedAny = true;
-            if (!actorValid(Text(request, "get_CharacterId"), Text(request, "get_CostumeId"),
-                            Text(request, "get_HairId"))) return false;
+            if (!IsActorOutfitValid(owned, Text(request, "get_CharacterId"), Text(request, "get_CostumeId"),
+                                    Text(request, "get_HairId"), specifier, specialPtr)) return false;
         }
         return checkedAny;
-    }
-
-    bool IsPhotoRequestAlreadyOwnedValid(void* request, const std::string& name, const Inventory& owned) {
-        if (!IsPhotoRequestName(name) || Config::unlockAllLive) return false;
-        if (Config::unlockAllPhotoPose && name == "PhotoCreateExpressionShootingsRequest") return false;
-        return ArePhotoRequestActorsOwnedValid(request, name, owned);
-    }
-
-    void* FindOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit, void* costumeSpecifier) {
-        if (characterId.empty() || !selectedOutfit) return nullptr;
-        const auto selectedCostumeId = Text(selectedOutfit, "get_CostumeId");
-        const auto selectedHairId = Text(selectedOutfit, "get_HairId");
-        Inventory owned;
-        {
-            std::lock_guard lock(inventoryMutex);
-            if (!inventory.ready) return nullptr;
-            owned = inventory;
-        }
-        if (!owned.actors.contains(characterId)) return nullptr;
-
-        if (owned.costumes.contains(selectedCostumeId) && owned.hairs.contains(selectedHairId) &&
-            CostumeAllowed(Get(selectedOutfit, "get_Costume"), costumeSpecifier, characterId) &&
-            HairAllowed(Get(selectedOutfit, "get_Hair"), characterId, selectedCostumeId)) {
-            return nullptr;
-        }
-
-        static auto actorClass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Data", "ActorCostume");
-        if (!actorClass) return nullptr;
-
-        std::string costumeId, hairId;
-        if (FindOwnedOutfitPair(owned, characterId, selectedCostumeId, selectedHairId, costumeSpecifier, costumeId, hairId)) {
-            auto costumeMaster = Find("get_CostumeMaster", costumeId);
-            auto hairMaster = Find("get_HairMaster", hairId);
-            auto actor = actorClass->New<void*>();
-            auto ctor = MethodOf(actor, ".ctor", 2);
-            if (!actor || !ctor) return nullptr;
-            reinterpret_cast<void (*)(void*, void*, void*, const Method*)>(ctor->methodPointer)(
-                actor, costumeMaster, hairMaster, ctor);
-            if (Text(actor, "get_CostumeId") == costumeId && Text(actor, "get_HairId") == hairId) {
-                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> owned=(%s,%s)",
-                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
-                             costumeId.c_str(), hairId.c_str());
-                return actor;
-            }
-        }
-        if (costumeSpecifier) {
-            if (auto forceActor = BuildForceActorCostume(characterId, costumeSpecifier)) {
-                const auto forceCostumeId = Text(forceActor, "get_CostumeId");
-                const auto forceHairId = Text(forceActor, "get_HairId");
-                if (forceCostumeId == selectedCostumeId && forceHairId == selectedHairId) {
-                    return nullptr;
-                }
-                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> force=(%s,%s)",
-                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
-                             forceCostumeId.c_str(), forceHairId.c_str());
-                return forceActor;
-            }
-        }
-        Log::InfoFmt("PhotoEntry: no owned/force candidate for character=%s selected=(%s,%s)",
-                     characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str());
-        return nullptr;
-    }
-
-    PreparedRequest::PreparedRequest(void* original) : request_(original) {}
-    PreparedRequest::PreparedRequest(void* request, uint32_t handle) : request_(request), handle_(handle) {}
-    PreparedRequest::PreparedRequest(PreparedRequest&& other) noexcept
-        : request_(other.request_), handle_(std::exchange(other.handle_, 0)) {}
-    PreparedRequest::~PreparedRequest() {
-        if (handle_) UnityResolve::Invoke<void>("il2cpp_gchandle_free", handle_);
-    }
-    void* PreparedRequest::get() const {
-        return handle_ ? UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", handle_) : request_;
     }
 
     PreparedRequest CloneRequest(void* request) {
@@ -1334,81 +631,314 @@ namespace {
         return PreparedRequest(request);
     }
 
-    std::optional<PreparedRequest> PrepareExpressionPoseRequest(void* request, const Inventory& owned) {
-        std::map<std::string, ActorSelection> actors;
-        if (!ArePhotoRequestActorsOwnedValid(request, "PhotoCreateExpressionShootingsRequest", owned, &actors) ||
-            actors.empty()) {
-            return std::nullopt;
-        }
+    PreparedRequest PrepareExpressionPoseRequest(void* request, const Inventory& owned) {
         auto expression = Find("get_PhotoExpressionMaster", Text(request, "get_PhotoExpressionId"));
-        if (!expression) return std::nullopt;
+        if (!expression) {
+            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, expression master missing");
+            return PreparedRequest(request);
+        }
+
+        auto parameters = Items(Get(request, "get_CreateExpressionShootingParams"));
+        std::vector<int> paramPoseTypes;
+        paramPoseTypes.reserve(parameters.size());
+        std::map<std::string, std::set<int>> requiredTypesByActor;
+        for (auto param : parameters) {
+            int allowedType = 0;
+            if (!ResolveExpressionStagePoseType(expression, Get<int>(param, "get_StagePositionNumber"), allowedType)) {
+                Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, unknown stage position");
+                return PreparedRequest(request);
+            }
+            paramPoseTypes.push_back(allowedType);
+            for (const auto& cid : Strings(Get(param, "get_CharacterIds"))) {
+                if (!cid.empty()) requiredTypesByActor[cid].insert(allowedType);
+            }
+            const auto mainCid = Text(param, "get_MainCharacterId");
+            if (!mainCid.empty()) requiredTypesByActor[mainCid].insert(allowedType);
+        }
+
+        std::map<std::string, ActorSelection> actors;
+        bool actorsChanged = false;
+        const auto resolveActor = [&](const std::string& cid, const std::string& reqCostume,
+                                      const std::string& reqHair, ActorSelection& out) -> bool {
+            if (const auto it = actors.find(cid); it != actors.end()) {
+                out = it->second;
+                if (out.costume != reqCostume || out.hair != reqHair) actorsChanged = true;
+                return true;
+            }
+            const auto reqTypesIt = requiredTypesByActor.find(cid);
+            const std::set<int> emptyTypes;
+            const auto& reqTypes = reqTypesIt != requiredTypesByActor.end() ? reqTypesIt->second : emptyTypes;
+
+            if (IsActorOutfitValid(owned, cid, reqCostume, reqHair, expression, nullptr) &&
+                OutfitHasOwnedPosesForTypes(owned, expression, cid, reqCostume, reqHair, reqTypes)) {
+                out = {cid, reqCostume, reqHair};
+                actors[cid] = out;
+                return true;
+            }
+
+            std::string chosenCostume, chosenHair;
+            if (FindOwnedOutfitPair(owned, cid, reqCostume, reqHair, expression, chosenCostume, chosenHair,
+                                    nullptr, reqTypes, /*requirePoseTypes=*/true, expression)) {
+                out = {cid, chosenCostume, chosenHair};
+                actors[cid] = out;
+                if (chosenCostume != reqCostume || chosenHair != reqHair) actorsChanged = true;
+                return true;
+            }
+            if (auto forceActor = BuildForceActorCostume(cid, expression)) {
+                const auto forceCostume = Text(forceActor, "get_CostumeId");
+                const auto forceHair = Text(forceActor, "get_HairId");
+                if (!forceCostume.empty() && !forceHair.empty() &&
+                    OutfitHasOwnedPosesForTypes(owned, expression, cid, forceCostume, forceHair, reqTypes)) {
+                    out = {cid, forceCostume, forceHair};
+                    actors[cid] = out;
+                    if (forceCostume != reqCostume || forceHair != reqHair) actorsChanged = true;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        struct PlannedRoster {
+            const char* cosGetter;
+            const char* hairGetter;
+            std::vector<std::string> costumes;
+            std::vector<std::string> hairs;
+        };
+        std::vector<PlannedRoster> plannedRosters;
+        const auto planRoster = [&](const char* cGetter, const char* cosGetter, const char* hGetter) -> bool {
+            if (!MethodOf(request, cGetter)) return true;
+            const auto chars = Strings(Get(request, cGetter));
+            const auto costumes = Strings(Get(request, cosGetter));
+            const auto hairs = Strings(Get(request, hGetter));
+            if (chars.empty() && costumes.empty() && hairs.empty()) return true;
+            if (!Aligned(chars, costumes, hairs)) return false;
+            PlannedRoster roster{cosGetter, hGetter, costumes, hairs};
+            for (size_t i = 0; i < chars.size(); ++i) {
+                ActorSelection selected;
+                if (!resolveActor(chars[i], costumes[i], hairs[i], selected)) return false;
+                roster.costumes[i] = selected.costume;
+                roster.hairs[i] = selected.hair;
+            }
+            plannedRosters.push_back(std::move(roster));
+            return true;
+        };
+
+        if (!planRoster("get_CharacterIds", "get_CostumeIds", "get_HairIds") ||
+            !planRoster("get_SelectedCharacterIds", "get_SelectedCostumeIds", "get_SelectedHairIds")) {
+            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, no pose-compatible outfit");
+            return PreparedRequest(request);
+        }
+        bool hasSingleActor = false;
+        ActorSelection singleActor;
+        if (!Text(request, "get_CharacterId").empty()) {
+            hasSingleActor = true;
+            if (!resolveActor(Text(request, "get_CharacterId"), Text(request, "get_CostumeId"),
+                              Text(request, "get_HairId"), singleActor)) {
+                Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, no pose-compatible single outfit");
+                return PreparedRequest(request);
+            }
+        }
+        if (actors.empty()) {
+            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, empty actor roster");
+            return PreparedRequest(request);
+        }
 
         struct PlannedPoseParam {
             std::vector<std::string> poses;
             bool hasMain{};
             std::string mainPose;
         };
-        std::vector<PlannedPoseParam> planned;
-        bool changed = false;
+        std::vector<PlannedPoseParam> plannedPoses;
+        plannedPoses.reserve(parameters.size());
+        bool posesChanged = false;
 
-        auto parameters = Items(Get(request, "get_CreateExpressionShootingParams"));
-        for (auto param : parameters) {
-            int allowedType = 0;
-            if (!ResolveExpressionStagePoseType(expression, Get<int>(param, "get_StagePositionNumber"), allowedType)) {
-                return std::nullopt;
-            }
+        for (size_t idx = 0; idx < parameters.size(); ++idx) {
+            auto param = parameters[idx];
+            const int allowedType = paramPoseTypes[idx];
             const auto ids = Strings(Get(param, "get_CharacterIds"));
             const auto poses = Strings(Get(param, "get_PhotoPoseIds"));
-            if (ids.size() != poses.size()) return std::nullopt;
-
+            if (ids.size() != poses.size()) {
+                Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, pose list mismatch");
+                return PreparedRequest(request);
+            }
             PlannedPoseParam entry;
             entry.poses.reserve(poses.size());
             for (size_t i = 0; i < ids.size(); ++i) {
                 const auto it = actors.find(ids[i]);
-                if (it == actors.end()) return std::nullopt;
+                if (it == actors.end()) {
+                    Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, unknown actor in param");
+                    return PreparedRequest(request);
+                }
                 const auto resolvedPose = FindOwnedCompatiblePose(
                     owned, expression, poses[i], it->second.character, it->second.costume, it->second.hair, allowedType);
-                if (resolvedPose.empty()) return std::nullopt;
-                if (resolvedPose != poses[i]) changed = true;
+                if (resolvedPose.empty()) {
+                    Log::ErrorFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, no owned pose for %s type=%d",
+                                  ids[i].c_str(), allowedType);
+                    return PreparedRequest(request);
+                }
+                if (resolvedPose != poses[i]) posesChanged = true;
                 entry.poses.push_back(resolvedPose);
             }
-
             const auto main = Text(param, "get_MainCharacterId");
             if (!main.empty()) {
                 const auto it = actors.find(main);
-                if (it == actors.end()) return std::nullopt;
+                if (it == actors.end()) return PreparedRequest(request);
                 const auto reqMainPose = Text(param, "get_PhotoPoseId");
                 const auto resolvedMainPose = FindOwnedCompatiblePose(
                     owned, expression, reqMainPose, it->second.character, it->second.costume, it->second.hair, allowedType);
-                if (resolvedMainPose.empty()) return std::nullopt;
-                if (resolvedMainPose != reqMainPose) changed = true;
+                if (resolvedMainPose.empty()) return PreparedRequest(request);
+                if (resolvedMainPose != reqMainPose) posesChanged = true;
                 entry.hasMain = true;
                 entry.mainPose = resolvedMainPose;
             }
-            planned.push_back(std::move(entry));
+            plannedPoses.push_back(std::move(entry));
         }
 
-        if (!changed) {
-            Log::Info("PhotoRequests: PhotoCreateExpressionShootingsRequest forwarded original (expression poses valid)");
+        if (!actorsChanged && !posesChanged) {
+            Log::Info("PhotoRequests: PhotoCreateExpressionShootingsRequest forwarded original (expression outfits & poses valid)");
             return PreparedRequest(request);
         }
 
         const auto originalFingerprint = RequestFingerprint(request);
         auto candidate = CloneRequest(request);
         auto clone = candidate.get();
-        if (clone == request) return std::nullopt;
-        auto cloneParams = Items(Get(clone, "get_CreateExpressionShootingParams"));
-        if (cloneParams.size() != planned.size()) return std::nullopt;
-        for (size_t i = 0; i < cloneParams.size(); ++i) {
-            if (!Replace(Get(cloneParams[i], "get_PhotoPoseIds"), planned[i].poses)) return std::nullopt;
-            if (planned[i].hasMain && !SetText(cloneParams[i], "set_PhotoPoseId", planned[i].mainPose)) return std::nullopt;
+        if (clone == request) return PreparedRequest(request);
+
+        if (actorsChanged) {
+            for (const auto& roster : plannedRosters) {
+                if (!Replace(Get(clone, roster.cosGetter), roster.costumes) ||
+                    !Replace(Get(clone, roster.hairGetter), roster.hairs)) {
+                    Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest failed to write outfits on clone");
+                    return PreparedRequest(request);
+                }
+            }
+            if (hasSingleActor &&
+                (!SetText(clone, "set_CostumeId", singleActor.costume) ||
+                 !SetText(clone, "set_HairId", singleActor.hair))) {
+                Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest failed to write single outfit on clone");
+                return PreparedRequest(request);
+            }
+        }
+        if (posesChanged) {
+            auto cloneParams = Items(Get(clone, "get_CreateExpressionShootingParams"));
+            if (cloneParams.size() != plannedPoses.size()) return PreparedRequest(request);
+            for (size_t i = 0; i < cloneParams.size(); ++i) {
+                if (!Replace(Get(cloneParams[i], "get_PhotoPoseIds"), plannedPoses[i].poses)) return PreparedRequest(request);
+                if (plannedPoses[i].hasMain && !SetText(cloneParams[i], "set_PhotoPoseId", plannedPoses[i].mainPose)) {
+                    return PreparedRequest(request);
+                }
+            }
         }
         if (RequestFingerprint(request) != originalFingerprint) {
-            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest pose clone integrity check failed");
-            return std::nullopt;
+            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest clone integrity check failed");
+            return PreparedRequest(request);
         }
-        Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast pose-only on clone params=%zu bytes=%d",
-                     cloneParams.size(), Get<int>(clone, "CalculateSize"));
+        Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast on clone actorsChanged=%d posesChanged=%d params=%zu bytes=%d",
+                     actorsChanged ? 1 : 0, posesChanged ? 1 : 0, plannedPoses.size(), Get<int>(clone, "CalculateSize"));
+        return candidate;
+    }
+
+    PreparedRequest PreparePhotoActorsFallback(void* request, const std::string& name, const Inventory& owned) {
+        const bool isExpression = name == "PhotoCheckExpressionShootingRequest";
+        void* specifier = nullptr;
+        SceneRules specialRules;
+        bool hasSpecialRules = false;
+        if (!ResolveRequestRules(request, name, specifier, specialRules, hasSpecialRules)) {
+            Log::ErrorFmt("PhotoRequests: %s unchanged, scene rules unavailable", name.c_str());
+            return PreparedRequest(request);
+        }
+        const SceneRules* specialPtr = hasSpecialRules ? &specialRules : nullptr;
+        const auto preferredPoseTypes = isExpression ? CollectExpressionPoseTypes(specifier) : std::set<int>{};
+
+        bool changed = false;
+        const auto resolveActor = [&](const std::string& cid, const std::string& reqCostume,
+                                      const std::string& reqHair, std::string& outCostume, std::string& outHair) -> bool {
+            if (IsActorOutfitValid(owned, cid, reqCostume, reqHair, specifier, specialPtr)) {
+                outCostume = reqCostume;
+                outHair = reqHair;
+                return true;
+            }
+            if (FindOwnedOutfitPair(owned, cid, reqCostume, reqHair, specifier, outCostume, outHair,
+                                    specialPtr, preferredPoseTypes, /*requirePoseTypes=*/false)) {
+                changed = true;
+                return true;
+            }
+            if (specifier) {
+                if (auto forceActor = BuildForceActorCostume(cid, specifier)) {
+                    outCostume = Text(forceActor, "get_CostumeId");
+                    outHair = Text(forceActor, "get_HairId");
+                    if (!outCostume.empty() && !outHair.empty()) {
+                        changed = true;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        struct PlannedRoster {
+            const char* cosGetter;
+            const char* hairGetter;
+            std::vector<std::string> costumes;
+            std::vector<std::string> hairs;
+        };
+        std::vector<PlannedRoster> plannedRosters;
+        const auto planRoster = [&](const char* cGetter, const char* cosGetter, const char* hGetter) -> bool {
+            if (!MethodOf(request, cGetter)) return true;
+            const auto chars = Strings(Get(request, cGetter));
+            const auto costumes = Strings(Get(request, cosGetter));
+            const auto hairs = Strings(Get(request, hGetter));
+            if (chars.empty() && costumes.empty() && hairs.empty()) return true;
+            if (!Aligned(chars, costumes, hairs)) return false;
+            PlannedRoster roster{cosGetter, hGetter, costumes, hairs};
+            for (size_t i = 0; i < chars.size(); ++i) {
+                if (!resolveActor(chars[i], costumes[i], hairs[i], roster.costumes[i], roster.hairs[i])) return false;
+            }
+            plannedRosters.push_back(std::move(roster));
+            return true;
+        };
+
+        if (!planRoster("get_CharacterIds", "get_CostumeIds", "get_HairIds") ||
+            !planRoster("get_SelectedCharacterIds", "get_SelectedCostumeIds", "get_SelectedHairIds")) {
+            Log::ErrorFmt("PhotoRequests: %s unchanged, fallback outfit resolution failed", name.c_str());
+            return PreparedRequest(request);
+        }
+        bool hasSingleActor = false;
+        std::string singleCostume, singleHair;
+        if (isExpression && !Text(request, "get_CharacterId").empty()) {
+            hasSingleActor = true;
+            if (!resolveActor(Text(request, "get_CharacterId"), Text(request, "get_CostumeId"),
+                              Text(request, "get_HairId"), singleCostume, singleHair)) {
+                Log::ErrorFmt("PhotoRequests: %s unchanged, fallback single outfit resolution failed", name.c_str());
+                return PreparedRequest(request);
+            }
+        }
+        if (!changed) {
+            return PreparedRequest(request);
+        }
+
+        const auto originalFingerprint = RequestFingerprint(request);
+        auto candidate = CloneRequest(request);
+        auto clone = candidate.get();
+        if (clone == request) return PreparedRequest(request);
+        for (const auto& roster : plannedRosters) {
+            if (!Replace(Get(clone, roster.cosGetter), roster.costumes) ||
+                !Replace(Get(clone, roster.hairGetter), roster.hairs)) {
+                Log::ErrorFmt("PhotoRequests: %s fallback failed to write outfits on clone", name.c_str());
+                return PreparedRequest(request);
+            }
+        }
+        if (hasSingleActor &&
+            (!SetText(clone, "set_CostumeId", singleCostume) || !SetText(clone, "set_HairId", singleHair))) {
+            Log::ErrorFmt("PhotoRequests: %s fallback failed to write single outfit on clone", name.c_str());
+            return PreparedRequest(request);
+        }
+        if (RequestFingerprint(request) != originalFingerprint) {
+            Log::ErrorFmt("PhotoRequests: %s fallback clone integrity check failed", name.c_str());
+            return PreparedRequest(request);
+        }
+        Log::InfoFmt("PhotoRequests: %s prepared fallback outfits on clone bytes=%d",
+                     name.c_str(), Get<int>(clone, "CalculateSize"));
         return candidate;
     }
 
@@ -1560,70 +1090,202 @@ namespace {
             Log::DebugFmt("PhotoRequests: prepared activity=%s", Text(clone, "ToString").c_str());
         return candidate;
     }
+}
+
+    void CaptureInitial(void* response) {
+        if (!response || std::string(Il2cppUtils::get_class_from_instance(response)->name) != "UserGetResponse") return;
+        Inventory fresh;
+        if (!ReadInventory(response, fresh, true)) return;
+        std::lock_guard lock(inventoryMutex);
+        inventory = std::move(fresh);
+        Log::InfoFmt("PhotoRequests: server inventory ready=%d actors=%zu costumes=%zu hairs=%zu poses=%zu",
+                     inventory.ready, inventory.actors.size(), inventory.costumes.size(), inventory.hairs.size(), inventory.poses.size());
+    }
+
+    void CaptureUpdate(void* data) {
+        if (!data || std::string(Il2cppUtils::get_class_from_instance(data)->name) != "UpdatedData") return;
+        std::lock_guard lock(inventoryMutex);
+        if (inventory.ready) {
+            ReadInventory(data, inventory, false);
+        }
+    }
+
+    void CaptureAvailability(void* response) {
+        if (!response) return;
+        const std::string name = Il2cppUtils::get_class_from_instance(response)->name;
+        if (name != "PhotoListSpecialShootingResponse") return;
+        SceneCatalog additional;
+        for (auto item : Items(Get(response, "get_Activities"))) {
+            const auto id = std::to_string(Get<int>(item, "get_ActionType"));
+            if (id.empty()) continue;
+            additional[SceneKey("SpecialPhotoActivity", id)] = ReadSpecialActivityRules(item, id);
+        }
+        if (!additional.empty()) {
+            std::lock_guard lock(specialSceneMutex);
+            for (auto& [key, scene] : additional) specialScenes[key] = std::move(scene);
+        }
+    }
+
+    void ApplyActivityVisualOutfits(void* progress) {
+        if (!progress || !Config::unlockAllLiveCostume) return;
+        auto klass = Il2cppUtils::get_class_from_instance(progress);
+        if (!klass || !klass->name) return;
+        const std::string className = klass->name;
+        std::string kind, sceneId;
+        if (className == "PromotionProgress") {
+            kind = "Promotion";
+            sceneId = Text(progress, "get_ActivityPromotionId");
+        } else if (className == "RefreshProgress") {
+            kind = "Refresh";
+            sceneId = Text(progress, "get_ActivityRefreshId") + "/" +
+                      std::to_string(Get<int>(progress, "get_ActivityRefreshLevel"));
+        } else if (className == "FanEventProgress") {
+            kind = "FanEvent";
+            sceneId = Text(progress, "get_ActivityFanEventId");
+        } else {
+            return;
+        }
+        if (sceneId.empty()) return;
+
+        ActivityVisualRecord saved;
+        {
+            std::lock_guard lock(activityVisualMutex);
+            LoadActivityVisualsLocked();
+            const auto it = activityVisuals.find(kind);
+            if (it == activityVisuals.end() || it->second.sceneId != sceneId) return;
+            saved = it->second;
+        }
+
+        const auto characters = Items(Get(progress, "get_Characters"));
+        int applied = 0;
+        for (auto info : characters) {
+            const auto cid = Text(info, "get_CharacterId");
+            const auto found = saved.outfits.find(cid);
+            if (found == saved.outfits.end()) continue;
+            const auto& [costumeId, hairId] = found->second;
+            if (costumeId.empty() || hairId.empty()) continue;
+            const auto currentCostume = Text(info, "get_CostumeId");
+            const auto currentHair = Text(info, "get_HairId");
+            if (currentCostume != costumeId || currentHair != hairId) {
+                if (SetText(info, "set_CostumeId", costumeId) && SetText(info, "set_HairId", hairId)) {
+                    ++applied;
+                }
+            }
+        }
+        if (applied > 0) {
+            Log::InfoFmt("ActivityVisual: applied %s/%s overrides=%d/%zu",
+                         kind.c_str(), sceneId.c_str(), applied, characters.size());
+        }
+    }
+
+    void SetValidators(CostumeValidator costume, HairValidator hair) {
+        validateCostume = costume;
+        validateHair = hair;
+        Log::Info("PhotoRequests: native revision=fast-paths-v7-costume-pose-only");
+    }
+
+    void* FindOwnedPhotoEntryOutfit(const std::string& characterId, void* selectedOutfit, void* costumeSpecifier) {
+        if (characterId.empty() || !selectedOutfit) return nullptr;
+        const auto selectedCostumeId = Text(selectedOutfit, "get_CostumeId");
+        const auto selectedHairId = Text(selectedOutfit, "get_HairId");
+        Inventory owned;
+        {
+            std::lock_guard lock(inventoryMutex);
+            if (!inventory.ready) return nullptr;
+            owned = inventory;
+        }
+        if (!owned.actors.contains(characterId)) return nullptr;
+
+        const auto preferredPoseTypes = CollectExpressionPoseTypes(costumeSpecifier);
+        if (owned.costumes.contains(selectedCostumeId) && owned.hairs.contains(selectedHairId) &&
+            CostumeAllowed(Get(selectedOutfit, "get_Costume"), costumeSpecifier, characterId) &&
+            HairAllowed(Get(selectedOutfit, "get_Hair"), characterId, selectedCostumeId) &&
+            OutfitSupportsPoseTypes(Get(selectedOutfit, "get_Costume"), Get(selectedOutfit, "get_Hair"), preferredPoseTypes)) {
+            return nullptr;
+        }
+
+        static auto actorClass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Data", "ActorCostume");
+        if (!actorClass) return nullptr;
+
+        std::string costumeId, hairId;
+        if (FindOwnedOutfitPair(owned, characterId, selectedCostumeId, selectedHairId, costumeSpecifier,
+                                costumeId, hairId, nullptr, preferredPoseTypes, /*requirePoseTypes=*/false)) {
+            if (costumeId == selectedCostumeId && hairId == selectedHairId) {
+                return nullptr;
+            }
+            auto costumeMaster = Find("get_CostumeMaster", costumeId);
+            auto hairMaster = Find("get_HairMaster", hairId);
+            auto actor = actorClass->New<void*>();
+            auto ctor = MethodOf(actor, ".ctor", 2);
+            if (!actor || !ctor) return nullptr;
+            reinterpret_cast<void (*)(void*, void*, void*, const Method*)>(ctor->methodPointer)(
+                actor, costumeMaster, hairMaster, ctor);
+            if (Text(actor, "get_CostumeId") == costumeId && Text(actor, "get_HairId") == hairId) {
+                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> owned=(%s,%s)",
+                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
+                             costumeId.c_str(), hairId.c_str());
+                return actor;
+            }
+        }
+        if (costumeSpecifier) {
+            if (auto forceActor = BuildForceActorCostume(characterId, costumeSpecifier)) {
+                const auto forceCostumeId = Text(forceActor, "get_CostumeId");
+                const auto forceHairId = Text(forceActor, "get_HairId");
+                if (forceCostumeId == selectedCostumeId && forceHairId == selectedHairId) {
+                    return nullptr;
+                }
+                Log::InfoFmt("PhotoEntry: character=%s selected=(%s,%s) -> force=(%s,%s)",
+                             characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str(),
+                             forceCostumeId.c_str(), forceHairId.c_str());
+                return forceActor;
+            }
+        }
+        Log::InfoFmt("PhotoEntry: no owned/force candidate for character=%s selected=(%s,%s)",
+                     characterId.c_str(), selectedCostumeId.c_str(), selectedHairId.c_str());
+        return nullptr;
+    }
+
+    PreparedRequest::PreparedRequest(void* original) : request_(original) {}
+    PreparedRequest::PreparedRequest(void* request, uint32_t handle) : request_(request), handle_(handle) {}
+    PreparedRequest::PreparedRequest(PreparedRequest&& other) noexcept
+        : request_(other.request_), handle_(std::exchange(other.handle_, 0)) {}
+    PreparedRequest::~PreparedRequest() {
+        if (handle_) UnityResolve::Invoke<void>("il2cpp_gchandle_free", handle_);
+    }
+    void* PreparedRequest::get() const {
+        return handle_ ? UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", handle_) : request_;
+    }
 
     PreparedRequest Prepare(void* request) {
-        if (!request || (!Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose && !Config::unlockAllLive)) return PreparedRequest(request);
+        if (!request || (!Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose)) return PreparedRequest(request);
         const std::string name = Il2cppUtils::get_class_from_instance(request)->name;
         const bool costume = name.starts_with("Costume");
         if (costume && !Config::unlockAllLiveCostume) return PreparedRequest(request);
         const bool activity = name.starts_with("ActivityStart");
         if (activity && !Config::unlockAllLiveCostume) return PreparedRequest(request);
-        Context context;
-        { std::lock_guard lock(inventoryMutex); context.owned = inventory; }
-        if (!context.owned.ready) {
+
+        Inventory owned;
+        { std::lock_guard lock(inventoryMutex); owned = inventory; }
+        if (!owned.ready) {
             Log::ErrorFmt("PhotoRequests: %s unchanged, server inventory unavailable", name.c_str());
             return PreparedRequest(request);
         }
         if (costume) {
-            return PrepareCostumeRequest(request, name, context.owned);
+            return PrepareCostumeRequest(request, name, owned);
         }
         if (activity) {
-            return PrepareActivityStart(request, name, context.owned);
+            return PrepareActivityStart(request, name, owned);
         }
-        if (IsPhotoRequestAlreadyOwnedValid(request, name, context.owned)) {
-            Log::InfoFmt("PhotoRequests: %s forwarded original (server-owned entry valid)", name.c_str());
-            return PreparedRequest(request);
+        if (name == "PhotoCreateExpressionShootingsRequest") {
+            return PrepareExpressionPoseRequest(request, owned);
         }
-        if (!Config::unlockAllLive && Config::unlockAllPhotoPose && name == "PhotoCreateExpressionShootingsRequest") {
-            if (auto fastPose = PrepareExpressionPoseRequest(request, context.owned)) {
-                return std::move(*fastPose);
+        if (IsPhotoRequestName(name)) {
+            if (ArePhotoRequestActorsOwnedValid(request, name, owned)) {
+                Log::InfoFmt("PhotoRequests: %s forwarded original (server-owned entry valid)", name.c_str());
+                return PreparedRequest(request);
             }
+            return PreparePhotoActorsFallback(request, name, owned);
         }
-        context.scenes = EnsureCatalog();
-        const auto planKey = PlanKey(request, name);
-        uint64_t revision;
-        {
-            std::lock_guard lock(inventoryMutex);
-            revision = inventoryRevision;
-            const auto saved = storedPlans.find(planKey);
-            if (saved != storedPlans.end() && saved->second.revision == revision) context.selections = saved->second.selections;
-        }
-        const auto originalFingerprint = RequestFingerprint(request);
-        auto candidate = CloneRequest(request);
-        auto clone = candidate.get();
-        if (clone == request) return PreparedRequest(request);
-        if (!Sanitize(clone, context, name)) {
-            const auto details = Text(request, "ToString");
-            Log::ErrorFmt("PhotoRequests: %s unchanged, failed at %s; original=%s",
-                         name.c_str(), context.step, details.c_str());
-            return PreparedRequest(request);
-        }
-        if (RequestFingerprint(request) != originalFingerprint) {
-            Log::ErrorFmt("PhotoRequests: %s clone isolation failed", name.c_str());
-            return PreparedRequest(request);
-        }
-        if (!context.selections.empty()) {
-            std::lock_guard lock(inventoryMutex);
-            if (revision == inventoryRevision) storedPlans[planKey] = {revision, context.selections};
-        }
-        if (PhotoRequestsEqual(request, clone)) {
-            Log::InfoFmt("PhotoRequests: %s forwarded original (no content changes)", name.c_str());
-            return PreparedRequest(request);
-        }
-        Log::InfoFmt("PhotoRequests: %s prepared on clone, actors=%zu original-preserved=1 bytes=%d",
-                     name.c_str(), context.selections.size(), Get<int>(clone, "CalculateSize"));
-        if (Config::dbgMode && name.find("Check") != std::string::npos)
-            Log::DebugFmt("PhotoRequests: prepared check=%s", Text(clone, "ToString").c_str());
-        return candidate;
+        return PreparedRequest(request);
     }
 }

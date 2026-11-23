@@ -25,7 +25,6 @@ namespace HoshimiLocal::Config {
     extern bool debugAudioLog;
     extern bool enableFreeCamera;
     extern int targetFrameRate;
-    extern bool unlockAllLive;
     extern bool skipLiveToResult;
     extern bool unlockAllLiveCostume;
     extern bool unlockAllPhotoPose;

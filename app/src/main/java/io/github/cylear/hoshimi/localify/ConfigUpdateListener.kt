@@ -28,7 +28,6 @@ interface ConfigListener {
     fun onLazyInitChanged(value: Boolean)
     fun onEnableFreeCameraChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
-    fun onUnlockAllLiveChanged(value: Boolean)
     fun onSkipLiveToResultChanged(value: Boolean)
     fun onUnlockAllLiveCostumeChanged(value: Boolean)
     fun onUnlockAllPhotoPoseChanged(value: Boolean)
@@ -186,12 +185,6 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
         saveConfig()
     }
 
-    override fun onUnlockAllLiveChanged(value: Boolean) {
-        config.unlockAllLive = value
-        saveConfig()
-    }
-
-    
     override fun onSkipLiveToResultChanged(value: Boolean) {
         config.skipLiveToResult = value
         saveConfig()

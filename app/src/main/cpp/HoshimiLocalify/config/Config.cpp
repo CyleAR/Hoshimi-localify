@@ -33,7 +33,6 @@ namespace HoshimiLocal::Config {
     bool debugAudioLog = false;
     bool enableFreeCamera = false;
     int targetFrameRate = 0;
-    bool unlockAllLive = false;
     bool skipLiveToResult = false;
     bool unlockAllLiveCostume = false;
     bool unlockAllPhotoPose = false;
@@ -111,7 +110,6 @@ namespace HoshimiLocal::Config {
             GetConfigItem(debugAudioLog);
             GetConfigItem(targetFrameRate);
             GetConfigItem(enableFreeCamera);
-            GetConfigItem(unlockAllLive);
             GetConfigItem(skipLiveToResult);
             GetConfigItem(unlockAllLiveCostume);
             GetConfigItem(unlockAllPhotoPose);
@@ -172,7 +170,6 @@ namespace HoshimiLocal::Config {
             SetConfigItem(debugAudioLog);
             SetConfigItem(targetFrameRate);
             SetConfigItem(enableFreeCamera);
-            SetConfigItem(unlockAllLive);
             SetConfigItem(skipLiveToResult);
             SetConfigItem(unlockAllLiveCostume);
             SetConfigItem(unlockAllPhotoPose);

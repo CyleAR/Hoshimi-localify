@@ -113,9 +113,6 @@ fun ExtraSettingsPage(
         item {
             IPGroupBox(modifier, stringResource(R.string.test_mode_live)) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IPSwitch(modifier, stringResource(R.string.unlockAllLive), checked = config.unlockAllLive) {
-                        context?.onUnlockAllLiveChanged(it)
-                    }
                     IPSwitch(modifier, stringResource(R.string.skip_live_to_result), checked = config.skipLiveToResult) {
                         context?.onSkipLiveToResultChanged(it)
                     }

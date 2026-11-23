@@ -26,7 +26,6 @@ data class IdolyprideConfig (
     var forceExportResource: Boolean = false,
     var enableFreeCamera: Boolean = false,
     var targetFrameRate: Int = 0,
-    var unlockAllLive: Boolean = false,
     var skipLiveToResult: Boolean = false,
     var unlockAllLiveCostume: Boolean = false,
     var unlockAllPhotoPose: Boolean = false,

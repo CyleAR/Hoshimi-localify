@@ -7,7 +7,6 @@ namespace HoshimiLocal::PhotoRequests {
     void CaptureInitial(void* response);
     void CaptureUpdate(void* updatedData);
     void CaptureAvailability(void* response);
-    void ObserveUnlock(void* item, bool unlocked);
     void ApplyActivityVisualOutfits(void* progress);
     using CostumeValidator = bool (*)(void* specifier, void* costume, void* method);
     using HairValidator = bool (*)(void* hair, void* costume, void* method);

@@ -101,16 +101,8 @@ namespace HoshimiLocal::HookMain {
         PhotoRequests::CaptureUpdate(self);
     }
 
-    DEFINE_HOOK(void, Solis_PhotoListShootingResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
-        Solis_PhotoListShootingResponse_InternalMergeFrom_Orig(self, input, mtd);
-        PhotoRequests::CaptureAvailability(self);
-    }
     DEFINE_HOOK(void, Solis_PhotoListSpecialShootingResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
         Solis_PhotoListSpecialShootingResponse_InternalMergeFrom_Orig(self, input, mtd);
-        PhotoRequests::CaptureAvailability(self);
-    }
-    DEFINE_HOOK(void, Solis_PhotoContestTopResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
-        Solis_PhotoContestTopResponse_InternalMergeFrom_Orig(self, input, mtd);
         PhotoRequests::CaptureAvailability(self);
     }
 
@@ -2330,8 +2322,7 @@ namespace HoshimiLocal::HookMain {
     enum class SolisMasterIdType {
         CostumeId,
         HairId,
-        PhotoPoseId,
-        MusicId
+        PhotoPoseId
     };
 
     bool HasOctoAssetBundle(const std::string& bundleNameStr) {
@@ -2421,19 +2412,14 @@ namespace HoshimiLocal::HookMain {
         std::vector<std::string> ret{};
 
         const char* masterGetterName = getType == SolisMasterIdType::CostumeId ? "get_CostumeMaster" :
-                                       getType == SolisMasterIdType::HairId ? "get_HairMaster" :
-                                       getType == SolisMasterIdType::PhotoPoseId ? "get_PhotoPoseMaster" : "get_MusicMaster";
+                                       getType == SolisMasterIdType::HairId ? "get_HairMaster" : "get_PhotoPoseMaster";
         const char* masterClassName = getType == SolisMasterIdType::CostumeId ? "CostumeMaster" :
-                                      getType == SolisMasterIdType::HairId ? "HairMaster" :
-                                      getType == SolisMasterIdType::PhotoPoseId ? "PhotoPoseMaster" : "MusicMaster";
+                                      getType == SolisMasterIdType::HairId ? "HairMaster" : "PhotoPoseMaster";
         const char* protoClassName = getType == SolisMasterIdType::CostumeId ? "Costume" :
-                                     getType == SolisMasterIdType::HairId ? "Hair" :
-                                     getType == SolisMasterIdType::PhotoPoseId ? "PhotoPose" : "Music";
+                                     getType == SolisMasterIdType::HairId ? "Hair" : "PhotoPose";
 
         static auto get_CostumeMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                "MasterManager", "get_CostumeMaster");
-        static auto get_MusicMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
-                                                             "MasterManager", "get_MusicMaster");
         static auto get_HairMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                             "MasterManager", "get_HairMaster");
         static auto get_PhotoPoseMaster = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
@@ -2441,9 +2427,6 @@ namespace HoshimiLocal::HookMain {
         static auto CostumeMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                                "CostumeMaster", "GetAllWithSortByKey",
                                                                                {"Solis.Common.Master.CostumeSortType"});
-        static auto MusicMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
-                                                                             "MusicMaster", "GetAllWithSortByKey",
-                                                                             {"Solis.Common.Master.MusicSortType"});
         static auto HairMaster_GetAllWithSortByKey = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Master",
                                                                             "HairMaster", "GetAllWithSortByKey",
                                                                             {"Solis.Common.Master.HairSortType"});
@@ -2454,10 +2437,6 @@ namespace HoshimiLocal::HookMain {
                                                             "Costume", "get_Id");
         static auto Costume_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                                      "Costume", "get_CharacterId");
-        static auto Music_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
-                                                          "Music", "get_Id");
-        static auto Music_get_Is3DAvailable = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
-                                                                     "Music", "get_Is3DAvailable");
         static auto Hair_get_Id = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                          "Hair", "get_Id");
         static auto Hair_get_CharacterId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
@@ -2466,14 +2445,11 @@ namespace HoshimiLocal::HookMain {
                                                               "PhotoPose", "get_Id");
 
         auto getMaster = getType == SolisMasterIdType::CostumeId ? get_CostumeMaster :
-                         getType == SolisMasterIdType::HairId ? get_HairMaster :
-                         getType == SolisMasterIdType::PhotoPoseId ? get_PhotoPoseMaster : get_MusicMaster;
+                         getType == SolisMasterIdType::HairId ? get_HairMaster : get_PhotoPoseMaster;
         auto getAllWithSortByKey = getType == SolisMasterIdType::CostumeId ? CostumeMaster_GetAllWithSortByKey :
-                                   getType == SolisMasterIdType::HairId ? HairMaster_GetAllWithSortByKey :
-                                   getType == SolisMasterIdType::PhotoPoseId ? PhotoPoseMaster_GetAllWithSortByKey : MusicMaster_GetAllWithSortByKey;
+                                   getType == SolisMasterIdType::HairId ? HairMaster_GetAllWithSortByKey : PhotoPoseMaster_GetAllWithSortByKey;
         auto getId = getType == SolisMasterIdType::CostumeId ? Costume_get_Id :
-                     getType == SolisMasterIdType::HairId ? Hair_get_Id :
-                     getType == SolisMasterIdType::PhotoPoseId ? PhotoPose_get_Id : Music_get_Id;
+                     getType == SolisMasterIdType::HairId ? Hair_get_Id : PhotoPose_get_Id;
         if (!getMaster || !getAllWithSortByKey || !getId) {
             Log::ErrorFmt("GetSolisMasterIdAll failed: %s/%s/%s missing", masterGetterName, masterClassName, protoClassName);
             return ret;
@@ -2492,6 +2468,12 @@ namespace HoshimiLocal::HookMain {
         }
 
         Il2cppUtils::Tools::CSListEditor<void*> listEditor(masterList);
+        std::unordered_set<std::string> seenIds{};
+        const auto masterCount = listEditor.get_Count();
+        if (masterCount > 0) {
+            seenIds.reserve(static_cast<size_t>(masterCount));
+            ret.reserve(static_cast<size_t>(masterCount));
+        }
         for (auto item : listEditor) {
             if (!item) continue;
 
@@ -2508,15 +2490,12 @@ namespace HoshimiLocal::HookMain {
                     if (!itemCharacterId || itemCharacterId->ToString() != characterId) continue;
                 }
             }
-            else if (getType == SolisMasterIdType::MusicId) {
-                if (Music_get_Is3DAvailable && !Music_get_Is3DAvailable->Invoke<bool>(item)) continue;
-            }
 
             auto id = getId->Invoke<Il2cppString*>(item);
             if (!id) continue;
             auto idStr = id->ToString();
-            if (!idStr.empty() && std::find(ret.begin(), ret.end(), idStr) == ret.end()) {
-                ret.emplace_back(idStr);
+            if (!idStr.empty() && seenIds.emplace(idStr).second) {
+                ret.emplace_back(std::move(idStr));
             }
         }
 
@@ -2525,16 +2504,22 @@ namespace HoshimiLocal::HookMain {
 
     bool IsSolisMasterIdExists(const std::string& id, SolisMasterIdType getType) {
         if (id.empty()) return false;
+        static std::mutex cacheMutex;
         static std::unordered_set<std::string> costumeIds{};
         static std::unordered_set<std::string> hairIds{};
         static std::unordered_set<std::string> photoPoseIds{};
-        static std::unordered_set<std::string> musicIds{};
 
         auto& ids = getType == SolisMasterIdType::CostumeId ? costumeIds :
-                    getType == SolisMasterIdType::HairId ? hairIds :
-                    getType == SolisMasterIdType::PhotoPoseId ? photoPoseIds : musicIds;
+                    getType == SolisMasterIdType::HairId ? hairIds : photoPoseIds;
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex);
+            if (!ids.empty()) {
+                return ids.contains(id);
+            }
+        }
+        auto allIds = GetSolisMasterIdAll(getType);
+        std::lock_guard<std::mutex> lock(cacheMutex);
         if (ids.empty()) {
-            auto allIds = GetSolisMasterIdAll(getType);
             ids.insert(allIds.begin(), allIds.end());
         }
         return ids.contains(id);
@@ -2561,24 +2546,25 @@ namespace HoshimiLocal::HookMain {
                                                            "UserHair");
         static auto UserPhotoPose_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                                 "UserPhotoPose");
-        static auto UserMusic_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
-                                                            "UserMusic");
         static auto UserCostume_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                               "UserCostume", ".ctor");
         static auto UserHair_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                            "UserHair", ".ctor");
         static auto UserPhotoPose_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
                                                                 "UserPhotoPose", ".ctor");
-        static auto UserMusic_ctor = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
-                                                            "UserMusic", ".ctor");
+
+        static auto UserCostume_set_Checked = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                     "UserCostume", "set_Checked");
+        static auto UserHair_set_Checked = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
+                                                                  "UserHair", "set_Checked");
 
         auto className = std::string(userClassName);
         auto klass = className == "UserCostume" ? UserCostume_klass :
-                     className == "UserHair" ? UserHair_klass :
-                     className == "UserPhotoPose" ? UserPhotoPose_klass : UserMusic_klass;
+                     className == "UserHair" ? UserHair_klass : UserPhotoPose_klass;
         auto ctor = className == "UserCostume" ? UserCostume_ctor :
-                    className == "UserHair" ? UserHair_ctor :
-                    className == "UserPhotoPose" ? UserPhotoPose_ctor : UserMusic_ctor;
+                    className == "UserHair" ? UserHair_ctor : UserPhotoPose_ctor;
+        auto set_Checked = className == "UserCostume" ? UserCostume_set_Checked :
+                           className == "UserHair" ? UserHair_set_Checked : nullptr;
 
         for (auto& i : allIds) {
             if (i.empty()) continue;
@@ -2595,6 +2581,9 @@ namespace HoshimiLocal::HookMain {
             if (!userData) continue;
 
             set_Id->Invoke<void>(userData, Il2cppString::New(i));
+            if (set_Checked) {
+                set_Checked->Invoke<void>(userData, true);
+            }
             listEditor.Add(userData);
             existIds.emplace(i);
         }
@@ -2641,26 +2630,6 @@ namespace HoshimiLocal::HookMain {
                                                          UserHair_Clone);
     }
 
-    void* AddSolisMusicsToUserCollection(void* origList) {
-        if (!origList) return origList;
-
-        static auto UserMusic_Clone = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
-                                                            "UserMusic", "Clone");
-        static auto UserMusic_get_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
-                                                                   "UserMusic", "get_MusicId");
-        static auto UserMusic_set_MusicId = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Common.Proto.Transaction",
-                                                                   "UserMusic", "set_MusicId");
-        if (!UserMusic_Clone || !UserMusic_get_MusicId || !UserMusic_set_MusicId) {
-            Log::Error("AddSolisMusicsToUserCollection failed: UserMusic methods missing");
-            return origList;
-        }
-
-        auto allIds = GetSolisMasterIdAll(SolisMasterIdType::MusicId);
-        return AddSolisIdsToUserDataCollectionFromMaster(origList, allIds, "UserMusic",
-                                                         UserMusic_get_MusicId, UserMusic_set_MusicId,
-                                                         UserMusic_Clone);
-    }
-
     void* AddSolisPhotoPosesToUserCollection(void* origList) {
         if (!origList) return origList;
 
@@ -2682,8 +2651,16 @@ namespace HoshimiLocal::HookMain {
     }
 
     void* GetEmptySolisPhotoPoseTypes() {
-        static void* emptyPoseTypes = nullptr;
-        if (emptyPoseTypes) return emptyPoseTypes;
+        static std::mutex mutex;
+        static uint32_t emptyPoseTypesHandle = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (emptyPoseTypesHandle) {
+                if (auto target = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", emptyPoseTypesHandle)) {
+                    return target;
+                }
+            }
+        }
 
         static auto RepeatedField_PhotoPoseType_klass = Il2cppUtils::get_system_class_from_reflection_type_str(
             "Google.Protobuf.Collections.RepeatedField`1[Solis.Common.Proto.PhotoPoseType]");
@@ -2696,9 +2673,17 @@ namespace HoshimiLocal::HookMain {
             return nullptr;
         }
 
-        emptyPoseTypes = UnityResolve::Invoke<void*>("il2cpp_object_new", RepeatedField_PhotoPoseType_klass);
-        RepeatedField_PhotoPoseType_ctor(emptyPoseTypes, RepeatedField_PhotoPoseType_ctor_mtd);
-        return emptyPoseTypes;
+        auto obj = UnityResolve::Invoke<void*>("il2cpp_object_new", RepeatedField_PhotoPoseType_klass);
+        if (!obj) return nullptr;
+        RepeatedField_PhotoPoseType_ctor(obj, RepeatedField_PhotoPoseType_ctor_mtd);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!emptyPoseTypesHandle) {
+            emptyPoseTypesHandle = UnityResolve::Invoke<uint32_t>("il2cpp_gchandle_new", obj, false);
+        }
+        return emptyPoseTypesHandle
+            ? UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", emptyPoseTypesHandle)
+            : obj;
     }
 
     DEFINE_HOOK(void, LiveUtility_LoadLiveScene_FullSkip, (void* data, bool isFullSkip, void* method)) {
@@ -3429,6 +3414,17 @@ namespace HoshimiLocal::HookMain {
             }
         }
 
+        static const auto getSkins = Il2cppUtils::GetMethod("spine-unity.dll", "Spine", "SkeletonData", "get_Skins");
+        if (getSkins) {
+            if (auto skinsList = getSkins->Invoke<void*>(self, getSkins->address)) {
+                auto skinsKlass = Il2cppUtils::get_class_from_instance(skinsList);
+                auto addMtd = skinsKlass ? Il2cppUtils::il2cpp_class_get_method_from_name(skinsKlass, "Add", 1) : nullptr;
+                if (addMtd && addMtd->methodPointer) {
+                    reinterpret_cast<void(*)(void*, void*, void*)>(addMtd->methodPointer)(skinsList, newSkin, addMtd);
+                }
+            }
+        }
+
         return newSkin;
     }
 
@@ -3465,6 +3461,8 @@ namespace HoshimiLocal::HookMain {
         return poseTypes ? poseTypes : ret;
     }
 
+    std::atomic<bool> g_userCollectionGetAllListHooked{false};
+
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_FindBy_Orig(self, predicate, mtd);
         if (!Config::unlockAllLiveCostume) return ret;
@@ -3481,6 +3479,7 @@ namespace HoshimiLocal::HookMain {
         if (!UserCostumeCollection_GetAllList) return ret;
 
         auto origList = UserCostumeCollection_GetAllList(self, nullptr);
+        if (g_userCollectionGetAllListHooked.load(std::memory_order_relaxed)) return origList;
         return AddSolisCostumesToUserCollection(origList);
     }
 
@@ -3494,9 +3493,6 @@ namespace HoshimiLocal::HookMain {
         if (Config::unlockAllLiveCostume) {
             if (thisKlassName == "UserCostumeCollection") return AddSolisCostumesToUserCollection(ret);
             if (thisKlassName == "UserHairCollection") return AddSolisHairsToUserCollection(ret);
-        }
-        if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
-            return AddSolisMusicsToUserCollection(ret);
         }
         if (Config::unlockAllPhotoPose && thisKlassName == "UserPhotoPoseCollection") {
             return AddSolisPhotoPosesToUserCollection(ret);
@@ -3516,9 +3512,6 @@ namespace HoshimiLocal::HookMain {
         if (Config::unlockAllLiveCostume) {
             if (thisKlassName == "UserCostumeCollection") return IsSolisMasterIdExists(idStr, SolisMasterIdType::CostumeId) || ret;
             if (thisKlassName == "UserHairCollection") return IsSolisMasterIdExists(idStr, SolisMasterIdType::HairId) || ret;
-        }
-        if (Config::unlockAllLive && thisKlassName == "UserMusicCollection") {
-            return IsSolisMasterIdExists(idStr, SolisMasterIdType::MusicId) || ret;
         }
         if (Config::unlockAllPhotoPose && thisKlassName == "UserPhotoPoseCollection") {
             return IsSolisMasterIdExists(idStr, SolisMasterIdType::PhotoPoseId) || ret;
@@ -3574,6 +3567,7 @@ namespace HoshimiLocal::HookMain {
         if (!UserHairCollection_GetAllList) return ret;
 
         auto origList = UserHairCollection_GetAllList(self, nullptr);
+        if (Solis_UserCostumeCollection_GetAllList_Orig || Solis_UserHairCollection_GetAllList_Orig) return origList;
         return AddSolisHairsToUserCollection(origList);
     }
 
@@ -3654,27 +3648,6 @@ namespace HoshimiLocal::HookMain {
         Solis_CostumeChangeSheetPresenter_SetCostumeItemModels_Orig(self, passFilter, mtd);
     }
 
-    DEFINE_HOOK(void*, Solis_UserMusicCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
-        auto ret = Solis_UserMusicCollection_GetAllList_Orig(self, comparison, mtd);
-        if (!Config::unlockAllLive) return ret;
-
-        auto this_klass = Il2cppUtils::get_class_from_instance(self);
-        if (!this_klass || std::string(this_klass->name) != "UserMusicCollection") return ret;
-        return AddSolisMusicsToUserCollection(ret);
-    }
-
-    DEFINE_HOOK(bool, Solis_UserMusicCollection_Exists, (void* self, Il2cppString* musicId, void* mtd)) {
-        auto ret = Solis_UserMusicCollection_Exists_Orig(self, musicId, mtd);
-        if (!Config::unlockAllLive || !musicId) return ret;
-        return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
-    }
-
-    DEFINE_HOOK(bool, Solis_UserCharacterMusicCollection_Exists, (void* self, Il2cppString* characterId, Il2cppString* musicId, void* mtd)) {
-        auto ret = Solis_UserCharacterMusicCollection_Exists_Orig(self, characterId, musicId, mtd);
-        if (!Config::unlockAllLive || !musicId) return ret;
-        return IsSolisMasterIdExists(musicId->ToString(), SolisMasterIdType::MusicId) || ret;
-    }
-
     DEFINE_HOOK(void*, Solis_UserPhotoPoseCollection_GetUserPhotoPoses,
         (void* self, Il2cppString* characterId, bool checkReleased, void* mtd)) {
         auto ret = Solis_UserPhotoPoseCollection_GetUserPhotoPoses_Orig(self, characterId, checkReleased, mtd);
@@ -3700,111 +3673,6 @@ namespace HoshimiLocal::HookMain {
         auto ret = Solis_PhotoPose_IsReleased_Orig(self, mtd);
         if (!Config::unlockAllPhotoPose) return ret;
         return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoMusic_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoMusic_get_IsUnlocked_Orig(self, mtd);
-        PhotoRequests::ObserveUnlock(self, ret);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoPanoramaMusic_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoPanoramaMusic_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoContestQuestMusic_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoContestQuestMusic_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoActivity_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoActivity_get_IsUnlocked_Orig(self, mtd);
-        PhotoRequests::ObserveUnlock(self, ret);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoContestActivity_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoContestActivity_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_SpecialPhotoActivityInfo_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_SpecialPhotoActivityInfo_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoStage_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoStage_get_IsUnlocked_Orig(self, mtd);
-        PhotoRequests::ObserveUnlock(self, ret);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoContestQuestStage_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoContestQuestStage_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_SpecialPhotoQuestStage_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_SpecialPhotoQuestStage_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoContestSectionInfo_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoContestSectionInfo_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_PhotoExpression_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_PhotoExpression_get_IsUnlocked_Orig(self, mtd);
-        PhotoRequests::ObserveUnlock(self, ret);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_SpecialPhotoShootingInfo_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_SpecialPhotoShootingInfo_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked, (void* self, void* mtd)) {
-        auto ret = Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(bool, Solis_LivePhotographyMusicListItemModel_get_IsUnLocked, (void* self, void* mtd)) {
-        auto ret = Solis_LivePhotographyMusicListItemModel_get_IsUnLocked_Orig(self, mtd);
-        if (!Config::unlockAllLive) return ret;
-        return true;
-    }
-
-    DEFINE_HOOK(void, Solis_LivePhotographyMusicListItemModel_set_IsUnLocked, (void* self, bool value, void* mtd)) {
-        if (Config::unlockAllLive) value = true;
-        return Solis_LivePhotographyMusicListItemModel_set_IsUnLocked_Orig(self, value, mtd);
     }
 
     bool needRestoreHides = false;
@@ -4971,8 +4839,7 @@ namespace HoshimiLocal::HookMain {
                                                {"Solis.Live.LiveStartTransitionData", "System.Boolean"}));
 
         // Capture complete protobuf messages before UI collection/availability hooks run.
-        for (const auto className : {"UserGetResponse", "UpdatedData", "PhotoListShootingResponse",
-                                    "PhotoListSpecialShootingResponse", "PhotoContestTopResponse",
+        for (const auto className : {"UserGetResponse", "UpdatedData", "PhotoListSpecialShootingResponse",
                                     "PromotionProgress", "RefreshProgress", "FanEventProgress"}) {
             auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Proto.Api", className);
             if (!klass) continue;
@@ -4986,13 +4853,8 @@ namespace HoshimiLocal::HookMain {
                     ADD_HOOK(Solis_UserGetResponse_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "UpdatedData") {
                     ADD_HOOK(Solis_UpdatedData_InternalMergeFrom, method->methodPointer);
-
-                } else if (std::string_view(className) == "PhotoListShootingResponse") {
-                    ADD_HOOK(Solis_PhotoListShootingResponse_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "PhotoListSpecialShootingResponse") {
                     ADD_HOOK(Solis_PhotoListSpecialShootingResponse_InternalMergeFrom, method->methodPointer);
-                } else if (std::string_view(className) == "PhotoContestTopResponse") {
-                    ADD_HOOK(Solis_PhotoContestTopResponse_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "PromotionProgress") {
                     ADD_HOOK(Solis_PromotionProgress_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "RefreshProgress") {
@@ -5008,6 +4870,8 @@ namespace HoshimiLocal::HookMain {
                      Solis_RefreshProgress_InternalMergeFrom_Orig != nullptr,
                      Solis_FanEventProgress_InternalMergeFrom_Orig != nullptr);
 
+        uintptr_t sharedUserCollectionGetAllListPtr = 0;
+        uintptr_t sharedUserCollectionExistsPtr = 0;
         auto Solis_UserCostumeCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
                                                                        "UserCostumeCollection");
         if (Solis_UserCostumeCollection_klass) {
@@ -5019,11 +4883,18 @@ namespace HoshimiLocal::HookMain {
             auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "GetAllList", 1);
             if (GetAllList_mtd) {
                 ADD_HOOK(Solis_UserCostumeCollection_GetAllList, GetAllList_mtd->methodPointer);
+                if (Solis_UserCostumeCollection_GetAllList_Orig) {
+                    sharedUserCollectionGetAllListPtr = GetAllList_mtd->methodPointer;
+                    g_userCollectionGetAllListHooked.store(true, std::memory_order_relaxed);
+                }
             }
 
             auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCostumeCollection_klass->address, "Exists", 1);
             if (Exists_mtd) {
                 ADD_HOOK(Solis_UserCostumeCollection_Exists, Exists_mtd->methodPointer);
+                if (Solis_UserCostumeCollection_Exists_Orig) {
+                    sharedUserCollectionExistsPtr = Exists_mtd->methodPointer;
+                }
             }
 
             auto GetSortedCharacterCostumes_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(
@@ -5043,12 +4914,12 @@ namespace HoshimiLocal::HookMain {
                                                                     "UserHairCollection");
         if (Solis_UserHairCollection_klass) {
             auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserHairCollection_klass->address, "GetAllList", 1);
-            if (GetAllList_mtd) {
+            if (GetAllList_mtd && GetAllList_mtd->methodPointer != sharedUserCollectionGetAllListPtr) {
                 ADD_HOOK(Solis_UserHairCollection_GetAllList, GetAllList_mtd->methodPointer);
             }
 
             auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserHairCollection_klass->address, "Exists", 1);
-            if (Exists_mtd) {
+            if (Exists_mtd && Exists_mtd->methodPointer != sharedUserCollectionExistsPtr) {
                 ADD_HOOK(Solis_UserHairCollection_Exists, Exists_mtd->methodPointer);
             }
 
@@ -5234,81 +5105,6 @@ namespace HoshimiLocal::HookMain {
                 ADD_HOOK(Solis_CharacterCostumeScreenModel_ctor, ctor_mtd->methodPointer);
             }
         }
-
-        auto Solis_UserMusicCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
-                                                                     "UserMusicCollection");
-        if (Solis_UserMusicCollection_klass) {
-            auto GetAllList_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserMusicCollection_klass->address, "GetAllList", 1);
-            if (GetAllList_mtd) {
-                ADD_HOOK(Solis_UserMusicCollection_GetAllList, GetAllList_mtd->methodPointer);
-            }
-
-            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserMusicCollection_klass->address, "Exists", 1);
-            if (Exists_mtd) {
-                ADD_HOOK(Solis_UserMusicCollection_Exists, Exists_mtd->methodPointer);
-            }
-        }
-
-        auto Solis_UserCharacterMusicCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
-                                                                              "UserCharacterMusicCollection");
-        if (Solis_UserCharacterMusicCollection_klass) {
-            auto Exists_mtd = Il2cppUtils::il2cpp_class_get_method_from_name(Solis_UserCharacterMusicCollection_klass->address, "Exists", 2);
-            if (Exists_mtd) {
-                ADD_HOOK(Solis_UserCharacterMusicCollection_Exists, Exists_mtd->methodPointer);
-            }
-        }
-
-        ADD_HOOK(Solis_PhotoMusic_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoMusic", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoPanoramaMusic_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoPanoramaMusic", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoContestQuestMusic_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoContestQuestMusic", "get_IsUnlocked"));
-        ADD_HOOK(Solis_SpecialPhotoQuestMusicInfo_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "SpecialPhotoQuestMusicInfo", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoActivity_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoActivity", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoContestActivity_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoContestActivity", "get_IsUnlocked"));
-        ADD_HOOK(Solis_SpecialPhotoActivityInfo_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "SpecialPhotoActivityInfo", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoStage_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoStage", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoContestQuestStage_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoContestQuestStage", "get_IsUnlocked"));
-        ADD_HOOK(Solis_SpecialPhotoQuestStage_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "SpecialPhotoQuestStage", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoContestSectionInfo_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoContestSectionInfo", "get_IsUnlocked"));
-        ADD_HOOK(Solis_PhotoExpression_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "PhotoExpression", "get_IsUnlocked"));
-        ADD_HOOK(Solis_SpecialPhotoShootingInfo_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Api",
-                                               "SpecialPhotoShootingInfo", "get_IsUnlocked"));
-        ADD_HOOK(Solis_ActivityPhotographyGridListItemModel_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
-                                               "ActivityPhotographyGridListItemModel", "get_IsUnlocked"));
-        ADD_HOOK(Solis_ExpressionPhotographyGridListItemModel_get_IsUnlocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
-                                               "ExpressionPhotographyGridListItemModel", "get_IsUnlocked"));
-        ADD_HOOK(Solis_LivePhotographyMusicListItemModel_get_IsUnLocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
-                                               "LivePhotographyMusicListItemModel", "get_IsUnLocked"));
-        ADD_HOOK(Solis_LivePhotographyMusicListItemModel_set_IsUnLocked,
-                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
-                                               "LivePhotographyMusicListItemModel", "set_IsUnLocked"));
 
         // Resolve nested types by their declaring class rather than a slash-qualified class alias.
         auto apiRoot = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.Network", "Api");
