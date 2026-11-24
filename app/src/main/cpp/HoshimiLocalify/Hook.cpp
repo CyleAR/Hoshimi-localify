@@ -484,9 +484,11 @@ namespace HoshimiLocal::HookMain {
     }
 
     void UpdatePhoneSubtitleOverlay();
+    void ProcessPendingCropCaptures(void* camera);
 
     DEFINE_HOOK(void, EndCameraRendering, (void* ctx, void* camera, void* method)) {
         EndCameraRendering_Orig(ctx, camera, method);
+        ProcessPendingCropCaptures(camera);
         if (clearUserDataRequested.exchange(false)) {
             clearUserDataResult.store(ClearPrivateServerAccount() ? 1 : -1);
         }
@@ -4240,6 +4242,13 @@ namespace HoshimiLocal::HookMain {
     thread_local bool forceUnlockCameraAspectRatio = false;
     static std::atomic<bool> unlockedPhotographyActive{false};
     static std::atomic<bool> unlockedLiveActive{false};
+    static std::mutex pendingCropCaptureMutex;
+    static std::vector<void*> pendingCropCaptureTextures;
+
+    void ClearPendingCropCaptures() {
+        std::lock_guard<std::mutex> lock(pendingCropCaptureMutex);
+        pendingCropCaptureTextures.clear();
+    }
 
     struct UnlockCameraAspectScope {
         bool previous;
@@ -4408,6 +4417,185 @@ namespace HoshimiLocal::HookMain {
         return getCamera->Invoke<void*>(controller);
     }
 
+    void* GetMainGraphicTargetTexture() {
+        static auto getController = Il2cppUtils::GetMethod("vl-unity.Runtime.dll", "VL", "VLCameraController", "get_Instance");
+        static auto controllerClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL.Rendering", "VLSRPCameraController");
+        static auto getTargetTexture = Il2cppUtils::GetMethod("vl-unity.Runtime.dll", "VL.Rendering", "VLSRPCameraController", "get_targetTexture");
+        static auto vlRenderTexClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL", "VLRenderTexture");
+        static auto textureField = vlRenderTexClass ? vlRenderTexClass->Get<UnityResolve::Field>("texture") : nullptr;
+        if (!getController || !controllerClass || !getTargetTexture || !textureField) return nullptr;
+        auto controller = getController->Invoke<void*>();
+        if (!controller) return nullptr;
+        auto actualClass = UnityResolve::Invoke<void*>("il2cpp_object_get_class", controller);
+        if (!UnityResolve::Invoke<bool>("il2cpp_class_is_assignable_from", controllerClass->address, actualClass)) return nullptr;
+        auto vlRt = getTargetTexture->Invoke<void*>(controller);
+        if (!vlRt) return nullptr;
+        auto rt = Il2cppUtils::ClassGetFieldValue<void*>(vlRt, textureField);
+        return (rt && IsNativeObjectAlive(rt)) ? rt : nullptr;
+    }
+
+    void ProcessPendingCropCaptures(void* camera) {
+        if (!camera) return;
+        std::vector<void*> batch;
+        {
+            std::lock_guard<std::mutex> lock(pendingCropCaptureMutex);
+            if (pendingCropCaptureTextures.empty()) return;
+            if (camera != GetMainGraphicCamera()) return;
+            batch.swap(pendingCropCaptureTextures);
+        }
+
+        auto src = GetMainGraphicTargetTexture();
+        if (!src) return;
+
+        static auto getWidth = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_width");
+        static auto getHeight = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_height");
+        static auto getGraphicsFormat = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "get_graphicsFormat");
+        static auto getTemporary = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "GetTemporary",
+                {"System.Int32", "System.Int32", "System.Int32", "UnityEngine.Experimental.Rendering.GraphicsFormat"});
+        static auto releaseTemporary = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "ReleaseTemporary",
+                {"UnityEngine.RenderTexture"});
+        static auto getActive = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "get_active");
+        static auto setActive = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "set_active");
+        static auto copyTexture = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Graphics", "CopyTexture",
+                {"UnityEngine.Texture", "System.Int32", "System.Int32", "System.Int32", "System.Int32",
+                 "System.Int32", "System.Int32", "UnityEngine.Texture", "System.Int32", "System.Int32",
+                 "System.Int32", "System.Int32"});
+        static auto blit = Il2cppUtils::GetMethod(
+                "UnityEngine.CoreModule.dll", "UnityEngine", "Graphics", "Blit",
+                {"UnityEngine.Texture", "UnityEngine.RenderTexture"});
+
+        if (!getWidth || !getHeight || !copyTexture) return;
+        const int srcW = getWidth->Invoke<int>(src);
+        const int srcH = getHeight->Invoke<int>(src);
+        if (srcW <= 1 || srcH <= 1) return;
+        const int srcFormat = getGraphicsFormat ? getGraphicsFormat->Invoke<int>(src) : 0;
+
+        for (auto dst : batch) {
+            if (!dst || !IsNativeObjectAlive(dst)) continue;
+            const int dstW = getWidth->Invoke<int>(dst);
+            const int dstH = getHeight->Invoke<int>(dst);
+            if (dstW <= 1 || dstH <= 1) continue;
+
+            const double srcAspect = static_cast<double>(srcW) / static_cast<double>(srcH);
+            const double dstAspect = static_cast<double>(dstW) / static_cast<double>(dstH);
+            int cropW = srcW;
+            int cropH = srcH;
+            int srcX = 0;
+            int srcY = 0;
+            if (srcAspect > dstAspect) {
+                cropH = srcH;
+                cropW = std::clamp(static_cast<int>(std::lround(srcH * dstAspect)), 1, srcW);
+                srcX = (srcW - cropW) / 2;
+                srcY = 0;
+            } else {
+                cropW = srcW;
+                cropH = std::clamp(static_cast<int>(std::lround(srcW / dstAspect)), 1, srcH);
+                srcX = 0;
+                srcY = (srcH - cropH) / 2;
+            }
+
+            if (cropW == dstW && cropH == dstH) {
+                copyTexture->Invoke<void>(src, 0, 0, srcX, srcY, cropW, cropH, dst, 0, 0, 0, 0, copyTexture->address);
+            } else if (getTemporary && releaseTemporary && blit && srcFormat != 0) {
+                auto temp = getTemporary->Invoke<void*>(cropW, cropH, 0, srcFormat, getTemporary->address);
+                if (temp && IsNativeObjectAlive(temp)) {
+                    copyTexture->Invoke<void>(src, 0, 0, srcX, srcY, cropW, cropH, temp, 0, 0, 0, 0, copyTexture->address);
+                    void* prevActive = getActive ? getActive->Invoke<void*>() : nullptr;
+                    blit->Invoke<void>(temp, dst, blit->address);
+                    if (setActive) setActive->Invoke<void>(prevActive);
+                    releaseTemporary->Invoke<void>(temp, releaseTemporary->address);
+                }
+            }
+
+            if (Config::dbgMode) {
+                Log::DebugFmt("UnlockLiveAspectRatio[CropCapture]: src=%dx%d crop=(%d,%d %dx%d) -> dst=%dx%d",
+                              srcW, srcH, srcX, srcY, cropW, cropH, dstW, dstH);
+            }
+        }
+    }
+
+    DEFINE_HOOK(void, MultiCapturePresenter_StockCapture, (void* self, void* data, void* method)) {
+        MultiCapturePresenter_StockCapture_Orig(self, data, method);
+        if (!Config::unlockLiveAspectRatio || !unlockedPhotographyActive.load(std::memory_order_relaxed) || !self) {
+            return;
+        }
+        auto src = GetMainGraphicTargetTexture();
+        if (!src) return;
+
+        static auto getWidth = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_width");
+        static auto getHeight = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_height");
+        static auto setWidth = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "set_width");
+        static auto setHeight = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "set_height");
+        static auto rtRelease = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "Release");
+        static auto rtCreate = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RenderTexture", "Create");
+        static auto vlRenderTexClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL", "VLRenderTexture");
+        static auto textureField = vlRenderTexClass ? vlRenderTexClass->Get<UnityResolve::Field>("texture") : nullptr;
+        if (!getWidth || !getHeight || !setWidth || !setHeight || !rtRelease || !rtCreate || !textureField) return;
+
+        const int srcW = getWidth->Invoke<int>(src);
+        const int srcH = getHeight->Invoke<int>(src);
+        if (srcW <= 1 || srcH <= 1) return;
+
+        const double targetAspect = (srcW >= srcH) ? (16.0 / 9.0) : (9.0 / 16.0);
+        const double srcAspect = static_cast<double>(srcW) / static_cast<double>(srcH);
+        if (std::abs(srcAspect - targetAspect) < 0.005) return;
+
+        auto selfClass = Il2cppUtils::get_class_from_instance(self);
+        if (!selfClass) return;
+        auto getLastRtMethod = Il2cppUtils::il2cpp_class_get_method_from_name(selfClass, "get_LastRenderTexture", 0);
+        if (!getLastRtMethod) return;
+        void* exc = nullptr;
+        auto lastVlRt = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", getLastRtMethod, self, static_cast<void**>(nullptr), &exc);
+        if (exc || !lastVlRt) return;
+        auto dst = Il2cppUtils::ClassGetFieldValue<void*>(lastVlRt, textureField);
+        if (!dst || !IsNativeObjectAlive(dst)) return;
+
+        int maxPixel = 1920;
+        if (auto maxField = UnityResolve::Invoke<void*>("il2cpp_class_get_field_from_name", selfClass, "_maxBufferPixel")) {
+            int fieldVal = 0;
+            UnityResolve::Invoke<void>("il2cpp_field_get_value", self, maxField, &fieldVal);
+            if (fieldVal > 0) maxPixel = fieldVal;
+        }
+
+        int cropW = srcW;
+        int cropH = srcH;
+        if (srcAspect > targetAspect) {
+            cropH = srcH;
+            cropW = std::clamp(static_cast<int>(std::lround(srcH * targetAspect)), 2, srcW);
+        } else {
+            cropW = srcW;
+            cropH = std::clamp(static_cast<int>(std::lround(srcW / targetAspect)), 2, srcH);
+        }
+
+        int targetW = cropW;
+        int targetH = cropH;
+        const int maxDim = std::max(targetW, targetH);
+        if (maxPixel > 0 && maxDim > maxPixel) {
+            const double scale = static_cast<double>(maxPixel) / static_cast<double>(maxDim);
+            targetW = std::max(2, static_cast<int>(std::lround(targetW * scale)));
+            targetH = std::max(2, static_cast<int>(std::lround(targetH * scale)));
+        }
+
+        rtRelease->Invoke<void>(dst);
+        setWidth->Invoke<void>(dst, targetW);
+        setHeight->Invoke<void>(dst, targetH);
+        rtCreate->Invoke<bool>(dst);
+
+        {
+            std::lock_guard<std::mutex> lock(pendingCropCaptureMutex);
+            if (pendingCropCaptureTextures.size() > 32) pendingCropCaptureTextures.clear();
+            pendingCropCaptureTextures.push_back(dst);
+        }
+
+        if (Config::dbgMode) {
+            Log::DebugFmt("UnlockLiveAspectRatio[StockCapture]: resized dst=%p from src=%dx%d to %dx%d (max=%d)",
+                          dst, srcW, srcH, targetW, targetH, maxPixel);
+        }
+    }
+
     // Returns Vert+ expansion scale (> 1.0) when screen is narrower than reference 16:9 (landscape)
     // or 9:16 (portrait), and 1.0 when Hor+ already expands left/right naturally.
     float GetVertPlusScaleForCamera(void* camera, bool requirePhysical, bool requireNonPhysical) {
@@ -4460,6 +4648,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void, OutGameScenePresenter_UnlockVLCameraAspectRatio, (void* method)) {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
         unlockedLiveActive.store(false, std::memory_order_relaxed);
+        ClearPendingCropCaptures();
         OutGameScenePresenter_UnlockVLCameraAspectRatio_Orig(method);
     }
 
@@ -6273,6 +6462,26 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Unity_set_focalLength,
                  Il2cppUtils::GetMethodPointer("UnityEngine.CoreModule.dll", "UnityEngine",
                                                "Camera", "set_focalLength"));
+        {
+            auto photoCaptureClass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Photography",
+                                                           "PhotographyCaptureController");
+            auto multiCaptureField = photoCaptureClass
+                    ? UnityResolve::Invoke<void*>("il2cpp_class_get_field_from_name",
+                                                  photoCaptureClass->address, "_multiCapturePresenter")
+                    : nullptr;
+            auto fieldType = multiCaptureField
+                    ? UnityResolve::Invoke<void*>("il2cpp_field_get_type", multiCaptureField)
+                    : nullptr;
+            auto multiCaptureClass = fieldType
+                    ? UnityResolve::Invoke<void*>("il2cpp_class_from_type", fieldType)
+                    : nullptr;
+            auto stockCaptureMethod = multiCaptureClass
+                    ? Il2cppUtils::il2cpp_class_get_method_from_name(multiCaptureClass, "StockCapture", 1)
+                    : nullptr;
+            if (stockCaptureMethod && stockCaptureMethod->methodPointer) {
+                ADD_HOOK(MultiCapturePresenter_StockCapture, stockCaptureMethod->methodPointer);
+            }
+        }
 
         ADD_HOOK(SolisActorController_LateUpdate,
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",
