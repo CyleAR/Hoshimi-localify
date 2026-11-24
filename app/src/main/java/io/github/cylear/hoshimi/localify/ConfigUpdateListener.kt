@@ -29,6 +29,7 @@ interface ConfigListener {
     fun onEnableFreeCameraChanged(value: Boolean)
     fun onHideLiveViewingUiOnStartChanged(value: Boolean)
     fun onShowLiveSeekBarChanged(value: Boolean)
+    fun onUnlockLiveAspectRatioChanged(value: Boolean)
     fun onTargetFpsChanged(s: CharSequence, start: Int, before: Int, count: Int)
     fun onSkipLiveToResultChanged(value: Boolean)
     fun onUnlockAllLiveCostumeChanged(value: Boolean)
@@ -196,6 +197,11 @@ interface ConfigUpdateListener: ConfigListener, IHasConfigItems {
 
     override fun onShowLiveSeekBarChanged(value: Boolean) {
         config.showLiveSeekBar = value
+        saveConfig()
+    }
+
+    override fun onUnlockLiveAspectRatioChanged(value: Boolean) {
+        config.unlockLiveAspectRatio = value
         saveConfig()
     }
 

@@ -343,11 +343,15 @@ namespace HoshimiLocal::HookMain {
 		return toJsonStr(object);
     }
 
+    float ApplyVertPlusFovIfNeeded(void* camera, float vFov);
+
     DEFINE_HOOK(void, Unity_set_fieldOfView, (UnityResolve::UnityType::Camera* self, float value)) {
         if (Config::enableFreeCamera) {
             if (self == mainCameraCache) {
                 value = IPCamera::baseCamera.fov;
             }
+        } else {
+            value = ApplyVertPlusFovIfNeeded(self, value);
         }
         Unity_set_fieldOfView_Orig(self, value);
     }
@@ -2829,13 +2833,10 @@ namespace HoshimiLocal::HookMain {
         }
         static const auto isPreview = Il2cppUtils::GetMethod(
                 "Assembly-CSharp.dll", "Solis.Photography.Data", "AbstPhotographyTransitionData", "get_IsPreview");
-        static const auto isMvMusic = Il2cppUtils::GetMethod(
-                "Assembly-CSharp.dll", "Solis.Photography.Data", "AbstPhotographyTransitionData", "get_IsMvMusic");
         static const auto setUiActive = Il2cppUtils::GetMethod(
                 "Assembly-CSharp.dll", "Solis.Photography", "PhotographyPreviewContentModel", "set_IsUIActive");
-        if (isPreview && isMvMusic && setUiActive &&
-            isPreview->Invoke<bool>(transition, isPreview->address) &&
-            !isMvMusic->Invoke<bool>(transition, isMvMusic->address)) {
+        if (isPreview && setUiActive &&
+            isPreview->Invoke<bool>(transition, isPreview->address)) {
             if (auto model = ReadManagedObjectField(self, "_model")) {
                 setUiActive->Invoke<void>(model, false, setUiActive->address);
             }
@@ -4236,6 +4237,159 @@ namespace HoshimiLocal::HookMain {
     }
 
     thread_local void* renderResolutionCamera = nullptr;
+    thread_local bool forceUnlockCameraAspectRatio = false;
+    static std::atomic<bool> unlockedPhotographyActive{false};
+    static std::atomic<bool> unlockedLiveActive{false};
+
+    struct UnlockCameraAspectScope {
+        bool previous;
+
+        explicit UnlockCameraAspectScope(bool enable) : previous(forceUnlockCameraAspectRatio) {
+            if (enable) forceUnlockCameraAspectRatio = true;
+        }
+
+        ~UnlockCameraAspectScope() {
+            forceUnlockCameraAspectRatio = previous;
+        }
+    };
+
+    std::pair<int, int> GetUnityScreenSize() {
+        static auto getWidth = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Screen", "get_width");
+        static auto getHeight = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Screen", "get_height");
+        if (!getWidth || !getHeight) return {0, 0};
+        return {getWidth->Invoke<int>(), getHeight->Invoke<int>()};
+    }
+
+    void ExpandRenderTargetHierarchy(void* component, float targetAspect, void* skipCanvas = nullptr) {
+        if (!component || !IsNativeObjectAlive(component) || targetAspect <= 0.01f) return;
+
+        static auto getTransform = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Component", "get_transform");
+        static auto getParent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "get_parent");
+        static auto getChildCount = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "get_childCount");
+        static auto getComponent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Component", "GetComponent", {"System.Type"});
+        static auto setBehaviourEnabled = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Behaviour", "set_enabled");
+
+        static auto canvasClass = Il2cppUtils::GetClass("UnityEngine.UIModule.dll", "UnityEngine", "Canvas");
+        static auto rectTransformClass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform");
+        static auto fitterClass = Il2cppUtils::GetClass("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter");
+        static auto uiContentAreaClass = Il2cppUtils::GetClass("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea");
+
+        static auto setAnchorMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMin");
+        static auto setAnchorMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMax");
+        static auto setPivot = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_pivot");
+        static auto setOffsetMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMin");
+        static auto setOffsetMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMax");
+        static auto setAspectMode = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectMode");
+        static auto setAspectRatio = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectRatio");
+
+        static auto minAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_minAspect") : nullptr;
+        static auto maxAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_maxAspect") : nullptr;
+
+        if (!getTransform || !getParent || !getComponent) return;
+        auto selfTransform = getTransform->Invoke<void*>(component);
+        if (!selfTransform || !IsNativeObjectAlive(selfTransform)) return;
+
+        auto canvasType = canvasClass ? canvasClass->GetType() : nullptr;
+        auto rectTransformType = rectTransformClass ? rectTransformClass->GetType() : nullptr;
+        auto fitterType = fitterClass ? fitterClass->GetType() : nullptr;
+        auto uiContentAreaType = uiContentAreaClass ? uiContentAreaClass->GetType() : nullptr;
+
+        if (skipCanvas && canvasType) {
+            void* probe = selfTransform;
+            for (int depth = 0; depth < 12 && probe && IsNativeObjectAlive(probe); ++depth) {
+                auto canvas = getComponent->Invoke<void*>(probe, canvasType);
+                if (canvas && IsNativeObjectAlive(canvas)) {
+                    if (canvas == skipCanvas) return;
+                    break;
+                }
+                probe = getParent->Invoke<void*>(probe);
+            }
+        }
+
+        void* cur = selfTransform;
+        for (int depth = 0; depth < 8 && cur && IsNativeObjectAlive(cur); ++depth) {
+            if (canvasType) {
+                auto canvas = getComponent->Invoke<void*>(cur, canvasType);
+                if (canvas && IsNativeObjectAlive(canvas)) break;
+            }
+
+            const bool isSelf = (cur == selfTransform);
+            const int childCount = getChildCount ? getChildCount->Invoke<int>(cur) : 0;
+            bool touchedContentArea = false;
+            bool touchedFitter = false;
+
+            if (uiContentAreaType) {
+                auto contentArea = getComponent->Invoke<void*>(cur, uiContentAreaType);
+                if (contentArea && IsNativeObjectAlive(contentArea) && (isSelf || childCount <= 2)) {
+                    if (minAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, minAspectField, 0.01f);
+                    if (maxAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, maxAspectField, 100.0f);
+                    if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(contentArea, false);
+                    touchedContentArea = true;
+                }
+            }
+
+            if (rectTransformType && (isSelf || childCount <= 2)) {
+                auto rectTransform = getComponent->Invoke<void*>(cur, rectTransformType);
+                if (rectTransform && IsNativeObjectAlive(rectTransform)) {
+                    if (setAnchorMin) setAnchorMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                    if (setAnchorMax) setAnchorMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{1.0f, 1.0f});
+                    if (setPivot) setPivot->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.5f, 0.5f});
+                    if (setOffsetMin) setOffsetMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                    if (setOffsetMax) setOffsetMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                }
+            }
+
+            if (fitterType && (isSelf || childCount <= 2)) {
+                auto fitter = getComponent->Invoke<void*>(cur, fitterType);
+                if (fitter && IsNativeObjectAlive(fitter)) {
+                    if (setAspectMode) setAspectMode->Invoke<void>(fitter, 3); // AspectMode.FitInParent
+                    if (setAspectRatio) setAspectRatio->Invoke<void>(fitter, targetAspect);
+                    if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(fitter, true);
+                    touchedFitter = true;
+                }
+            }
+
+            if (Config::dbgMode) {
+                Log::DebugFmt("UnlockLiveAspectRatio[Node]: depth=%d name=%s children=%d uiArea=%d fitter=%d aspect=%.4f",
+                              depth, GetUnityObjectName(cur).c_str(), childCount, touchedContentArea, touchedFitter, targetAspect);
+            }
+
+            cur = getParent->Invoke<void*>(cur);
+        }
+    }
+
+    void ApplyAspectRatioToLiveFitters(void* self, const char* className, float targetAspect) {
+        if (!self || targetAspect <= 0.01f) return;
+        auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Live", className);
+        auto fittersField = klass ? klass->Get<UnityResolve::Field>("_vlTargetImageAspectRatioFitters") : nullptr;
+        auto verticalCanvasField = klass ? klass->Get<UnityResolve::Field>("_verticalCanvas") : nullptr;
+        static auto setAspectRatio = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI",
+                                                            "AspectRatioFitter", "set_aspectRatio");
+        if (!fittersField || !setAspectRatio) return;
+        void* verticalCanvas = verticalCanvasField
+                ? Il2cppUtils::ClassGetFieldValue<void*>(self, verticalCanvasField)
+                : nullptr;
+        auto fitters = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::Array<void*>*>(self, fittersField);
+        if (!fitters) return;
+        for (auto fitter : fitters->ToVector()) {
+            if (!fitter || !IsNativeObjectAlive(fitter)) continue;
+            setAspectRatio->Invoke<void>(fitter, targetAspect);
+            ExpandRenderTargetHierarchy(fitter, targetAspect, verticalCanvas);
+        }
+    }
+
+    void HidePhotographyBackFrame(void* self, const char* className) {
+        if (!self || !Config::unlockLiveAspectRatio) return;
+        auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Photography", className);
+        auto backFrameField = klass ? klass->Get<UnityResolve::Field>("_backFrame") : nullptr;
+        if (!backFrameField) return;
+        auto backFrame = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::GameObject*>(self, backFrameField);
+        if (!backFrame || !IsNativeObjectAlive(backFrame)) return;
+        backFrame->SetActive(false);
+        if (Config::dbgMode) {
+            Log::DebugFmt("UnlockLiveAspectRatio: hid _backFrame on %s=%p", className, self);
+        }
+    }
 
     int GetRequestedAntiAliasing() {
         const int mode = Config::antiAliasingMode;
@@ -4252,6 +4406,61 @@ namespace HoshimiLocal::HookMain {
         auto actualClass = UnityResolve::Invoke<void*>("il2cpp_object_get_class", controller);
         if (!UnityResolve::Invoke<bool>("il2cpp_class_is_assignable_from", controllerClass->address, actualClass)) return nullptr;
         return getCamera->Invoke<void*>(controller);
+    }
+
+    // Returns Vert+ expansion scale (> 1.0) when screen is narrower than reference 16:9 (landscape)
+    // or 9:16 (portrait), and 1.0 when Hor+ already expands left/right naturally.
+    float GetVertPlusScaleForCamera(void* camera, bool requirePhysical, bool requireNonPhysical) {
+        if (!Config::unlockLiveAspectRatio || Config::enableFreeCamera || !camera) return 1.0f;
+        if (!unlockedPhotographyActive.load(std::memory_order_relaxed) &&
+            !unlockedLiveActive.load(std::memory_order_relaxed)) {
+            return 1.0f;
+        }
+        if (camera != GetMainGraphicCamera()) return 1.0f;
+
+        static auto getAspect = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Camera", "get_aspect");
+        static auto getUsePhysical = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Camera", "get_usePhysicalProperties");
+        if (!getAspect) return 1.0f;
+
+        if ((requirePhysical || requireNonPhysical) && getUsePhysical) {
+            const bool isPhysical = getUsePhysical->Invoke<bool>(camera);
+            if (requirePhysical && !isPhysical) return 1.0f;
+            if (requireNonPhysical && isPhysical) return 1.0f;
+        }
+
+        const float aspect = getAspect->Invoke<float>(camera);
+        if (!std::isfinite(aspect) || aspect <= 0.01f) return 1.0f;
+
+        const float refAspect = (aspect >= 1.0f) ? (16.0f / 9.0f) : (9.0f / 16.0f);
+        if (aspect >= refAspect - 0.001f) return 1.0f;
+        return refAspect / aspect;
+    }
+
+    float ApplyVertPlusFovIfNeeded(void* camera, float vFov) {
+        if (!std::isfinite(vFov) || vFov <= 0.5f || vFov >= 175.0f) return vFov;
+        const float scale = GetVertPlusScaleForCamera(camera, false, true);
+        if (scale <= 1.0005f) return vFov;
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        constexpr float kRadToDeg = 180.0f / 3.14159265358979323846f;
+        const float halfRad = vFov * 0.5f * kDegToRad;
+        const float adjusted = 2.0f * std::atan(std::tan(halfRad) * scale) * kRadToDeg;
+        return std::clamp(adjusted, 1.0f, 150.0f);
+    }
+
+    DEFINE_HOOK(void, Unity_set_focalLength, (void* self, float value, void* method)) {
+        if (std::isfinite(value) && value > 0.01f) {
+            const float scale = GetVertPlusScaleForCamera(self, true, false);
+            if (scale > 1.0005f) {
+                value = std::max(value / scale, 1.0f);
+            }
+        }
+        Unity_set_focalLength_Orig(self, value, method);
+    }
+
+    DEFINE_HOOK(void, OutGameScenePresenter_UnlockVLCameraAspectRatio, (void* method)) {
+        unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        unlockedLiveActive.store(false, std::memory_order_relaxed);
+        OutGameScenePresenter_UnlockVLCameraAspectRatio_Orig(method);
     }
 
     int GetUnboxedGraphicsFieldOffset(const char* className, const char* fieldName) {
@@ -4356,6 +4565,14 @@ namespace HoshimiLocal::HookMain {
             return VLSRPCameraController_UpdateRenderTarget_Orig(self, width, height, forceAlpha, method);
         }
         static auto cameraClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL.Rendering", "VLSRPCameraController");
+        static auto aspectRatioField = cameraClass ? cameraClass->Get<UnityResolve::Field>("aspectRatio") : nullptr;
+        if (forceUnlockCameraAspectRatio && aspectRatioField) {
+            const UnityResolve::UnityType::Vector2 unlocked{-1.0f, -1.0f};
+            Il2cppUtils::ClassSetFieldValue(self, aspectRatioField, unlocked);
+            if (Config::dbgMode) {
+                Log::DebugFmt("UnlockLiveAspectRatio: unlocked VLSRPCameraController=%p aspectRatio=(-1, -1)", self);
+            }
+        }
         static auto dynamicScaleField = cameraClass ? cameraClass->Get<UnityResolve::Field>("useDynamicScale") : nullptr;
         static auto destroyTarget = cameraClass ? cameraClass->Get<UnityResolve::Method>("DestroyTargetTexture") : nullptr;
         static auto getInstanceId = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Object", "GetInstanceID");
@@ -4370,7 +4587,7 @@ namespace HoshimiLocal::HookMain {
                 : previousMode->second != Config::useCustomeGraphicSettings;
         if (resolutionModes.size() > 128) resolutionModes.clear();
         resolutionModes[instanceId] = Config::useCustomeGraphicSettings;
-        if (rebuild) destroyTarget->Invoke<void>(self);
+        if (rebuild || forceUnlockCameraAspectRatio) destroyTarget->Invoke<void>(self);
         if (!Config::useCustomeGraphicSettings) {
             return VLSRPCameraController_UpdateRenderTarget_Orig(self, width, height, forceAlpha, method);
         }
@@ -4404,6 +4621,147 @@ namespace HoshimiLocal::HookMain {
                           result.width, result.height, Config::renderScale, Config::maxBufferPixel);
         }
         return result;
+    }
+
+    DEFINE_HOOK(void, VLSRPTargetImage_UpdateTexture, (void* self, void* texture, void* method)) {
+        VLSRPTargetImage_UpdateTexture_Orig(self, texture, method);
+        if (!Config::unlockLiveAspectRatio || !unlockedPhotographyActive.load(std::memory_order_relaxed) || !self || !texture) {
+            return;
+        }
+        static auto targetImageClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL.Rendering", "VLSRPTargetImage");
+        static auto textureTypeField = targetImageClass ? targetImageClass->Get<UnityResolve::Field>("_textureType") : nullptr;
+        if (textureTypeField && Il2cppUtils::ClassGetFieldValue<int>(self, textureTypeField) != 0) {
+            return;
+        }
+        static auto getTexWidth = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_width");
+        static auto getTexHeight = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Texture", "get_height");
+        if (!getTexWidth || !getTexHeight) return;
+        const int texW = getTexWidth->Invoke<int>(texture);
+        const int texH = getTexHeight->Invoke<int>(texture);
+        if (texW <= 0 || texH <= 0) return;
+        const float texAspect = static_cast<float>(texW) / static_cast<float>(texH);
+        if (Config::dbgMode) {
+            const auto [screenW, screenH] = GetUnityScreenSize();
+            Log::DebugFmt("UnlockLiveAspectRatio[TargetImage]: self=%p tex=%dx%d (%.4f) screen=%dx%d",
+                          self, texW, texH, texAspect, screenW, screenH);
+        }
+        ExpandRenderTargetHierarchy(self, texAspect);
+    }
+
+    DEFINE_HOOK(void, PhotographyMainBase_UpdateCameraRender, (void* self, void* method)) {
+        if (Config::unlockLiveAspectRatio) unlockedPhotographyActive.store(true, std::memory_order_relaxed);
+        UnlockCameraAspectScope scope(Config::unlockLiveAspectRatio);
+        PhotographyMainBase_UpdateCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, PhotographyMainBase_ResetCameraRender, (void* self, void* method)) {
+        unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        PhotographyMainBase_ResetCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, Photography360LiveContentPresenter_UpdateCameraRender, (void* self, void* method)) {
+        if (Config::unlockLiveAspectRatio) unlockedPhotographyActive.store(true, std::memory_order_relaxed);
+        UnlockCameraAspectScope scope(Config::unlockLiveAspectRatio);
+        Photography360LiveContentPresenter_UpdateCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, Photography360LiveContentPresenter_ResetCameraRender, (void* self, void* method)) {
+        unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        Photography360LiveContentPresenter_ResetCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, CompanyExcursionScreenPresenter_UpdateCameraRender, (void* self, void* method)) {
+        if (Config::unlockLiveAspectRatio) unlockedPhotographyActive.store(true, std::memory_order_relaxed);
+        UnlockCameraAspectScope scope(Config::unlockLiveAspectRatio);
+        CompanyExcursionScreenPresenter_UpdateCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, CompanyExcursionScreenPresenter_ResetCameraRender, (void* self, void* method)) {
+        unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        CompanyExcursionScreenPresenter_ResetCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, ShowcasePhotoShootingScreenPresenter_UpdateCameraRender, (void* self, void* method)) {
+        if (Config::unlockLiveAspectRatio) unlockedPhotographyActive.store(true, std::memory_order_relaxed);
+        UnlockCameraAspectScope scope(Config::unlockLiveAspectRatio);
+        ShowcasePhotoShootingScreenPresenter_UpdateCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, ShowcasePhotoShootingScreenPresenter_ResetCameraRender, (void* self, void* method)) {
+        unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        ShowcasePhotoShootingScreenPresenter_ResetCameraRender_Orig(self, method);
+    }
+
+    DEFINE_HOOK(void, PhotographyMainContentView_Initialize, (void* self, void* method)) {
+        PhotographyMainContentView_Initialize_Orig(self, method);
+        HidePhotographyBackFrame(self, "PhotographyMainContentView");
+    }
+
+    DEFINE_HOOK(void, Photography360LiveContentView_Initialize, (void* self, bool isPreview, void* method)) {
+        Photography360LiveContentView_Initialize_Orig(self, isPreview, method);
+        HidePhotographyBackFrame(self, "Photography360LiveContentView");
+    }
+
+    struct LiveAspectState {
+        void* view = nullptr;
+        bool unlocked = false;
+        int width = 0;
+        int height = 0;
+    };
+    static LiveAspectState lastLiveAspectState{};
+
+    DEFINE_HOOK(void, LiveUIView_Setup3DAspect, (void* self, void* method)) {
+        const auto [screenWidth, screenHeight] = GetUnityScreenSize();
+        const bool unlock = Config::unlockLiveAspectRatio && screenWidth > screenHeight && screenHeight > 0;
+        unlockedLiveActive.store(unlock, std::memory_order_relaxed);
+        {
+            UnlockCameraAspectScope scope(unlock);
+            LiveUIView_Setup3DAspect_Orig(self, method);
+        }
+        if (unlock) {
+            const float aspect = static_cast<float>(screenWidth) / static_cast<float>(screenHeight);
+            ApplyAspectRatioToLiveFitters(self, "LiveUIView", aspect);
+            if (Config::dbgMode) {
+                Log::DebugFmt("UnlockLiveAspectRatio: LiveUIView=%p landscape %dx%d aspect=%.4f",
+                              self, screenWidth, screenHeight, aspect);
+            }
+        }
+        lastLiveAspectState = {self, unlock, screenWidth, screenHeight};
+    }
+
+    DEFINE_HOOK(void, LiveUIView_SwitchScreenMode, (void* self, bool isHorizontal, void* method)) {
+        LiveUIView_SwitchScreenMode_Orig(self, isHorizontal, method);
+        if (!self) return;
+        const auto [screenWidth, screenHeight] = GetUnityScreenSize();
+        const bool wantUnlock = Config::unlockLiveAspectRatio && isHorizontal && screenWidth > 0 && screenHeight > 0;
+        const bool alreadyApplied = lastLiveAspectState.view == self &&
+                lastLiveAspectState.unlocked == wantUnlock &&
+                (!wantUnlock || (lastLiveAspectState.width == screenWidth && lastLiveAspectState.height == screenHeight));
+        if (alreadyApplied) return;
+        if (!Config::unlockLiveAspectRatio && !lastLiveAspectState.unlocked) return;
+        static auto setup3DAspect = Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Live",
+                                                           "LiveUIView", "Setup3DAspect");
+        if (setup3DAspect) {
+            setup3DAspect->Invoke<void>(self);
+        }
+    }
+
+    DEFINE_HOOK(void, HighlightLiveUIView_Setup3DAspect, (void* self, void* method)) {
+        const auto [screenWidth, screenHeight] = GetUnityScreenSize();
+        const bool unlock = Config::unlockLiveAspectRatio && screenWidth > screenHeight && screenHeight > 0;
+        unlockedLiveActive.store(unlock, std::memory_order_relaxed);
+        {
+            UnlockCameraAspectScope scope(unlock);
+            HighlightLiveUIView_Setup3DAspect_Orig(self, method);
+        }
+        if (unlock) {
+            const float aspect = static_cast<float>(screenWidth) / static_cast<float>(screenHeight);
+            ApplyAspectRatioToLiveFitters(self, "HighlightLiveUIView", aspect);
+            if (Config::dbgMode) {
+                Log::DebugFmt("UnlockLiveAspectRatio: HighlightLiveUIView=%p landscape %dx%d aspect=%.4f",
+                              self, screenWidth, screenHeight, aspect);
+            }
+        }
     }
 
     bool InitBodyParts() {
@@ -5866,6 +6224,55 @@ namespace HoshimiLocal::HookMain {
                  Il2cppUtils::GetMethodPointer("vl-unity.Runtime.dll", "VL",
                                                "VLUtility", "GetLimitedResolution",
                                                {"System.Int32", "System.Int32", "UnityEngine.Vector2", "System.Int32", "System.Single", "System.Boolean"}));
+
+        ADD_HOOK(VLSRPTargetImage_UpdateTexture,
+                 Il2cppUtils::GetMethodPointer("vl-unity.Runtime.dll", "VL.Rendering",
+                                               "VLSRPTargetImage", "UpdateTexture"));
+        ADD_HOOK(PhotographyMainBase_UpdateCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "PhotographyMainBase", "UpdateCameraRender"));
+        ADD_HOOK(PhotographyMainBase_ResetCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "PhotographyMainBase", "ResetCameraRender"));
+        ADD_HOOK(Photography360LiveContentPresenter_UpdateCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "Photography360LiveContentPresenter", "UpdateCameraRender"));
+        ADD_HOOK(Photography360LiveContentPresenter_ResetCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "Photography360LiveContentPresenter", "ResetCameraRender"));
+        ADD_HOOK(CompanyExcursionScreenPresenter_UpdateCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CompanyExcursionScreenPresenter", "UpdateCameraRender"));
+        ADD_HOOK(CompanyExcursionScreenPresenter_ResetCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "CompanyExcursionScreenPresenter", "ResetCameraRender"));
+        ADD_HOOK(ShowcasePhotoShootingScreenPresenter_UpdateCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ShowcasePhotoShootingScreenPresenter", "UpdateCameraRender"));
+        ADD_HOOK(ShowcasePhotoShootingScreenPresenter_ResetCameraRender,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ShowcasePhotoShootingScreenPresenter", "ResetCameraRender"));
+        ADD_HOOK(PhotographyMainContentView_Initialize,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "PhotographyMainContentView", "Initialize"));
+        ADD_HOOK(Photography360LiveContentView_Initialize,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "Photography360LiveContentView", "Initialize"));
+        ADD_HOOK(LiveUIView_Setup3DAspect,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
+                                               "LiveUIView", "Setup3DAspect"));
+        ADD_HOOK(LiveUIView_SwitchScreenMode,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
+                                               "LiveUIView", "SwitchScreenMode"));
+        ADD_HOOK(HighlightLiveUIView_Setup3DAspect,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
+                                               "HighlightLiveUIView", "Setup3DAspect"));
+        ADD_HOOK(OutGameScenePresenter_UnlockVLCameraAspectRatio,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "OutGameScenePresenter", "UnlockVLCameraAspectRatio"));
+        ADD_HOOK(Unity_set_focalLength,
+                 Il2cppUtils::GetMethodPointer("UnityEngine.CoreModule.dll", "UnityEngine",
+                                               "Camera", "set_focalLength"));
 
         ADD_HOOK(SolisActorController_LateUpdate,
                  Il2cppUtils::GetMethodPointer("solis-submodule.Runtime.dll", "Solis.Common",

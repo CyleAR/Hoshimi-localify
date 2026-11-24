@@ -27,6 +27,7 @@ data class IdolyprideConfig (
     var enableFreeCamera: Boolean = false,
     var hideLiveViewingUiOnStart: Boolean = false,
     var showLiveSeekBar: Boolean = false,
+    var unlockLiveAspectRatio: Boolean = false,
     var targetFrameRate: Int = 0,
     var skipLiveToResult: Boolean = false,
     var unlockAllLiveCostume: Boolean = false,

@@ -27,6 +27,7 @@ namespace HoshimiLocal::Config {
     extern bool enableFreeCamera;
     extern bool hideLiveViewingUiOnStart;
     extern std::atomic<bool> showLiveSeekBar;
+    extern bool unlockLiveAspectRatio;
     extern int targetFrameRate;
     extern bool skipLiveToResult;
     extern bool unlockAllLiveCostume;

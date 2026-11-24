@@ -13,13 +13,14 @@
     <string name="enable_free_camera">Enable Free Camera</string>
     <string name="start_game">Start Game / Hot Reload Config</string>
     <string name="setFpsTitle">Max FPS (0 is Use Original Settings)</string>
-    <string name="hide_live_viewing_ui_on_start">Hide UI when 3D live viewing starts</string>
+    <string name="hide_live_viewing_ui_on_start">Hide UI when live/MV viewing starts</string>
     <string name="show_live_seek_bar">Show seek bar for live and MV viewing or photography</string>
+    <string name="unlock_live_aspect_ratio">Expand live and photography to full screen</string>
     <string name="skip_live_to_result">Skip Live to Result</string>
     <string name="unlockAllLiveCostume">Unlock All Costumes / Hairs</string>
     <string name="unlockCrossCharacterCostume">Unlock Cross-Character Costumes</string>
     <string name="unlockCrossCharacterHair">Unlock Cross-Character Hairs</string>
-    <string name="unlockAllPhotoPose">Unlock All Photo Pose</string>
+    <string name="unlockAllPhotoPose">Unlock All Poses</string>
     <string name="liveUseCustomeDress">Live Custom Character</string>
     <string name="live_costume_head_id">Live Custom Head ID (eg. costume_head_hski-cstm-0002)</string>
     <string name="live_custome_dress_id">Live Custom Dress ID (eg. hski-cstm-0002)</string>

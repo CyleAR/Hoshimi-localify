@@ -34,6 +34,7 @@ namespace HoshimiLocal::Config {
     bool enableFreeCamera = false;
     bool hideLiveViewingUiOnStart = false;
     std::atomic<bool> showLiveSeekBar{false};
+    bool unlockLiveAspectRatio = false;
     int targetFrameRate = 0;
     bool skipLiveToResult = false;
     bool unlockAllLiveCostume = false;
@@ -116,6 +117,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(enableFreeCamera);
             GetConfigItem(hideLiveViewingUiOnStart);
             showLiveSeekBar.store(config.value("showLiveSeekBar", false));
+            GetConfigItem(unlockLiveAspectRatio);
             GetConfigItem(skipLiveToResult);
             GetConfigItem(unlockAllLiveCostume);
             GetConfigItem(unlockCrossCharacterCostume);
@@ -180,6 +182,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(enableFreeCamera);
             SetConfigItem(hideLiveViewingUiOnStart);
             config["showLiveSeekBar"] = showLiveSeekBar.load();
+            SetConfigItem(unlockLiveAspectRatio);
             SetConfigItem(skipLiveToResult);
             SetConfigItem(unlockAllLiveCostume);
             SetConfigItem(unlockCrossCharacterCostume);

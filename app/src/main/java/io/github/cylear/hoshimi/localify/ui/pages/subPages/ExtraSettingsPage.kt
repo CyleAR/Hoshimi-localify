@@ -67,6 +67,13 @@ fun ExtraSettingsPage(
                     IPSwitch(modifier, stringResource(R.string.show_live_seek_bar), checked = config.showLiveSeekBar) {
                         context?.onShowLiveSeekBarChanged(it)
                     }
+                    IPSwitch(
+                        modifier,
+                        stringResource(R.string.unlock_live_aspect_ratio),
+                        checked = config.unlockLiveAspectRatio
+                    ) {
+                        context?.onUnlockLiveAspectRatioChanged(it)
+                    }
                     IPSwitch(modifier, stringResource(R.string.skip_live_to_result), checked = config.skipLiveToResult) {
                         context?.onSkipLiveToResultChanged(it)
                     }
