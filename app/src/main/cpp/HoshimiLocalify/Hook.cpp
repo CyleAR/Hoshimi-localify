@@ -131,6 +131,70 @@ namespace HoshimiLocal::HookMain {
         return Solis_ActivityPhotographyGridListItemModel_GetEndTerm_Orig(self, mtd);
     }
 
+    static std::mutex g_emptyStringRepeatedFieldMutex;
+    static uint32_t g_emptyStringRepeatedFieldHandle = 0;
+
+    DEFINE_HOOK(void*, Solis_MasterPhotoActivity_get_ImpossibleShootingCharacterIds, (void* self, void* mtd)) {
+        auto ret = Solis_MasterPhotoActivity_get_ImpossibleShootingCharacterIds_Orig(self, mtd);
+        if (!Config::unlockAllPhotoActivity || !ret) return ret;
+        Il2cppUtils::Tools::CSListEditor<void*> editor(ret);
+        if (editor.get_Count() <= 0) return ret;
+
+        std::lock_guard lock(g_emptyStringRepeatedFieldMutex);
+        if (!g_emptyStringRepeatedFieldHandle) {
+            auto klass = Il2cppUtils::get_class_from_instance(ret);
+            if (!klass) return ret;
+            auto emptyList = UnityResolve::Invoke<void*>("il2cpp_object_new", klass);
+            if (!emptyList) return ret;
+            if (auto ctor = Il2cppUtils::il2cpp_class_get_method_from_name(klass, ".ctor", 0)) {
+                reinterpret_cast<void (*)(void*, const Il2cppUtils::MethodInfo*)>(ctor->methodPointer)(emptyList, ctor);
+            }
+            g_emptyStringRepeatedFieldHandle = UnityResolve::Invoke<uint32_t>("il2cpp_gchandle_new", emptyList, false);
+        }
+        if (g_emptyStringRepeatedFieldHandle) {
+            if (auto target = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", g_emptyStringRepeatedFieldHandle)) {
+                return target;
+            }
+        }
+        return ret;
+    }
+
+    DEFINE_HOOK(void, Solis_PhotographySelectDataModel_SetNgCharacters,
+        (void* self, void* spotPhotographyData, void* mtd)) {
+        if (Config::unlockAllPhotoActivity && self && spotPhotographyData) {
+            auto klass = Il2cppUtils::get_class_from_instance(spotPhotographyData);
+            if (klass && klass->name && std::string_view(klass->name) == "PhotoActivity") {
+                static const auto getSelectedNg = Il2cppUtils::GetMethod(
+                    "Assembly-CSharp.dll", "Solis.OutGame", "PhotographySelectDataModel", "get_SelectedNgCharacters");
+                if (getSelectedNg) {
+                    auto ngDict = getSelectedNg->Invoke<void*>(self, getSelectedNg->address);
+                    if (ngDict) {
+                        auto dictKlass = Il2cppUtils::get_class_from_instance(ngDict);
+                        if (auto clearMtd = dictKlass ? Il2cppUtils::il2cpp_class_get_method_from_name(dictKlass, "Clear", 0) : nullptr) {
+                            reinterpret_cast<void (*)(void*, const Il2cppUtils::MethodInfo*)>(clearMtd->methodPointer)(ngDict, clearMtd);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+        Solis_PhotographySelectDataModel_SetNgCharacters_Orig(self, spotPhotographyData, mtd);
+    }
+
+    DEFINE_HOOK(void*, Solis_PhotographySelectDataModel_GetActivityCostume_UserChar,
+        (void* self, void* userCharacter, void* mtd)) {
+        auto ret = Solis_PhotographySelectDataModel_GetActivityCostume_UserChar_Orig(self, userCharacter, mtd);
+        if (ret || !Config::unlockAllPhotoActivity || !userCharacter) return ret;
+        static const auto getActorCostume = Il2cppUtils::GetMethod(
+            "Assembly-CSharp.dll", "Solis.Common.User", "UserCharacter", "ActorCostume", {"System.Boolean"});
+        if (getActorCostume) {
+            if (auto fallback = getActorCostume->Invoke<void*>(userCharacter, true, getActorCostume->address)) {
+                return fallback;
+            }
+        }
+        return ret;
+    }
+
     DEFINE_HOOK(void, Solis_PromotionProgress_InternalMergeFrom, (void* self, void* input, void* mtd)) {
         Solis_PromotionProgress_InternalMergeFrom_Orig(self, input, mtd);
         PhotoRequests::ApplyActivityVisualOutfits(self);
@@ -6178,6 +6242,19 @@ namespace HoshimiLocal::HookMain {
         if (auto getEndTermPtr = Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.OutGame", "ActivityPhotographyGridListItemModel", "GetEndTerm")) {
             ADD_HOOK(Solis_ActivityPhotographyGridListItemModel_GetEndTerm, getEndTermPtr);
+        }
+        if (auto getImpossibleCharsPtr = Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Common.Proto.Master", "PhotoActivity", "get_ImpossibleShootingCharacterIds")) {
+            ADD_HOOK(Solis_MasterPhotoActivity_get_ImpossibleShootingCharacterIds, getImpossibleCharsPtr);
+        }
+        if (auto setNgCharsPtr = Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.OutGame", "PhotographySelectDataModel", "SetNgCharacters")) {
+            ADD_HOOK(Solis_PhotographySelectDataModel_SetNgCharacters, setNgCharsPtr);
+        }
+        if (auto getActCostumePtr = Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.OutGame", "PhotographySelectDataModel", "GetActivityCostume",
+                {"Solis.Common.User.UserCharacter"})) {
+            ADD_HOOK(Solis_PhotographySelectDataModel_GetActivityCostume_UserChar, getActCostumePtr);
         }
 
         uintptr_t sharedUserCollectionGetAllListPtr = 0;

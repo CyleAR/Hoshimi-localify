@@ -1116,6 +1116,18 @@ namespace {
         return count;
     }
 
+    bool HasNgCharacterForPhotoActivity(const std::string& activityId, const std::vector<std::string>& chars) {
+        if (activityId.empty() || chars.empty()) return false;
+        auto master = Find("get_PhotoActivityMaster", activityId);
+        if (!master) return false;
+        const auto ngIds = Strings(Field(master, "impossibleShootingCharacterIds_"));
+        if (ngIds.empty()) return false;
+        for (const auto& cid : chars) {
+            if (ContainsStr(ngIds, cid)) return true;
+        }
+        return false;
+    }
+
     PreparedRequest PreparePhotoActivityFallback(void* request, const std::string& name, const Inventory& owned) {
         const auto reqActivityId = Text(request, "get_PhotoActivityId");
         const int reqActionType = MethodOf(request, "get_ActionType") ? Get<int>(request, "get_ActionType") : 0;
@@ -1181,6 +1193,7 @@ namespace {
         std::vector<std::string> outCostumes;
         std::vector<std::string> outHairs;
         for (const auto& cand : candidates) {
+            if (cand.id == reqActivityId) continue;
             bool allowed = true;
             for (const auto& cid : chars) {
                 if (cand.impossibleCharacterIds.contains(cid)) {
@@ -1906,7 +1919,7 @@ namespace {
                     info.spotCount = CountPhotoActivitySpots(master);
                     info.order = Get<int>(master, "get_Order");
                     info.isPermanent = Text(master, "get_ViewConditionId").empty();
-                    for (const auto& ng : Strings(Get(master, "get_ImpossibleShootingCharacterIds"))) {
+                    for (const auto& ng : Strings(Field(master, "impossibleShootingCharacterIds_"))) {
                         if (!ng.empty()) info.impossibleCharacterIds.insert(ng);
                     }
                     realUnlocked.push_back(std::move(info));
@@ -2078,9 +2091,11 @@ namespace {
 
         const bool isSchedulePhotoReq =
             name == "PhotoCheckShootingRequest" || name == "PhotoCreateShootingsRequest";
+        const auto reqActivityId = isSchedulePhotoReq ? Text(request, "get_PhotoActivityId") : "";
         const bool needsHiddenActivityFallback =
-            Config::unlockAllPhotoActivity && isSchedulePhotoReq &&
-            IsUnlockedHiddenPhotoActivity(Text(request, "get_PhotoActivityId"));
+            Config::unlockAllPhotoActivity && isSchedulePhotoReq && !reqActivityId.empty() &&
+            (IsUnlockedHiddenPhotoActivity(reqActivityId) ||
+             HasNgCharacterForPhotoActivity(reqActivityId, Strings(Get(request, "get_CharacterIds"))));
         if (!needsHiddenActivityFallback && !Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose) {
             return PreparedRequest(request);
         }
