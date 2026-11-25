@@ -112,6 +112,25 @@ namespace HoshimiLocal::HookMain {
         PhotoRequests::CaptureAvailability(self);
     }
 
+    DEFINE_HOOK(void, Solis_PhotoListShootingResponse_InternalMergeFrom, (void* self, void* input, void* mtd)) {
+        Solis_PhotoListShootingResponse_InternalMergeFrom_Orig(self, input, mtd);
+        PhotoRequests::CapturePhotoListShooting(self);
+    }
+
+    DEFINE_HOOK(int64_t, Solis_ActivityPhotographyGridListItemModel_GetEndTerm, (void* self, void* mtd)) {
+        if (Config::unlockAllPhotoActivity && self) {
+            static const auto getActivityId = Il2cppUtils::GetMethod(
+                "Assembly-CSharp.dll", "Solis.OutGame", "ActivityPhotographyGridListItemModel", "get_ActivityId");
+            if (getActivityId) {
+                auto idStr = getActivityId->Invoke<Il2cppString*>(self, getActivityId->address);
+                if (idStr && PhotoRequests::IsUnlockedHiddenPhotoActivity(idStr->ToString())) {
+                    return 0;
+                }
+            }
+        }
+        return Solis_ActivityPhotographyGridListItemModel_GetEndTerm_Orig(self, mtd);
+    }
+
     DEFINE_HOOK(void, Solis_PromotionProgress_InternalMergeFrom, (void* self, void* input, void* mtd)) {
         Solis_PromotionProgress_InternalMergeFrom_Orig(self, input, mtd);
         PhotoRequests::ApplyActivityVisualOutfits(self);
@@ -6088,6 +6107,7 @@ namespace HoshimiLocal::HookMain {
 
         // Capture complete protobuf messages before UI collection/availability hooks run.
         for (const auto className : {"UserGetResponse", "UpdatedData", "PhotoListSpecialShootingResponse",
+                                    "PhotoListShootingResponse",
                                     "PromotionProgress", "RefreshProgress", "FanEventProgress",
                                     "LiveUserInfo", "QuestListAssetResponse",
                                     "MarathonQuestListAssetResponse", "RaceQuestListAssetResponse"}) {
@@ -6105,6 +6125,8 @@ namespace HoshimiLocal::HookMain {
                     ADD_HOOK(Solis_UpdatedData_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "PhotoListSpecialShootingResponse") {
                     ADD_HOOK(Solis_PhotoListSpecialShootingResponse_InternalMergeFrom, method->methodPointer);
+                } else if (std::string_view(className) == "PhotoListShootingResponse") {
+                    ADD_HOOK(Solis_PhotoListShootingResponse_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "PromotionProgress") {
                     ADD_HOOK(Solis_PromotionProgress_InternalMergeFrom, method->methodPointer);
                 } else if (std::string_view(className) == "RefreshProgress") {
@@ -6151,6 +6173,11 @@ namespace HoshimiLocal::HookMain {
                          Solis_QuestListAssetResponse_InternalMergeFrom_Orig != nullptr,
                          Solis_MarathonQuestListAssetResponse_InternalMergeFrom_Orig != nullptr,
                          Solis_RaceQuestListAssetResponse_InternalMergeFrom_Orig != nullptr);
+        }
+
+        if (auto getEndTermPtr = Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.OutGame", "ActivityPhotographyGridListItemModel", "GetEndTerm")) {
+            ADD_HOOK(Solis_ActivityPhotographyGridListItemModel_GetEndTerm, getEndTermPtr);
         }
 
         uintptr_t sharedUserCollectionGetAllListPtr = 0;

@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 #include <nlohmann/json.hpp>
@@ -25,6 +26,22 @@ namespace {
 
     std::mutex specialSceneMutex;
     SceneCatalog specialScenes;
+
+    struct ServerPhotoActivityInfo {
+        std::string id;
+        std::string stageId;
+        std::string motionSetId;
+        std::string forceCostumeTypeId;
+        std::set<std::string> costumeTypeIds;
+        int actionType = 0;
+        int spotCount = 0;
+        int order = 0;
+        bool isPermanent = false;
+        std::set<std::string> impossibleCharacterIds;
+    };
+    std::mutex photoActivityMutex;
+    std::vector<ServerPhotoActivityInfo> serverUnlockedPhotoActivities;
+    std::set<std::string> unlockedHiddenPhotoActivityIds;
 
     std::mutex costumeRoomMutex;
     std::string activeCostumeRoomCharacterId;
@@ -1044,6 +1061,205 @@ namespace {
         return candidate;
     }
 
+    int CountPhotoActivitySpots(void* masterActivity) {
+        if (!masterActivity) return 0;
+        auto motionSet = Get(masterActivity, "get_PhotoShootingMotionSet");
+        if (!motionSet) return 0;
+        int count = 0;
+        if (!Text(motionSet, "get_PhotoShootingMotionId1").empty()) ++count;
+        if (!Text(motionSet, "get_PhotoShootingMotionId2").empty()) ++count;
+        if (!Text(motionSet, "get_PhotoShootingMotionId3").empty()) ++count;
+        return count;
+    }
+
+    std::string ExtractTokenBeforeDelimiter(const std::string& value) {
+        const auto pos = value.find_first_of("-_");
+        return pos == std::string::npos ? value : value.substr(0, pos);
+    }
+
+    std::string StageFamily(std::string stageId) {
+        if (stageId.starts_with("stage-photo-")) {
+            stageId.erase(0, 12);
+        } else if (stageId.starts_with("photo_")) {
+            stageId.erase(0, 6);
+        } else if (stageId.starts_with("stage-")) {
+            stageId.erase(0, 6);
+        }
+        return ExtractTokenBeforeDelimiter(stageId);
+    }
+
+    std::string MotionFamily(const std::string& motionSetId) {
+        return ExtractTokenBeforeDelimiter(motionSetId);
+    }
+
+    std::string ActivityIdFamily(std::string activityId) {
+        if (activityId.starts_with("photo_activity-")) {
+            activityId.erase(0, 15);
+        } else if (activityId.starts_with("photo-promotion-")) {
+            activityId.erase(0, 16);
+        }
+        return ExtractTokenBeforeDelimiter(activityId);
+    }
+
+    int CommonPrefixLen(const std::string& a, const std::string& b) {
+        const size_t limit = std::min(a.size(), b.size());
+        size_t i = 0;
+        while (i < limit && a[i] == b[i]) ++i;
+        return static_cast<int>(i);
+    }
+
+    int CountSetOverlap(const std::set<std::string>& a, const std::set<std::string>& b) {
+        int count = 0;
+        for (const auto& item : a) {
+            if (b.contains(item)) ++count;
+        }
+        return count;
+    }
+
+    PreparedRequest PreparePhotoActivityFallback(void* request, const std::string& name, const Inventory& owned) {
+        const auto reqActivityId = Text(request, "get_PhotoActivityId");
+        const int reqActionType = MethodOf(request, "get_ActionType") ? Get<int>(request, "get_ActionType") : 0;
+        const auto chars = Strings(Get(request, "get_CharacterIds"));
+        const auto costumes = Strings(Get(request, "get_CostumeIds"));
+        const auto hairs = Strings(Get(request, "get_HairIds"));
+        if (chars.empty() || !Aligned(chars, costumes, hairs)) {
+            Log::ErrorFmt("PhotoRequests: %s hidden activity=%s unchanged, invalid actor lists",
+                          name.c_str(), reqActivityId.c_str());
+            return PreparedRequest(request);
+        }
+
+        std::vector<ServerPhotoActivityInfo> candidates;
+        {
+            std::lock_guard lock(photoActivityMutex);
+            candidates = serverUnlockedPhotoActivities;
+        }
+        if (candidates.empty()) {
+            Log::ErrorFmt("PhotoRequests: %s hidden activity=%s unchanged, no server-unlocked fallback activities",
+                          name.c_str(), reqActivityId.c_str());
+            return PreparedRequest(request);
+        }
+
+        void* reqMaster = Find("get_PhotoActivityMaster", reqActivityId);
+        const auto reqStageId = reqMaster ? Text(reqMaster, "get_StageId") : "";
+        const auto reqMotionSetId = reqMaster ? Text(reqMaster, "get_PhotoShootingMotionSetId") : "";
+        const auto reqForceCostumeTypeId = reqMaster ? Text(reqMaster, "get_ForceCostumeTypeId") : "";
+        std::set<std::string> reqCostumeTypeIds;
+        if (reqMaster) {
+            for (const auto& ct : Strings(Get(reqMaster, "get_CostumeTypeIds"))) {
+                if (!ct.empty()) reqCostumeTypeIds.insert(ct);
+            }
+        }
+        const int reqSpotCount = reqMaster ? CountPhotoActivitySpots(reqMaster) : static_cast<int>(chars.size());
+        const int reqOrder = reqMaster ? Get<int>(reqMaster, "get_Order") : 0;
+        const auto reqStageFamily = StageFamily(reqStageId);
+        const auto reqMotionFamily = MotionFamily(reqMotionSetId);
+        const auto reqIdFamily = ActivityIdFamily(reqActivityId);
+
+        const int charCount = static_cast<int>(chars.size());
+        std::stable_sort(candidates.begin(), candidates.end(), [&](const ServerPhotoActivityInfo& a, const ServerPhotoActivityInfo& b) {
+            const auto rank = [&](const ServerPhotoActivityInfo& info) {
+                const int orderDiff = info.order >= reqOrder ? (info.order - reqOrder) : (reqOrder - info.order);
+                return std::make_tuple(
+                    info.spotCount >= charCount ? 1 : 0,
+                    (!reqStageId.empty() && info.stageId == reqStageId) ? 1 : 0,
+                    (!reqMotionSetId.empty() && info.motionSetId == reqMotionSetId) ? 1 : 0,
+                    (!reqStageFamily.empty() && StageFamily(info.stageId) == reqStageFamily) ? 1 : 0,
+                    (!reqMotionFamily.empty() && MotionFamily(info.motionSetId) == reqMotionFamily) ? 1 : 0,
+                    (!reqIdFamily.empty() && ActivityIdFamily(info.id) == reqIdFamily) ? 1 : 0,
+                    (!reqForceCostumeTypeId.empty() && info.forceCostumeTypeId == reqForceCostumeTypeId) ? 1 : 0,
+                    info.actionType == reqActionType ? 1 : 0,
+                    CountSetOverlap(reqCostumeTypeIds, info.costumeTypeIds),
+                    info.spotCount == reqSpotCount ? 1 : 0,
+                    info.isPermanent ? 1 : 0,
+                    CommonPrefixLen(reqStageId, info.stageId) + CommonPrefixLen(reqActivityId, info.id),
+                    -orderDiff);
+            };
+            return rank(a) > rank(b);
+        });
+
+        const ServerPhotoActivityInfo* chosen = nullptr;
+        std::vector<std::string> outCostumes;
+        std::vector<std::string> outHairs;
+        for (const auto& cand : candidates) {
+            bool allowed = true;
+            for (const auto& cid : chars) {
+                if (cand.impossibleCharacterIds.contains(cid)) {
+                    allowed = false;
+                    break;
+                }
+            }
+            if (!allowed) continue;
+
+            void* specifier = Find("get_PhotoActivityMaster", cand.id);
+            if (!specifier) continue;
+
+            std::vector<std::string> candCostumes = costumes;
+            std::vector<std::string> candHairs = hairs;
+            bool outfitsOk = true;
+            for (size_t i = 0; i < chars.size(); ++i) {
+                if (IsActorOutfitValid(owned, chars[i], costumes[i], hairs[i], specifier, nullptr)) {
+                    continue;
+                }
+                if (FindOwnedOutfitPair(owned, chars[i], costumes[i], hairs[i], specifier,
+                                        candCostumes[i], candHairs[i])) {
+                    continue;
+                }
+                if (auto forceActor = BuildForceActorCostume(chars[i], specifier)) {
+                    const auto fc = Text(forceActor, "get_CostumeId");
+                    const auto fh = Text(forceActor, "get_HairId");
+                    if (!fc.empty() && !fh.empty()) {
+                        candCostumes[i] = fc;
+                        candHairs[i] = fh;
+                        continue;
+                    }
+                }
+                outfitsOk = false;
+                break;
+            }
+            if (outfitsOk) {
+                chosen = &cand;
+                outCostumes = std::move(candCostumes);
+                outHairs = std::move(candHairs);
+                break;
+            }
+        }
+
+        if (!chosen) {
+            Log::ErrorFmt("PhotoRequests: %s hidden activity=%s unchanged, no compatible fallback activity found",
+                          name.c_str(), reqActivityId.c_str());
+            return PreparedRequest(request);
+        }
+
+        const auto originalFingerprint = RequestFingerprint(request);
+        auto candidate = CloneRequest(request);
+        auto clone = candidate.get();
+        if (clone == request) return PreparedRequest(request);
+
+        if (!SetText(clone, "set_PhotoActivityId", chosen->id) ||
+            !Set<int>(clone, "set_ActionType", chosen->actionType)) {
+            Log::ErrorFmt("PhotoRequests: %s failed to write fallback activity=%s on clone",
+                          name.c_str(), chosen->id.c_str());
+            return PreparedRequest(request);
+        }
+        if ((outCostumes != costumes || outHairs != hairs) &&
+            (!Replace(Get(clone, "get_CostumeIds"), outCostumes) ||
+             !Replace(Get(clone, "get_HairIds"), outHairs))) {
+            Log::ErrorFmt("PhotoRequests: %s failed to write fallback outfits for activity=%s on clone",
+                          name.c_str(), chosen->id.c_str());
+            return PreparedRequest(request);
+        }
+        if (RequestFingerprint(request) != originalFingerprint) {
+            Log::ErrorFmt("PhotoRequests: %s hidden activity clone integrity check failed", name.c_str());
+            return PreparedRequest(request);
+        }
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: %s substituted hidden activity=%s(type=%d) -> fallback=%s(type=%d) chars=%zu bytes=%d",
+                         name.c_str(), reqActivityId.c_str(), reqActionType,
+                         chosen->id.c_str(), chosen->actionType, chars.size(), Get<int>(clone, "CalculateSize"));
+        }
+        return candidate;
+    }
+
     void* ResolveActivityStartSpecifier(void* request, const std::string& name,
                                         std::string& outKind, std::string& outSceneId) {
         const auto info = [](const char* getter) -> void* {
@@ -1657,6 +1873,105 @@ namespace {
         }
     }
 
+    void CapturePhotoListShooting(void* response) {
+        if (!response) return;
+        auto activitiesList = Get(response, "get_Activities");
+        if (!activitiesList) return;
+
+        std::vector<ServerPhotoActivityInfo> realUnlocked;
+        std::set<std::string> serverPresentIds;
+        std::set<std::string> hiddenIds;
+        int unlockedExistingCount = 0;
+        int injectedCount = 0;
+
+        for (auto item : Items(activitiesList)) {
+            if (!item) continue;
+            const auto id = Text(item, "get_PhotoActivityId");
+            if (id.empty()) continue;
+            serverPresentIds.insert(id);
+            const bool unlocked = Get<bool>(item, "get_IsUnlocked");
+            if (unlocked) {
+                auto master = Find("get_PhotoActivityMaster", id);
+                const int type = master ? Get<int>(master, "get_Type") : 0;
+                if (master && type != 0) {
+                    ServerPhotoActivityInfo info;
+                    info.id = id;
+                    info.stageId = Text(master, "get_StageId");
+                    info.motionSetId = Text(master, "get_PhotoShootingMotionSetId");
+                    info.forceCostumeTypeId = Text(master, "get_ForceCostumeTypeId");
+                    for (const auto& ct : Strings(Get(master, "get_CostumeTypeIds"))) {
+                        if (!ct.empty()) info.costumeTypeIds.insert(ct);
+                    }
+                    info.actionType = type;
+                    info.spotCount = CountPhotoActivitySpots(master);
+                    info.order = Get<int>(master, "get_Order");
+                    info.isPermanent = Text(master, "get_ViewConditionId").empty();
+                    for (const auto& ng : Strings(Get(master, "get_ImpossibleShootingCharacterIds"))) {
+                        if (!ng.empty()) info.impossibleCharacterIds.insert(ng);
+                    }
+                    realUnlocked.push_back(std::move(info));
+                }
+            } else if (Config::unlockAllPhotoActivity) {
+                if (Set<bool>(item, "set_IsUnlocked", true)) {
+                    hiddenIds.insert(id);
+                    ++unlockedExistingCount;
+                }
+            }
+        }
+
+        if (Config::unlockAllPhotoActivity) {
+            auto master = Master("get_PhotoActivityMaster");
+            auto getAllMethod = MethodOf(master, "GetAllWithSortByKey", 1);
+            static auto apiPhotoActivityClass = Il2cppUtils::GetClass(
+                "Assembly-CSharp.dll", "Solis.Common.Proto.Api", "PhotoActivity");
+            if (master && getAllMethod && apiPhotoActivityClass) {
+                auto allList = reinterpret_cast<void* (*)(void*, int, const Method*)>(
+                    getAllMethod->methodPointer)(master, 0, getAllMethod);
+                Il2cppUtils::Tools::CSListEditor<void*> editor(activitiesList);
+                for (auto masterAct : Items(allList)) {
+                    if (!masterAct) continue;
+                    const auto id = Text(masterAct, "get_Id");
+                    if (id.empty() || serverPresentIds.contains(id)) continue;
+                    const int type = Get<int>(masterAct, "get_Type");
+                    if (type == 0) continue;
+                    if (!Get(masterAct, "get_Stage")) continue;
+                    if (CountPhotoActivitySpots(masterAct) <= 0) continue;
+
+                    auto entry = apiPhotoActivityClass->New<void*>();
+                    if (!entry) continue;
+                    if (auto ctor = MethodOf(entry, ".ctor", 0)) {
+                        reinterpret_cast<void (*)(void*, const Method*)>(ctor->methodPointer)(entry, ctor);
+                    }
+                    if (!SetText(entry, "set_PhotoActivityId", id) ||
+                        !Set<bool>(entry, "set_IsUnlocked", true)) {
+                        continue;
+                    }
+                    editor.Add(entry);
+                    serverPresentIds.insert(id);
+                    hiddenIds.insert(id);
+                    ++injectedCount;
+                }
+            }
+        }
+
+        {
+            std::lock_guard lock(photoActivityMutex);
+            serverUnlockedPhotoActivities = std::move(realUnlocked);
+            unlockedHiddenPhotoActivityIds = std::move(hiddenIds);
+        }
+
+        if (Config::dbgMode) {
+            Log::InfoFmt("PhotoRequests: PhotoListShooting captured realUnlocked=%zu forceUnlocked=%d injected=%d",
+                         serverUnlockedPhotoActivities.size(), unlockedExistingCount, injectedCount);
+        }
+    }
+
+    bool IsUnlockedHiddenPhotoActivity(const std::string& activityId) {
+        if (!Config::unlockAllPhotoActivity || activityId.empty()) return false;
+        std::lock_guard lock(photoActivityMutex);
+        return unlockedHiddenPhotoActivityIds.contains(activityId);
+    }
+
     void SetValidators(CostumeValidator costume, HairValidator hair) {
         validateCostume = costume;
         validateHair = hair;
@@ -1750,7 +2065,9 @@ namespace {
     }
 
     PreparedRequest Prepare(void* request) {
-        if (!request || (!Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose)) return PreparedRequest(request);
+        if (!request || (!Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose && !Config::unlockAllPhotoActivity)) {
+            return PreparedRequest(request);
+        }
         const std::string name = Il2cppUtils::get_class_from_instance(request)->name;
         const bool costume = name.starts_with("Costume");
         if (costume && !Config::unlockAllLiveCostume) return PreparedRequest(request);
@@ -1758,6 +2075,15 @@ namespace {
         if (activity && !Config::unlockAllLiveCostume) return PreparedRequest(request);
         const bool deck = IsDeckRequestName(name);
         if (deck && !Config::unlockAllLiveCostume) return PreparedRequest(request);
+
+        const bool isSchedulePhotoReq =
+            name == "PhotoCheckShootingRequest" || name == "PhotoCreateShootingsRequest";
+        const bool needsHiddenActivityFallback =
+            Config::unlockAllPhotoActivity && isSchedulePhotoReq &&
+            IsUnlockedHiddenPhotoActivity(Text(request, "get_PhotoActivityId"));
+        if (!needsHiddenActivityFallback && !Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose) {
+            return PreparedRequest(request);
+        }
 
         Inventory owned;
         { std::lock_guard lock(inventoryMutex); owned = inventory; }
@@ -1773,6 +2099,9 @@ namespace {
         }
         if (deck) {
             return PrepareDeckRequest(request, name, owned);
+        }
+        if (needsHiddenActivityFallback) {
+            return PreparePhotoActivityFallback(request, name, owned);
         }
         if (name == "PhotoCreateExpressionShootingsRequest") {
             return PrepareExpressionPoseRequest(request, owned);

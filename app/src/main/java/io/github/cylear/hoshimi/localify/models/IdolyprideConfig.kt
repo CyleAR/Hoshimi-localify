@@ -34,6 +34,7 @@ data class IdolyprideConfig (
     var unlockCrossCharacterCostume: Boolean = false,
     var unlockCrossCharacterHair: Boolean = false,
     var unlockAllPhotoPose: Boolean = false,
+    var unlockAllPhotoActivity: Boolean = false,
     var enableLiveCustomeDress: Boolean = false,
     var liveCustomeHeadId: String = "",
     var liveCustomeCostumeId: String = "",

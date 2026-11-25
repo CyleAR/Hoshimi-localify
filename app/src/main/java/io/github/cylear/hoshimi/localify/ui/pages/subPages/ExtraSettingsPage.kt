@@ -115,6 +115,13 @@ fun ExtraSettingsPage(
                     IPSwitch(modifier, stringResource(R.string.unlockAllPhotoPose), checked = config.unlockAllPhotoPose) {
                         context?.onUnlockAllPhotoPoseChanged(it)
                     }
+                    IPSwitch(
+                        modifier,
+                        stringResource(R.string.unlockAllPhotoActivity),
+                        checked = config.unlockAllPhotoActivity
+                    ) {
+                        context?.onUnlockAllPhotoActivityChanged(it)
+                    }
                 }
             }
         }

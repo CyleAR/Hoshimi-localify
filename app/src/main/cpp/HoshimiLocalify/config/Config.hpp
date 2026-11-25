@@ -34,6 +34,7 @@ namespace HoshimiLocal::Config {
     extern bool unlockCrossCharacterCostume;
     extern bool unlockCrossCharacterHair;
     extern bool unlockAllPhotoPose;
+    extern bool unlockAllPhotoActivity;
 
     extern bool enableLiveCustomeDress;
     extern std::string liveCustomeHeadId;

@@ -41,6 +41,7 @@ namespace HoshimiLocal::Config {
     bool unlockCrossCharacterCostume = false;
     bool unlockCrossCharacterHair = false;
     bool unlockAllPhotoPose = false;
+    bool unlockAllPhotoActivity = false;
 
     bool enableLiveCustomeDress = false;
     std::string liveCustomeHeadId = "";
@@ -123,6 +124,7 @@ namespace HoshimiLocal::Config {
             GetConfigItem(unlockCrossCharacterCostume);
             GetConfigItem(unlockCrossCharacterHair);
             GetConfigItem(unlockAllPhotoPose);
+            GetConfigItem(unlockAllPhotoActivity);
             GetConfigItem(enableLiveCustomeDress);
             GetConfigItem(liveCustomeHeadId);
             GetConfigItem(liveCustomeCostumeId);
@@ -188,6 +190,7 @@ namespace HoshimiLocal::Config {
             SetConfigItem(unlockCrossCharacterCostume);
             SetConfigItem(unlockCrossCharacterHair);
             SetConfigItem(unlockAllPhotoPose);
+            SetConfigItem(unlockAllPhotoActivity);
             SetConfigItem(enableLiveCustomeDress);
             SetConfigItem(liveCustomeHeadId);
             SetConfigItem(liveCustomeCostumeId);
