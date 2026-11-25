@@ -27,7 +27,9 @@ import android.widget.TextView
 import io.github.cylear.hoshimi.localify.HoshimiHookMain
 import kotlin.math.roundToInt
 
-private const val TICKS_PER_SECOND = 20
+private const val TICKS_PER_SECOND = 100
+private const val STEP_REPEAT_INITIAL_DELAY_MS = 320L
+private const val STEP_REPEAT_INTERVAL_MS = 70L
 
 internal class LiveSeekOverlay {
     private var panel: LinearLayout? = null
@@ -197,9 +199,15 @@ internal class LiveSeekOverlay {
         val stepRow = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
         val buttonHeight = dp(30)
         stepRow.addView(playback, LinearLayout.LayoutParams(dp(32), buttonHeight))
-        for (direction in listOf(-1, 1)) {
+        val stepSpecs = listOf(
+            -5 to "−0.05",
+            -1 to "−0.01",
+            1 to "+0.01",
+            5 to "+0.05"
+        )
+        for ((deltaTicks, textLabel) in stepSpecs) {
             val button = Button(activity).apply {
-                text = if (direction < 0) "−0.05" else "+0.05"
+                text = textLabel
                 isAllCaps = false
                 backgroundTintList = null
                 background = keyBackground(false)
@@ -212,8 +220,53 @@ internal class LiveSeekOverlay {
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(blue)
                 setSingleLine()
-                setOnClickListener { HoshimiHookMain.stepLiveSeek(session, direction) }
             }
+            var repeating = false
+            val repeatTask = object : Runnable {
+                override fun run() {
+                    if (!repeating || !button.isAttachedToWindow) return
+                    HoshimiHookMain.stepLiveSeek(session, deltaTicks)
+                    button.postDelayed(this, STEP_REPEAT_INTERVAL_MS)
+                }
+            }
+            fun stopRepeat() {
+                repeating = false
+                button.removeCallbacks(repeatTask)
+                button.isPressed = false
+            }
+            button.setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.isPressed = true
+                        repeating = true
+                        HoshimiHookMain.stepLiveSeek(session, deltaTicks)
+                        v.removeCallbacks(repeatTask)
+                        v.postDelayed(repeatTask, STEP_REPEAT_INITIAL_DELAY_MS)
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (repeating && (event.x < 0f || event.x > v.width || event.y < 0f || event.y > v.height)) {
+                            stopRepeat()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val wasActive = repeating
+                        stopRepeat()
+                        if (wasActive) v.performClick()
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        stopRepeat()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            button.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = Unit
+                override fun onViewDetachedFromWindow(view: View) = stopRepeat()
+            })
             stepRow.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, buttonHeight))
         }
         label?.gravity = Gravity.END or Gravity.CENTER_VERTICAL

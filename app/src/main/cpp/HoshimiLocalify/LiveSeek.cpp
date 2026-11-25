@@ -5,24 +5,27 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <vector>
 
 namespace HoshimiLocal::LiveSeek {
     namespace {
         using Clock = std::chrono::steady_clock;
         constexpr int timeMask = (1 << 20) - 1;
         constexpr int stepBias = 1 << 19;
-        constexpr int ticksPerSecond = 20;
+        constexpr int ticksPerSecond = 100;
         constexpr float stepSeconds = 1.f / ticksPerSecond;
         std::atomic<int64_t> snapshot{0}, request{0};
         std::atomic<int64_t> steps{0};
         std::atomic<int> playbackRequest{0};
-        enum class PauseSource { None, Presenter, MovieFrame };
+        enum class PauseSource { None, Presenter, MovieFrame, Activity };
         PauseSource pauseSource = PauseSource::None;
         int session = 0;
         void* activeOwner = nullptr;
         void* visibilityOwner = nullptr;
         uint32_t playerHandle = 0, visibilityHandle = 0;
-        bool panorama = false;
+        Mode activeMode = Mode::Live;
+        void* lastActivityPrimary = nullptr;
+        std::vector<uint32_t> pausedActivityHandles;
         Clock::time_point nextUpdate{};
         Clock::time_point nextSeek{};
 
@@ -33,6 +36,13 @@ namespace HoshimiLocal::LiveSeek {
 
         struct Controls {
             UnityResolve::Method *playing, *duration, *time, *seek, *visible, *paused, *pause, *resume;
+        };
+
+        struct ActivityControls {
+            UnityResolve::Method *getCurrentSpotData, *getSpotDataArray, *getSpotIsValid, *getActorData, *getActorController;
+            UnityResolve::Method *visible;
+            UnityResolve::Method *getLength, *getTime, *setTime, *isPause, *pause, *resume;
+            Il2cppUtils::MethodInfo *evaluateZero;
         };
 
         Controls Resolve(bool panoramic) {
@@ -47,6 +57,70 @@ namespace HoshimiLocal::LiveSeek {
                     method("get_IsPause"),
                     panoramic ? Il2cppUtils::GetMethod(assembly, "Solis.Common.Photography", "Photography360Live3DPresenter", "Pause") : method("Pause"),
                     panoramic ? Il2cppUtils::GetMethod(assembly, "Solis.Common.Photography", "Photography360Live3DPresenter", "Resume") : method("Resume")};
+        }
+
+        ActivityControls ResolveActivity() {
+            auto animCtrlClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL", "VLAnimationPlayerController");
+            auto animMethod = [&](const char* name) {
+                return Il2cppUtils::GetMethod("vl-unity.Runtime.dll", "VL", "VLAnimationPlayerController", name);
+            };
+            return {
+                Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Photography", "PhotographyActivity3DPresenter", "get_CurrentSpotData"),
+                Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographySpotGroupData", "get_SpotDataArray"),
+                Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographySpotData", "get_IsValid"),
+                Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographySpotData", "get_ActorData"),
+                Il2cppUtils::GetMethod("solis-submodule.Runtime.dll", "Solis.Common.Photography", "PhotographyActorData", "get_Controller"),
+                Il2cppUtils::GetMethod("Assembly-CSharp.dll", "Solis.Photography", "PhotographyPreviewContentModel", "get_IsUIActive"),
+                animMethod("get_length"),
+                animMethod("GetTime"),
+                animMethod("SetTime"),
+                animMethod("IsPause"),
+                animMethod("Pause"),
+                animMethod("Resume"),
+                animCtrlClass ? Il2cppUtils::il2cpp_class_get_method_from_name(animCtrlClass->address, "Evaluate", 0) : nullptr,
+            };
+        }
+
+        void ResumeSavedActivityControllers(const ActivityControls& act) {
+            for (auto handle : pausedActivityHandles) {
+                if (!handle) continue;
+                auto ctrl = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", handle);
+                if (ctrl && act.isPause && act.resume && act.isPause->Invoke<bool>(ctrl, act.isPause->address)) {
+                    act.resume->Invoke<void>(ctrl, act.resume->address);
+                }
+                UnityResolve::Invoke<void>("il2cpp_gchandle_free", handle);
+            }
+            pausedActivityHandles.clear();
+        }
+
+        std::vector<void*> CollectActivityControllers(void* presenter, const ActivityControls& act) {
+            std::vector<void*> controllers;
+            if (!presenter || !act.getCurrentSpotData || !act.getSpotDataArray || !act.getActorData || !act.getActorController) {
+                return controllers;
+            }
+            auto spotGroup = act.getCurrentSpotData->Invoke<void*>(presenter, act.getCurrentSpotData->address);
+            if (!spotGroup) return controllers;
+            auto spotArray = act.getSpotDataArray->Invoke<UnityResolve::UnityType::Array<void*>*>(spotGroup, act.getSpotDataArray->address);
+            if (!spotArray) return controllers;
+            for (auto spot : spotArray->ToVector()) {
+                if (!spot) continue;
+                if (act.getSpotIsValid && !act.getSpotIsValid->Invoke<bool>(spot, act.getSpotIsValid->address)) continue;
+                auto actorData = act.getActorData->Invoke<void*>(spot, act.getActorData->address);
+                if (!actorData) continue;
+                auto actorCtrl = act.getActorController->Invoke<void*>(actorData, act.getActorController->address);
+                if (!actorCtrl) continue;
+                auto actorClass = Il2cppUtils::get_class_from_instance(actorCtrl);
+                if (!actorClass) continue;
+                auto getPlayingMtd = Il2cppUtils::il2cpp_class_get_method_from_name(actorClass, "GetPlayingAnimationController", 0);
+                if (!getPlayingMtd) continue;
+                void* exc = nullptr;
+                auto animCtrl = UnityResolve::Invoke<void*>("il2cpp_runtime_invoke", getPlayingMtd, actorCtrl, static_cast<void**>(nullptr), &exc);
+                if (exc || !animCtrl) continue;
+                if (std::find(controllers.begin(), controllers.end(), animCtrl) == controllers.end()) {
+                    controllers.push_back(animCtrl);
+                }
+            }
+            return controllers;
         }
 
         void* ReadObjectField(void* object, const char* name) {
@@ -77,6 +151,104 @@ namespace HoshimiLocal::LiveSeek {
             action->Invoke<void>(video, action->address);
             return true;
         }
+
+        void UpdateActivity(void* player, bool enabled, int64_t command, int64_t stepCommand, int playback) {
+            static const ActivityControls act = ResolveActivity();
+            auto controllers = CollectActivityControllers(player, act);
+            if (!enabled) {
+                if (pauseSource == PauseSource::Activity) {
+                    for (auto ctrl : controllers) {
+                        if (act.isPause && act.resume && act.isPause->Invoke<bool>(ctrl, act.isPause->address)) {
+                            act.resume->Invoke<void>(ctrl, act.resume->address);
+                        }
+                    }
+                    ResumeSavedActivityControllers(act);
+                    pauseSource = PauseSource::None;
+                }
+                snapshot.store(0);
+                return;
+            }
+            if (!act.getLength || !act.getTime || !act.setTime || controllers.empty()) {
+                snapshot.store(0);
+                return;
+            }
+            if (visibilityOwner == activeOwner) {
+                auto model = visibilityHandle ? UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", visibilityHandle) : nullptr;
+                if (!model || !act.visible || !act.visible->Invoke<bool>(model, act.visible->address)) {
+                    snapshot.store(0);
+                    return;
+                }
+            }
+            void* primary = controllers[0];
+            if (primary != lastActivityPrimary) {
+                if (pauseSource == PauseSource::Activity) {
+                    ResumeSavedActivityControllers(act);
+                    pauseSource = PauseSource::None;
+                }
+                lastActivityPrimary = primary;
+            }
+            const float duration = act.getLength->Invoke<float>(primary, act.getLength->address);
+            const float rawTime = act.getTime->Invoke<float>(primary, act.getTime->address);
+            if (!std::isfinite(duration) || duration < 0.1f || duration * ticksPerSecond > timeMask || !std::isfinite(rawTime)) {
+                snapshot.store(0);
+                return;
+            }
+            float current = std::fmod(rawTime, duration);
+            if (current < 0.f) current += duration;
+
+            const bool primaryPaused = act.isPause && act.isPause->Invoke<bool>(primary, act.isPause->address);
+            if (!primaryPaused && pauseSource == PauseSource::Activity) {
+                ResumeSavedActivityControllers(act);
+                pauseSource = PauseSource::None;
+            }
+            if (playback == session && pauseSource == PauseSource::None && act.pause && act.resume && act.isPause) {
+                ResumeSavedActivityControllers(act);
+                for (auto ctrl : controllers) {
+                    act.pause->Invoke<void>(ctrl, act.pause->address);
+                    pausedActivityHandles.push_back(UnityResolve::Invoke<uint32_t>("il2cpp_gchandle_new_weakref", ctrl, false));
+                }
+                pauseSource = PauseSource::Activity;
+            } else if (playback == -session && pauseSource == PauseSource::Activity) {
+                for (auto ctrl : controllers) {
+                    if (act.isPause && act.resume && act.isPause->Invoke<bool>(ctrl, act.isPause->address)) {
+                        act.resume->Invoke<void>(ctrl, act.resume->address);
+                    }
+                }
+                ResumeSavedActivityControllers(act);
+                pauseSource = PauseSource::None;
+            }
+
+            const bool paused = pauseSource != PauseSource::None;
+            const bool absoluteSeek = (command >> 20) == session;
+            const int stepCount = (stepCommand >> 20) == session ? int(stepCommand & timeMask) - stepBias : 0;
+            if (absoluteSeek || stepCount != 0) {
+                const float start = absoluteSeek ? (command & timeMask) / float(timeMask) * duration : current;
+                if (absoluteSeek) {
+                    current = std::clamp(start + stepCount * stepSeconds, 0.f, std::max(0.f, duration - stepSeconds));
+                } else {
+                    float wrapped = std::fmod(start + stepCount * stepSeconds, duration);
+                    if (wrapped < 0.f) wrapped += duration;
+                    current = std::clamp(wrapped, 0.f, std::max(0.f, duration - 0.001f));
+                }
+                for (auto ctrl : controllers) {
+                    const float ctrlDuration = act.getLength->Invoke<float>(ctrl, act.getLength->address);
+                    float ctrlTime = current;
+                    if (std::isfinite(ctrlDuration) && ctrlDuration >= 0.1f && std::abs(ctrlDuration - duration) > 0.01f) {
+                        ctrlTime = std::fmod(current, ctrlDuration);
+                        if (ctrlTime < 0.f) ctrlTime += ctrlDuration;
+                    }
+                    act.setTime->Invoke<void>(ctrl, ctrlTime, act.setTime->address);
+                    if (act.evaluateZero && act.evaluateZero->methodPointer) {
+                        reinterpret_cast<void (*)(void*, void*)>(act.evaluateZero->methodPointer)(ctrl, act.evaluateZero);
+                    }
+                }
+                nextSeek = Clock::now() + std::chrono::milliseconds(33);
+            }
+            const bool topAnchor = (activeMode == Mode::ActivityTop);
+            snapshot.store((int64_t(session) << 42) | (int64_t(topAnchor) << 41) | (int64_t(paused) << 40) |
+                           (int64_t(std::lround(duration * ticksPerSecond)) << 20) |
+                           int64_t(std::lround(std::clamp(current, 0.f, duration) * ticksPerSecond)));
+        }
     }
 
     void BindVisibility(void* owner, void* model) {
@@ -84,14 +256,19 @@ namespace HoshimiLocal::LiveSeek {
         ReplaceWeak(visibilityHandle, model);
     }
 
-    void Begin(void* owner, void* player, bool panoramic) {
+    void Begin(void* owner, void* player, Mode mode) {
+        if (pauseSource == PauseSource::Activity) {
+            static const ActivityControls act = ResolveActivity();
+            ResumeSavedActivityControllers(act);
+        }
         snapshot.store(0);
         request.store(0);
         steps.store(0);
         activeOwner = owner;
         pauseSource = PauseSource::None;
         playbackRequest.store(0);
-        panorama = panoramic;
+        activeMode = mode;
+        lastActivityPrimary = nullptr;
         session = session % 0x1fffff + 1;
         nextUpdate = {};
         nextSeek = {};
@@ -101,9 +278,14 @@ namespace HoshimiLocal::LiveSeek {
     void End(void* owner) {
         if (owner == visibilityOwner) BindVisibility(nullptr, nullptr);
         if (owner != activeOwner) return;
+        if (pauseSource == PauseSource::Activity) {
+            static const ActivityControls act = ResolveActivity();
+            ResumeSavedActivityControllers(act);
+        }
         activeOwner = nullptr;
         pauseSource = PauseSource::None;
         playbackRequest.store(0);
+        lastActivityPrimary = nullptr;
         ReplaceWeak(playerHandle, nullptr);
         snapshot.store(0);
         request.store(0);
@@ -126,11 +308,16 @@ namespace HoshimiLocal::LiveSeek {
         nextUpdate = now + std::chrono::milliseconds(100);
         auto player = UnityResolve::Invoke<void*>("il2cpp_gchandle_get_target", playerHandle);
         if (!player) { End(activeOwner); return; }
-        static const Controls standard = Resolve(false), panoramic = Resolve(true);
-        const auto& controls = panorama ? panoramic : standard;
         const auto command = request.exchange(0);
         const auto stepCommand = steps.exchange(0);
         const int playback = playbackRequest.exchange(0);
+        if (activeMode == Mode::Activity || activeMode == Mode::ActivityTop) {
+            UpdateActivity(player, enabled, command, stepCommand, playback);
+            return;
+        }
+        const bool panorama = (activeMode == Mode::Panorama);
+        static const Controls standard = Resolve(false), panoramic = Resolve(true);
+        const auto& controls = panorama ? panoramic : standard;
         if (!enabled) {
             if (pauseSource == PauseSource::MovieFrame && controls.playing && controls.playing->Invoke<bool>(player, controls.playing->address))
                 HoldMovieFrame(player, false);
@@ -208,14 +395,14 @@ namespace HoshimiLocal::LiveSeek {
             playbackRequest.store(paused ? targetSession : -targetSession);
     }
 
-    void Step(int targetSession, int direction) {
-        if (direction != -1 && direction != 1) return;
+    void Step(int targetSession, int deltaTicks) {
+        if (deltaTicks == 0 || deltaTicks < -100 || deltaTicks > 100) return;
         auto pending = steps.load();
         do {
             if (targetSession <= 0 || targetSession != (Snapshot() >> 42)) return;
             const int count = (pending >> 20) == targetSession ? int(pending & timeMask) - stepBias : 0;
             const auto next = (int64_t(targetSession) << 20) |
-                    std::clamp(stepBias + count + direction, 0, timeMask);
+                    std::clamp(stepBias + count + deltaTicks, 0, timeMask);
             if (steps.compare_exchange_weak(pending, next)) return;
         } while (true);
     }

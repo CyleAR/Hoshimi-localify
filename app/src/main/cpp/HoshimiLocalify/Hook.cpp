@@ -2790,7 +2790,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(SolisUniTask, SeekLivePlay, (void* self, SolisCancellationToken token, void* method)) {
         auto task = SeekLivePlay_Orig(self, token, method);
-        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), false);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), LiveSeek::Mode::Live);
         return task;
     }
 
@@ -2806,7 +2806,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(SolisUniTask, SeekPanoramaPlay, (void* self, SolisCancellationToken token, void* method)) {
         auto task = SeekPanoramaPlay_Orig(self, token, method);
-        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), true);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_livePresenter"), LiveSeek::Mode::Panorama);
         return task;
     }
 
@@ -2820,6 +2820,38 @@ namespace HoshimiLocal::HookMain {
         SeekPanoramaDestroy_Orig(self, method);
     }
 
+    DEFINE_HOOK(SolisUniTask, SeekActivityPlay, (void* self, SolisCancellationToken token, void* method)) {
+        auto task = SeekActivityPlay_Orig(self, token, method);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_3DPresenter"), LiveSeek::Mode::Activity);
+        return task;
+    }
+
+    DEFINE_HOOK(void, SeekActivityEnd, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekActivityEnd_Orig(self, method);
+    }
+
+    DEFINE_HOOK(SolisUniTask, SeekActivityUnload, (void* self, SolisCancellationToken token, void* method)) {
+        LiveSeek::End(self);
+        return SeekActivityUnload_Orig(self, token, method);
+    }
+
+    DEFINE_HOOK(SolisUniTask, SeekExpressionPlay, (void* self, SolisCancellationToken token, void* method)) {
+        auto task = SeekExpressionPlay_Orig(self, token, method);
+        LiveSeek::Begin(self, ReadManagedObjectField(self, "_3DPresenter"), LiveSeek::Mode::ActivityTop);
+        return task;
+    }
+
+    DEFINE_HOOK(void, SeekExpressionEnd, (void* self, void* method)) {
+        LiveSeek::End(self);
+        SeekExpressionEnd_Orig(self, method);
+    }
+
+    DEFINE_HOOK(SolisUniTask, SeekExpressionUnload, (void* self, SolisCancellationToken token, void* method)) {
+        LiveSeek::End(self);
+        return SeekExpressionUnload_Orig(self, token, method);
+    }
+
     DEFINE_HOOK(SolisUniTask, PhotographyPreviewContent_InitializeAsync,
                 (void* self, void* transition, void* captureController, SolisCancellationToken cancellationToken,
                  void* method)) {
@@ -2829,8 +2861,16 @@ namespace HoshimiLocal::HookMain {
         if (!Config::hideLiveViewingUiOnStart || !transition) return task;
 
         static const auto liveTransitionClass = Il2cppUtils::GetClass(
-                "Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographyLiveScreenTransitionData");
-        if (!liveTransitionClass || Il2cppUtils::get_class_from_instance(transition) != liveTransitionClass->address) {
+                "Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographyLiveTransitionData");
+        static const auto activityTransitionClass = Il2cppUtils::GetClass(
+                "Assembly-CSharp.dll", "Solis.Photography.Data", "PhotographyActivityTransitionData");
+        auto actualClass = Il2cppUtils::get_class_from_instance(transition);
+        const bool isSupportedPreview =
+                (liveTransitionClass && UnityResolve::Invoke<bool>(
+                        "il2cpp_class_is_assignable_from", liveTransitionClass->address, actualClass)) ||
+                (activityTransitionClass && UnityResolve::Invoke<bool>(
+                        "il2cpp_class_is_assignable_from", activityTransitionClass->address, actualClass));
+        if (!isSupportedPreview) {
             return task;
         }
         static const auto isPreview = Il2cppUtils::GetMethod(
@@ -6235,6 +6275,18 @@ namespace HoshimiLocal::HookMain {
                 "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveControlPresenter", "End"));
         ADD_HOOK(SeekPanoramaDestroy, Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveControlPresenter", "OnDestroy"));
+        ADD_HOOK(SeekActivityPlay, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyActivityPresenter", "PlayPhotographyAsync"));
+        ADD_HOOK(SeekActivityEnd, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyActivityPresenter", "End"));
+        ADD_HOOK(SeekActivityUnload, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyActivityPresenter", "UnloadSceneAsync"));
+        ADD_HOOK(SeekExpressionPlay, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyExpressionPresenter", "PlayPhotographyAsync"));
+        ADD_HOOK(SeekExpressionEnd, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyExpressionPresenter", "End"));
+        ADD_HOOK(SeekExpressionUnload, Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.Photography", "PhotographyExpressionPresenter", "UnloadSceneAsync"));
         ADD_HOOK(Photography360LiveContent_Bind, Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.Photography", "Photography360LiveContentPresenter", "Bind"));
 
