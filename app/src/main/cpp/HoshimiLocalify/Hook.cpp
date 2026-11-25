@@ -4269,28 +4269,126 @@ namespace HoshimiLocal::HookMain {
         return {getWidth->Invoke<int>(), getHeight->Invoke<int>()};
     }
 
-    void ExpandRenderTargetHierarchy(void* component, float targetAspect, void* skipCanvas = nullptr) {
+    struct SavedUiContentArea {
+        float minAspect = 0.0f;
+        float maxAspect = 0.0f;
+    };
+
+    struct SavedAspectRatioFitter {
+        int aspectMode = 0;
+        float aspectRatio = 1.0f;
+        bool enabled = false;
+    };
+
+    struct SavedRectTransformState {
+        UnityResolve::UnityType::Vector2 anchorMin{};
+        UnityResolve::UnityType::Vector2 anchorMax{};
+        UnityResolve::UnityType::Vector2 offsetMin{};
+        UnityResolve::UnityType::Vector2 offsetMax{};
+        UnityResolve::UnityType::Vector2 sizeDelta{};
+    };
+
+    static std::unordered_map<void*, SavedUiContentArea> savedExpandedContentAreas;
+    static std::unordered_map<void*, SavedAspectRatioFitter> savedExpandedFitters;
+    static std::unordered_map<void*, SavedRectTransformState> savedExpandedRects;
+
+    void InvokeRectModifierUpdateRect(void* contentArea) {
+        if (!contentArea || !IsNativeObjectAlive(contentArea)) return;
+        static auto rectModClass = Il2cppUtils::GetClass("quaunity-ui.Runtime.dll", "Qua.UI", "RectTransformModifierBase");
+        static auto setAspectDirty = Il2cppUtils::GetMethod("quaunity-ui.Runtime.dll", "Qua.UI", "RectTransformModifierBase", "SetAspectDirty");
+        static auto updateRectMtd = rectModClass
+                ? Il2cppUtils::il2cpp_class_get_method_from_name(rectModClass->address, "UpdateRect", 0)
+                : nullptr;
+        if (setAspectDirty) setAspectDirty->Invoke<void>(contentArea);
+        if (updateRectMtd && updateRectMtd->methodPointer) {
+            reinterpret_cast<void (*)(void*, void*)>(updateRectMtd->methodPointer)(contentArea, updateRectMtd);
+        }
+    }
+
+    void RestoreExpandedRenderTargetAncestors() {
+        static auto uiContentAreaClass = Il2cppUtils::GetClass("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea");
+        static auto setMinAspect = Il2cppUtils::GetMethod("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea", "set_MinAspect");
+        static auto setMaxAspect = Il2cppUtils::GetMethod("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea", "set_MaxAspect");
+        static auto minAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_minAspect") : nullptr;
+        static auto maxAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_maxAspect") : nullptr;
+
+        for (const auto& [contentArea, saved] : savedExpandedContentAreas) {
+            if (!contentArea || !IsNativeObjectAlive(contentArea)) continue;
+            if (setMinAspect) {
+                setMinAspect->Invoke<void>(contentArea, saved.minAspect);
+            } else if (minAspectField) {
+                Il2cppUtils::ClassSetFieldValue(contentArea, minAspectField, saved.minAspect);
+            }
+            if (setMaxAspect) {
+                setMaxAspect->Invoke<void>(contentArea, saved.maxAspect);
+            } else if (maxAspectField) {
+                Il2cppUtils::ClassSetFieldValue(contentArea, maxAspectField, saved.maxAspect);
+            }
+            InvokeRectModifierUpdateRect(contentArea);
+        }
+        savedExpandedContentAreas.clear();
+
+        static auto setAspectMode = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectMode");
+        static auto setAspectRatio = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectRatio");
+        static auto setBehaviourEnabled = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Behaviour", "set_enabled");
+        for (const auto& [fitter, saved] : savedExpandedFitters) {
+            if (!fitter || !IsNativeObjectAlive(fitter)) continue;
+            if (setAspectMode) setAspectMode->Invoke<void>(fitter, saved.aspectMode);
+            if (setAspectRatio) setAspectRatio->Invoke<void>(fitter, saved.aspectRatio);
+            if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(fitter, saved.enabled);
+        }
+        savedExpandedFitters.clear();
+
+        static auto setAnchorMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMin");
+        static auto setAnchorMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMax");
+        static auto setOffsetMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMin");
+        static auto setOffsetMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMax");
+        static auto setSizeDelta = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_sizeDelta");
+        for (const auto& [rectTransform, saved] : savedExpandedRects) {
+            if (!rectTransform || !IsNativeObjectAlive(rectTransform)) continue;
+            if (setAnchorMin) setAnchorMin->Invoke<void>(rectTransform, saved.anchorMin);
+            if (setAnchorMax) setAnchorMax->Invoke<void>(rectTransform, saved.anchorMax);
+            if (setOffsetMin) setOffsetMin->Invoke<void>(rectTransform, saved.offsetMin);
+            if (setOffsetMax) setOffsetMax->Invoke<void>(rectTransform, saved.offsetMax);
+            if (setSizeDelta) setSizeDelta->Invoke<void>(rectTransform, saved.sizeDelta);
+        }
+        savedExpandedRects.clear();
+    }
+
+    void ExpandRenderTargetHierarchy(void* component, float targetAspect, void* skipCanvas = nullptr,
+                                     bool expandSharedAncestors = false) {
         if (!component || !IsNativeObjectAlive(component) || targetAspect <= 0.01f) return;
 
         static auto getTransform = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Component", "get_transform");
         static auto getParent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "get_parent");
         static auto getChildCount = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Transform", "get_childCount");
         static auto getComponent = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Component", "GetComponent", {"System.Type"});
+        static auto getBehaviourEnabled = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Behaviour", "get_enabled");
         static auto setBehaviourEnabled = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Behaviour", "set_enabled");
 
         static auto canvasClass = Il2cppUtils::GetClass("UnityEngine.UIModule.dll", "UnityEngine", "Canvas");
+        static auto getIsRootCanvas = Il2cppUtils::GetMethod("UnityEngine.UIModule.dll", "UnityEngine", "Canvas", "get_isRootCanvas");
         static auto rectTransformClass = Il2cppUtils::GetClass("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform");
         static auto fitterClass = Il2cppUtils::GetClass("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter");
         static auto uiContentAreaClass = Il2cppUtils::GetClass("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea");
 
+        static auto getAnchorMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_anchorMin");
+        static auto getAnchorMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_anchorMax");
+        static auto getOffsetMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_offsetMin");
+        static auto getOffsetMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_offsetMax");
+        static auto getSizeDelta = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "get_sizeDelta");
         static auto setAnchorMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMin");
         static auto setAnchorMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_anchorMax");
         static auto setPivot = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_pivot");
         static auto setOffsetMin = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMin");
         static auto setOffsetMax = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "RectTransform", "set_offsetMax");
+        static auto getAspectMode = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "get_aspectMode");
+        static auto getAspectRatio = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "get_aspectRatio");
         static auto setAspectMode = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectMode");
         static auto setAspectRatio = Il2cppUtils::GetMethod("UnityEngine.UI.dll", "UnityEngine.UI", "AspectRatioFitter", "set_aspectRatio");
 
+        static auto setMinAspect = Il2cppUtils::GetMethod("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea", "set_MinAspect");
+        static auto setMaxAspect = Il2cppUtils::GetMethod("quaunity-ui.Runtime.dll", "Qua.UI", "UIContentArea", "set_MaxAspect");
         static auto minAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_minAspect") : nullptr;
         static auto maxAspectField = uiContentAreaClass ? uiContentAreaClass->Get<UnityResolve::Field>("_maxAspect") : nullptr;
 
@@ -4316,51 +4414,125 @@ namespace HoshimiLocal::HookMain {
         }
 
         void* cur = selfTransform;
-        for (int depth = 0; depth < 8 && cur && IsNativeObjectAlive(cur); ++depth) {
+        for (int depth = 0; depth < 12 && cur && IsNativeObjectAlive(cur); ++depth) {
+            bool isNestedCanvas = false;
             if (canvasType) {
                 auto canvas = getComponent->Invoke<void*>(cur, canvasType);
-                if (canvas && IsNativeObjectAlive(canvas)) break;
+                if (canvas && IsNativeObjectAlive(canvas)) {
+                    const bool isRoot = !getIsRootCanvas || getIsRootCanvas->Invoke<bool>(canvas);
+                    if (isRoot) break;
+                    isNestedCanvas = true;
+                }
             }
 
             const bool isSelf = (cur == selfTransform);
             const int childCount = getChildCount ? getChildCount->Invoke<int>(cur) : 0;
             bool touchedContentArea = false;
             bool touchedFitter = false;
+            bool touchedFixedRect = false;
 
             if (uiContentAreaType) {
                 auto contentArea = getComponent->Invoke<void*>(cur, uiContentAreaType);
-                if (contentArea && IsNativeObjectAlive(contentArea) && (isSelf || childCount <= 2)) {
-                    if (minAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, minAspectField, 0.01f);
-                    if (maxAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, maxAspectField, 100.0f);
-                    if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(contentArea, false);
-                    touchedContentArea = true;
+                if (contentArea && IsNativeObjectAlive(contentArea)) {
+                    if (isSelf || childCount <= 2) {
+                        if (minAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, minAspectField, 0.01f);
+                        if (maxAspectField) Il2cppUtils::ClassSetFieldValue(contentArea, maxAspectField, 100.0f);
+                        if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(contentArea, false);
+                        touchedContentArea = true;
+                    } else if (expandSharedAncestors) {
+                        if (savedExpandedContentAreas.find(contentArea) == savedExpandedContentAreas.end() &&
+                            minAspectField && maxAspectField) {
+                            savedExpandedContentAreas[contentArea] = {
+                                    Il2cppUtils::ClassGetFieldValue<float>(contentArea, minAspectField),
+                                    Il2cppUtils::ClassGetFieldValue<float>(contentArea, maxAspectField)
+                            };
+                        }
+                        if (setMinAspect) {
+                            setMinAspect->Invoke<void>(contentArea, 0.01f);
+                        } else if (minAspectField) {
+                            Il2cppUtils::ClassSetFieldValue(contentArea, minAspectField, 0.01f);
+                        }
+                        if (setMaxAspect) {
+                            setMaxAspect->Invoke<void>(contentArea, 100.0f);
+                        } else if (maxAspectField) {
+                            Il2cppUtils::ClassSetFieldValue(contentArea, maxAspectField, 100.0f);
+                        }
+                        InvokeRectModifierUpdateRect(contentArea);
+                        touchedContentArea = true;
+                    }
                 }
             }
 
-            if (rectTransformType && (isSelf || childCount <= 2)) {
-                auto rectTransform = getComponent->Invoke<void*>(cur, rectTransformType);
-                if (rectTransform && IsNativeObjectAlive(rectTransform)) {
-                    if (setAnchorMin) setAnchorMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
-                    if (setAnchorMax) setAnchorMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{1.0f, 1.0f});
-                    if (setPivot) setPivot->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.5f, 0.5f});
-                    if (setOffsetMin) setOffsetMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
-                    if (setOffsetMax) setOffsetMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
-                }
-            }
-
-            if (fitterType && (isSelf || childCount <= 2)) {
+            if (fitterType) {
                 auto fitter = getComponent->Invoke<void*>(cur, fitterType);
                 if (fitter && IsNativeObjectAlive(fitter)) {
-                    if (setAspectMode) setAspectMode->Invoke<void>(fitter, 3); // AspectMode.FitInParent
-                    if (setAspectRatio) setAspectRatio->Invoke<void>(fitter, targetAspect);
-                    if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(fitter, true);
-                    touchedFitter = true;
+                    if (isSelf || childCount <= 2) {
+                        if (setAspectMode) setAspectMode->Invoke<void>(fitter, 3); // AspectMode.FitInParent
+                        if (setAspectRatio) setAspectRatio->Invoke<void>(fitter, targetAspect);
+                        if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(fitter, true);
+                        touchedFitter = true;
+                    } else if (expandSharedAncestors) {
+                        if (savedExpandedFitters.find(fitter) == savedExpandedFitters.end() &&
+                            getAspectMode && getAspectRatio && getBehaviourEnabled) {
+                            savedExpandedFitters[fitter] = {
+                                    getAspectMode->Invoke<int>(fitter),
+                                    getAspectRatio->Invoke<float>(fitter),
+                                    getBehaviourEnabled->Invoke<bool>(fitter)
+                            };
+                        }
+                        if (setAspectMode) setAspectMode->Invoke<void>(fitter, 3); // AspectMode.FitInParent
+                        if (setAspectRatio) setAspectRatio->Invoke<void>(fitter, targetAspect);
+                        if (setBehaviourEnabled) setBehaviourEnabled->Invoke<void>(fitter, true);
+                        touchedFitter = true;
+                    }
+                }
+            }
+
+            if (rectTransformType && !isNestedCanvas) {
+                auto rectTransform = getComponent->Invoke<void*>(cur, rectTransformType);
+                if (rectTransform && IsNativeObjectAlive(rectTransform)) {
+                    if (isSelf || childCount <= 2) {
+                        if (setAnchorMin) setAnchorMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                        if (setAnchorMax) setAnchorMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{1.0f, 1.0f});
+                        if (setPivot) setPivot->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.5f, 0.5f});
+                        if (setOffsetMin) setOffsetMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                        if (setOffsetMax) setOffsetMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                    } else if (expandSharedAncestors && !touchedContentArea && !touchedFitter &&
+                               getAnchorMin && getAnchorMax && getOffsetMin && getOffsetMax && getSizeDelta) {
+                        const auto aMin = getAnchorMin->Invoke<UnityResolve::UnityType::Vector2>(rectTransform);
+                        const auto aMax = getAnchorMax->Invoke<UnityResolve::UnityType::Vector2>(rectTransform);
+                        const auto size = getSizeDelta->Invoke<UnityResolve::UnityType::Vector2>(rectTransform);
+                        const bool centeredFixed = std::abs(aMin.x - aMax.x) < 0.01f && std::abs(aMin.y - aMax.y) < 0.01f &&
+                                                   size.x >= 400.0f && size.y >= 400.0f;
+                        if (centeredFixed) {
+                            const float boxAspect = size.x / size.y;
+                            const bool isSixteenNine = std::abs(boxAspect - (16.0f / 9.0f)) < 0.05f ||
+                                                       std::abs(boxAspect - (9.0f / 16.0f)) < 0.05f;
+                            if (isSixteenNine && std::abs(boxAspect - targetAspect) > 0.02f) {
+                                if (savedExpandedRects.find(rectTransform) == savedExpandedRects.end()) {
+                                    savedExpandedRects[rectTransform] = {
+                                            aMin,
+                                            aMax,
+                                            getOffsetMin->Invoke<UnityResolve::UnityType::Vector2>(rectTransform),
+                                            getOffsetMax->Invoke<UnityResolve::UnityType::Vector2>(rectTransform),
+                                            size
+                                    };
+                                }
+                                if (setAnchorMin) setAnchorMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                                if (setAnchorMax) setAnchorMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{1.0f, 1.0f});
+                                if (setOffsetMin) setOffsetMin->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                                if (setOffsetMax) setOffsetMax->Invoke<void>(rectTransform, UnityResolve::UnityType::Vector2{0.0f, 0.0f});
+                                touchedFixedRect = true;
+                            }
+                        }
+                    }
                 }
             }
 
             if (Config::dbgMode) {
-                Log::DebugFmt("UnlockLiveAspectRatio[Node]: depth=%d name=%s children=%d uiArea=%d fitter=%d aspect=%.4f",
-                              depth, GetUnityObjectName(cur).c_str(), childCount, touchedContentArea, touchedFitter, targetAspect);
+                Log::DebugFmt("UnlockLiveAspectRatio[Node]: depth=%d name=%s children=%d nestedCanvas=%d uiArea=%d fitter=%d fixedRect=%d aspect=%.4f",
+                              depth, GetUnityObjectName(cur).c_str(), childCount, isNestedCanvas,
+                              touchedContentArea, touchedFitter, touchedFixedRect, targetAspect);
             }
 
             cur = getParent->Invoke<void*>(cur);
@@ -4397,6 +4569,19 @@ namespace HoshimiLocal::HookMain {
         backFrame->SetActive(false);
         if (Config::dbgMode) {
             Log::DebugFmt("UnlockLiveAspectRatio: hid _backFrame on %s=%p", className, self);
+        }
+    }
+
+    void HideShowcaseShootingFrame(void* self) {
+        if (!self || !Config::unlockLiveAspectRatio) return;
+        static auto klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.OutGame", "ShowcasePhotoShootingScreenView");
+        static auto shootingFrameField = klass ? klass->Get<UnityResolve::Field>("_shootingFrame") : nullptr;
+        if (!shootingFrameField) return;
+        auto shootingFrame = Il2cppUtils::ClassGetFieldValue<UnityResolve::UnityType::GameObject*>(self, shootingFrameField);
+        if (!shootingFrame || !IsNativeObjectAlive(shootingFrame)) return;
+        shootingFrame->SetActive(false);
+        if (Config::dbgMode) {
+            Log::DebugFmt("UnlockLiveAspectRatio: hid _shootingFrame on ShowcasePhotoShootingScreenView=%p", self);
         }
     }
 
@@ -4649,6 +4834,7 @@ namespace HoshimiLocal::HookMain {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
         unlockedLiveActive.store(false, std::memory_order_relaxed);
         ClearPendingCropCaptures();
+        RestoreExpandedRenderTargetAncestors();
         OutGameScenePresenter_UnlockVLCameraAspectRatio_Orig(method);
     }
 
@@ -4817,6 +5003,10 @@ namespace HoshimiLocal::HookMain {
         if (!Config::unlockLiveAspectRatio || !unlockedPhotographyActive.load(std::memory_order_relaxed) || !self || !texture) {
             return;
         }
+        static auto getIsActiveAndEnabled = Il2cppUtils::GetMethod("UnityEngine.CoreModule.dll", "UnityEngine", "Behaviour", "get_isActiveAndEnabled");
+        if (getIsActiveAndEnabled && !getIsActiveAndEnabled->Invoke<bool>(self)) {
+            return;
+        }
         static auto targetImageClass = Il2cppUtils::GetClass("vl-unity.Runtime.dll", "VL.Rendering", "VLSRPTargetImage");
         static auto textureTypeField = targetImageClass ? targetImageClass->Get<UnityResolve::Field>("_textureType") : nullptr;
         if (textureTypeField && Il2cppUtils::ClassGetFieldValue<int>(self, textureTypeField) != 0) {
@@ -4834,7 +5024,7 @@ namespace HoshimiLocal::HookMain {
             Log::DebugFmt("UnlockLiveAspectRatio[TargetImage]: self=%p tex=%dx%d (%.4f) screen=%dx%d",
                           self, texW, texH, texAspect, screenW, screenH);
         }
-        ExpandRenderTargetHierarchy(self, texAspect);
+        ExpandRenderTargetHierarchy(self, texAspect, nullptr, true);
     }
 
     DEFINE_HOOK(void, PhotographyMainBase_UpdateCameraRender, (void* self, void* method)) {
@@ -4845,6 +5035,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void, PhotographyMainBase_ResetCameraRender, (void* self, void* method)) {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        RestoreExpandedRenderTargetAncestors();
         PhotographyMainBase_ResetCameraRender_Orig(self, method);
     }
 
@@ -4856,6 +5047,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void, Photography360LiveContentPresenter_ResetCameraRender, (void* self, void* method)) {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        RestoreExpandedRenderTargetAncestors();
         Photography360LiveContentPresenter_ResetCameraRender_Orig(self, method);
     }
 
@@ -4867,6 +5059,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void, CompanyExcursionScreenPresenter_ResetCameraRender, (void* self, void* method)) {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        RestoreExpandedRenderTargetAncestors();
         CompanyExcursionScreenPresenter_ResetCameraRender_Orig(self, method);
     }
 
@@ -4878,6 +5071,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void, ShowcasePhotoShootingScreenPresenter_ResetCameraRender, (void* self, void* method)) {
         unlockedPhotographyActive.store(false, std::memory_order_relaxed);
+        RestoreExpandedRenderTargetAncestors();
         ShowcasePhotoShootingScreenPresenter_ResetCameraRender_Orig(self, method);
     }
 
@@ -4889,6 +5083,21 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(void, Photography360LiveContentView_Initialize, (void* self, bool isPreview, void* method)) {
         Photography360LiveContentView_Initialize_Orig(self, isPreview, method);
         HidePhotographyBackFrame(self, "Photography360LiveContentView");
+    }
+
+    DEFINE_HOOK(void, PhotographyPreviewContentView_Initialize, (void* self, void* method)) {
+        PhotographyPreviewContentView_Initialize_Orig(self, method);
+        HidePhotographyBackFrame(self, "PhotographyPreviewContentView");
+    }
+
+    DEFINE_HOOK(void, ShowcasePhotoShootingScreenView_Initialize, (void* self, void* method)) {
+        ShowcasePhotoShootingScreenView_Initialize_Orig(self, method);
+        HideShowcaseShootingFrame(self);
+    }
+
+    DEFINE_HOOK(void, ShowcasePhotoShootingScreenView_SetPreviewMode, (void* self, bool isPreview, void* method)) {
+        ShowcasePhotoShootingScreenView_SetPreviewMode_Orig(self, isPreview, method);
+        HideShowcaseShootingFrame(self);
     }
 
     struct LiveAspectState {
@@ -6447,6 +6656,15 @@ namespace HoshimiLocal::HookMain {
         ADD_HOOK(Photography360LiveContentView_Initialize,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
                                                "Photography360LiveContentView", "Initialize"));
+        ADD_HOOK(PhotographyPreviewContentView_Initialize,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Photography",
+                                               "PhotographyPreviewContentView", "Initialize"));
+        ADD_HOOK(ShowcasePhotoShootingScreenView_Initialize,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ShowcasePhotoShootingScreenView", "Initialize"));
+        ADD_HOOK(ShowcasePhotoShootingScreenView_SetPreviewMode,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.OutGame",
+                                               "ShowcasePhotoShootingScreenView", "SetPreviewMode"));
         ADD_HOOK(LiveUIView_Setup3DAspect,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Live",
                                                "LiveUIView", "Setup3DAspect"));
