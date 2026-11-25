@@ -3780,10 +3780,22 @@ namespace HoshimiLocal::HookMain {
     }
 
     std::atomic<bool> g_userCollectionGetAllListHooked{false};
+    thread_local int g_realOwnershipScope = 0;
+
+    struct RealOwnershipScope {
+        RealOwnershipScope() { ++g_realOwnershipScope; }
+        ~RealOwnershipScope() { --g_realOwnershipScope; }
+    };
+
+    DEFINE_HOOK(bool, Solis_ConditionExtensions_IsSatisfied_Setting,
+        (void* conditionSetting, bool serverConditionAsError, void* mtd)) {
+        RealOwnershipScope scope;
+        return Solis_ConditionExtensions_IsSatisfied_Setting_Orig(conditionSetting, serverConditionAsError, mtd);
+    }
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindBy, (void* self, void* predicate, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_FindBy_Orig(self, predicate, mtd);
-        if (!Config::unlockAllLiveCostume) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass || std::string(this_klass->name) != "UserCostumeCollection") return ret;
@@ -3803,6 +3815,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_GetAllList_Orig(self, comparison, mtd);
+        if (g_realOwnershipScope > 0) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass) return ret;
@@ -3819,7 +3832,7 @@ namespace HoshimiLocal::HookMain {
     }
 
     void* CreateSyntheticUserCollectionItem(const std::string& collectionClassName, Il2cppString* id) {
-        if (!id) return nullptr;
+        if (g_realOwnershipScope > 0 || !id) return nullptr;
         const bool isCostume = Config::unlockAllLiveCostume && collectionClassName == "UserCostumeCollection";
         const bool isHair = Config::unlockAllLiveCostume && collectionClassName == "UserHairCollection";
         const bool isPose = Config::unlockAllPhotoPose && collectionClassName == "UserPhotoPoseCollection";
@@ -3873,7 +3886,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_FindById, (void* self, Il2cppString* id, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_FindById_Orig(self, id, mtd);
-        if (ret || !self || !id) return ret;
+        if (g_realOwnershipScope > 0 || ret || !self || !id) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass || !this_klass->name) return ret;
@@ -3882,7 +3895,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(bool, Solis_UserCostumeCollection_TryGetValue, (void* self, Il2cppString* id, void** value, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_TryGetValue_Orig(self, id, value, mtd);
-        if (ret || !self || !id || !value) return ret;
+        if (g_realOwnershipScope > 0 || ret || !self || !id || !value) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass || !this_klass->name) return ret;
@@ -3895,7 +3908,7 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(bool, Solis_UserCostumeCollection_Exists, (void* self, Il2cppString* costumeId, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_Exists_Orig(self, costumeId, mtd);
-        if (!costumeId) return ret;
+        if (g_realOwnershipScope > 0 || !costumeId) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass) return ret;
@@ -3914,19 +3927,19 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetSortedCharacterCostumes, (void* self, Il2cppString* characterId, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_GetSortedCharacterCostumes_Orig(self, characterId, mtd);
-        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !characterId) return ret;
         return AddSolisCostumesToUserCollection(ret, characterId->ToString());
     }
 
     DEFINE_HOOK(void*, Solis_UserCostumeCollection_GetOrderSortedCharacterCostumes, (void* self, Il2cppString* characterId, void* mtd)) {
         auto ret = Solis_UserCostumeCollection_GetOrderSortedCharacterCostumes_Orig(self, characterId, mtd);
-        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !characterId) return ret;
         return AddSolisCostumesToUserCollection(ret, characterId->ToString());
     }
 
     DEFINE_HOOK(void*, Solis_UserHairCollection_GetAllList, (void* self, void* comparison, void* mtd)) {
         auto ret = Solis_UserHairCollection_GetAllList_Orig(self, comparison, mtd);
-        if (!Config::unlockAllLiveCostume) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume) return ret;
 
         auto this_klass = Il2cppUtils::get_class_from_instance(self);
         if (!this_klass || std::string(this_klass->name) != "UserHairCollection") return ret;
@@ -3935,21 +3948,21 @@ namespace HoshimiLocal::HookMain {
 
     DEFINE_HOOK(bool, Solis_UserHairCollection_Exists, (void* self, Il2cppString* hairId, void* mtd)) {
         auto ret = Solis_UserHairCollection_Exists_Orig(self, hairId, mtd);
-        if (!Config::unlockAllLiveCostume || !hairId) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !hairId) return ret;
         return IsSolisMasterIdExists(hairId->ToString(), SolisMasterIdType::HairId) || ret;
     }
 
     DEFINE_HOOK(void*, Solis_UserHairCollection_GetSortedCharacterHairs,
         (void* self, Il2cppString* characterId, void* costume, bool isBaseHairOnly, void* mtd)) {
         auto ret = Solis_UserHairCollection_GetSortedCharacterHairs_Orig(self, characterId, costume, isBaseHairOnly, mtd);
-        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !characterId) return ret;
         return AddSolisHairsToUserCollection(ret, characterId->ToString());
     }
 
     DEFINE_HOOK(void*, Solis_UserHairCollection_GetSortedCharacterOrnamentHairs,
         (void* self, Il2cppString* hairId, void* mtd)) {
         auto ret = Solis_UserHairCollection_GetSortedCharacterOrnamentHairs_Orig(self, hairId, mtd);
-        if (!Config::unlockAllLiveCostume || !Config::unlockCrossCharacterHair) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !Config::unlockCrossCharacterHair) return ret;
 
         static auto UserHairCollection_klass = Il2cppUtils::GetClass("Assembly-CSharp.dll", "Solis.Common.User",
                                                                      "UserHairCollection");
@@ -3967,7 +3980,7 @@ namespace HoshimiLocal::HookMain {
     DEFINE_HOOK(bool, Solis_UserHairCollection_ExistsCharacterOrnamentHair,
         (void* self, Il2cppString* characterId, void* mtd)) {
         auto ret = Solis_UserHairCollection_ExistsCharacterOrnamentHair_Orig(self, characterId, mtd);
-        if (!Config::unlockAllLiveCostume || !characterId) return ret;
+        if (g_realOwnershipScope > 0 || !Config::unlockAllLiveCostume || !characterId) return ret;
         return true;
     }
 
@@ -6369,6 +6382,10 @@ namespace HoshimiLocal::HookMain {
                          Solis_PhotographySpotData_InitializeMoveNext_Orig != nullptr,
                          Solis_SolisActorUtility_CreateActorDescriptor_Orig != nullptr);
         }
+        ADD_HOOK(Solis_ConditionExtensions_IsSatisfied_Setting,
+                 Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Extensions",
+                                               "ConditionExtensions", "IsSatisfied",
+                                               {"Solis.Common.Proto.Master.ConditionSetting", "System.Boolean"}));
         ADD_HOOK(Solis_Costume_get_IsUserUnavailable,
                  Il2cppUtils::GetMethodPointer("Assembly-CSharp.dll", "Solis.Common.Proto.Master",
                                                "Costume", "get_IsUserUnavailable"));
