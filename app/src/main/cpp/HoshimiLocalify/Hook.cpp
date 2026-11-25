@@ -131,6 +131,20 @@ namespace HoshimiLocal::HookMain {
         return Solis_ActivityPhotographyGridListItemModel_GetEndTerm_Orig(self, mtd);
     }
 
+    DEFINE_HOOK(int64_t, Solis_ExpressionPhotographyGridListItemModel_GetEndTerm, (void* self, void* mtd)) {
+        if (Config::unlockAllPhotoActivity && self) {
+            static const auto getExpressionId = Il2cppUtils::GetMethod(
+                "Assembly-CSharp.dll", "Solis.OutGame", "ExpressionPhotographyGridListItemModel", "get_ExpressionId");
+            if (getExpressionId) {
+                auto idStr = getExpressionId->Invoke<Il2cppString*>(self, getExpressionId->address);
+                if (idStr && PhotoRequests::IsUnlockedHiddenPhotoExpression(idStr->ToString())) {
+                    return 0;
+                }
+            }
+        }
+        return Solis_ExpressionPhotographyGridListItemModel_GetEndTerm_Orig(self, mtd);
+    }
+
     static std::mutex g_emptyStringRepeatedFieldMutex;
     static uint32_t g_emptyStringRepeatedFieldHandle = 0;
 
@@ -6242,6 +6256,10 @@ namespace HoshimiLocal::HookMain {
         if (auto getEndTermPtr = Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.OutGame", "ActivityPhotographyGridListItemModel", "GetEndTerm")) {
             ADD_HOOK(Solis_ActivityPhotographyGridListItemModel_GetEndTerm, getEndTermPtr);
+        }
+        if (auto getExprEndTermPtr = Il2cppUtils::GetMethodPointer(
+                "Assembly-CSharp.dll", "Solis.OutGame", "ExpressionPhotographyGridListItemModel", "GetEndTerm")) {
+            ADD_HOOK(Solis_ExpressionPhotographyGridListItemModel_GetEndTerm, getExprEndTermPtr);
         }
         if (auto getImpossibleCharsPtr = Il2cppUtils::GetMethodPointer(
                 "Assembly-CSharp.dll", "Solis.Common.Proto.Master", "PhotoActivity", "get_ImpossibleShootingCharacterIds")) {

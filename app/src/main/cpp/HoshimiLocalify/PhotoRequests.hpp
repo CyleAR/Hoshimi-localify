@@ -9,6 +9,7 @@ namespace HoshimiLocal::PhotoRequests {
     void CaptureAvailability(void* response);
     void CapturePhotoListShooting(void* response);
     bool IsUnlockedHiddenPhotoActivity(const std::string& activityId);
+    bool IsUnlockedHiddenPhotoExpression(const std::string& expressionId);
     void ApplyActivityVisualOutfits(void* progress);
     void ApplyDeckVisualOutfit(void* deckPosition);
     void ApplyLiveVisualOutfits(void* liveMessage);

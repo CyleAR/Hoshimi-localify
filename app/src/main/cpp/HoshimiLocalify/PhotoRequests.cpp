@@ -43,6 +43,19 @@ namespace {
     std::vector<ServerPhotoActivityInfo> serverUnlockedPhotoActivities;
     std::set<std::string> unlockedHiddenPhotoActivityIds;
 
+    struct ServerPhotoExpressionInfo {
+        std::string id;
+        std::string stageId;
+        std::string forceCostumeTypeId;
+        std::set<std::string> costumeTypeIds;
+        std::set<int> characterAmounts;
+        std::vector<std::pair<int, int>> stagePositions; // (number, possiblePhotoPoseType)
+        int order = 0;
+        bool isPermanent = false;
+    };
+    std::vector<ServerPhotoExpressionInfo> serverUnlockedPhotoExpressions;
+    std::set<std::string> unlockedHiddenPhotoExpressionIds;
+
     std::mutex costumeRoomMutex;
     std::string activeCostumeRoomCharacterId;
 
@@ -744,24 +757,64 @@ namespace {
         return PreparedRequest(request);
     }
 
-    PreparedRequest PrepareExpressionPoseRequest(void* request, const Inventory& owned) {
-        auto expression = Find("get_PhotoExpressionMaster", Text(request, "get_PhotoExpressionId"));
+    PreparedRequest PrepareExpressionPoseRequest(void* request, const Inventory& owned,
+                                                 void* overrideExpression = nullptr,
+                                                 const std::string& overrideExpressionId = "",
+                                                 const std::vector<std::pair<int, int>>* overrideStagePositions = nullptr) {
+        const auto origExpressionId = Text(request, "get_PhotoExpressionId");
+        auto origExpression = Find("get_PhotoExpressionMaster", origExpressionId);
+        auto expression = overrideExpression ? overrideExpression : origExpression;
         if (!expression) {
             Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, expression master missing");
             return PreparedRequest(request);
         }
+        const bool expressionChanged = overrideExpression != nullptr &&
+                                       !overrideExpressionId.empty() &&
+                                       overrideExpressionId != origExpressionId;
 
         auto parameters = Items(Get(request, "get_CreateExpressionShootingParams"));
         std::vector<int> paramPoseTypes;
+        std::vector<int> mappedPositionNumbers;
+        bool positionsChanged = false;
         paramPoseTypes.reserve(parameters.size());
+        mappedPositionNumbers.reserve(parameters.size());
         std::map<std::string, std::set<int>> requiredTypesByActor;
         for (auto param : parameters) {
+            const int origPosNum = Get<int>(param, "get_StagePositionNumber");
+            int targetPosNum = origPosNum;
             int allowedType = 0;
-            if (!ResolveExpressionStagePoseType(expression, Get<int>(param, "get_StagePositionNumber"), allowedType)) {
+            if (expressionChanged && overrideStagePositions && !overrideStagePositions->empty()) {
+                int origPoseType = 0;
+                if (origExpression) {
+                    ResolveExpressionStagePoseType(origExpression, origPosNum, origPoseType);
+                }
+                const std::pair<int, int>* chosenPos = nullptr;
+                for (const auto& pos : *overrideStagePositions) {
+                    if (pos.first == origPosNum && (origPoseType == 0 || pos.second == origPoseType)) {
+                        chosenPos = &pos;
+                        break;
+                    }
+                }
+                if (!chosenPos && origPoseType != 0) {
+                    for (const auto& pos : *overrideStagePositions) {
+                        if (pos.second == origPoseType) {
+                            chosenPos = &pos;
+                            break;
+                        }
+                    }
+                }
+                if (!chosenPos) {
+                    chosenPos = &overrideStagePositions->front();
+                }
+                targetPosNum = chosenPos->first;
+                allowedType = chosenPos->second;
+                if (targetPosNum != origPosNum) positionsChanged = true;
+            } else if (!ResolveExpressionStagePoseType(expression, origPosNum, allowedType)) {
                 Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest unchanged, unknown stage position");
                 return PreparedRequest(request);
             }
             paramPoseTypes.push_back(allowedType);
+            mappedPositionNumbers.push_back(targetPosNum);
             for (const auto& cid : Strings(Get(param, "get_CharacterIds"))) {
                 if (!cid.empty()) requiredTypesByActor[cid].insert(allowedType);
             }
@@ -907,7 +960,7 @@ namespace {
             plannedPoses.push_back(std::move(entry));
         }
 
-        if (!actorsChanged && !posesChanged) {
+        if (!expressionChanged && !positionsChanged && !actorsChanged && !posesChanged) {
             if (Config::dbgMode) {
                 Log::Info("PhotoRequests: PhotoCreateExpressionShootingsRequest forwarded original (expression outfits & poses valid)");
             }
@@ -919,6 +972,10 @@ namespace {
         auto clone = candidate.get();
         if (clone == request) return PreparedRequest(request);
 
+        if (expressionChanged && !SetText(clone, "set_PhotoExpressionId", overrideExpressionId)) {
+            Log::Error("PhotoRequests: PhotoCreateExpressionShootingsRequest failed to write fallback expression id on clone");
+            return PreparedRequest(request);
+        }
         if (actorsChanged) {
             for (const auto& roster : plannedRosters) {
                 if (!Replace(Get(clone, roster.cosGetter), roster.costumes) ||
@@ -934,13 +991,21 @@ namespace {
                 return PreparedRequest(request);
             }
         }
-        if (posesChanged) {
+        if (posesChanged || positionsChanged) {
             auto cloneParams = Items(Get(clone, "get_CreateExpressionShootingParams"));
-            if (cloneParams.size() != plannedPoses.size()) return PreparedRequest(request);
+            if (cloneParams.size() != plannedPoses.size() || cloneParams.size() != mappedPositionNumbers.size()) {
+                return PreparedRequest(request);
+            }
             for (size_t i = 0; i < cloneParams.size(); ++i) {
-                if (!Replace(Get(cloneParams[i], "get_PhotoPoseIds"), plannedPoses[i].poses)) return PreparedRequest(request);
-                if (plannedPoses[i].hasMain && !SetText(cloneParams[i], "set_PhotoPoseId", plannedPoses[i].mainPose)) {
+                if (positionsChanged &&
+                    !Set<int>(cloneParams[i], "set_StagePositionNumber", mappedPositionNumbers[i])) {
                     return PreparedRequest(request);
+                }
+                if (posesChanged) {
+                    if (!Replace(Get(cloneParams[i], "get_PhotoPoseIds"), plannedPoses[i].poses)) return PreparedRequest(request);
+                    if (plannedPoses[i].hasMain && !SetText(cloneParams[i], "set_PhotoPoseId", plannedPoses[i].mainPose)) {
+                        return PreparedRequest(request);
+                    }
                 }
             }
         }
@@ -949,8 +1014,10 @@ namespace {
             return PreparedRequest(request);
         }
         if (Config::dbgMode) {
-            Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast on clone actorsChanged=%d posesChanged=%d params=%zu bytes=%d",
-                         actorsChanged ? 1 : 0, posesChanged ? 1 : 0, plannedPoses.size(), Get<int>(clone, "CalculateSize"));
+            Log::InfoFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest prepared fast on clone expr=%s->%s actorsChanged=%d posesChanged=%d posChanged=%d params=%zu bytes=%d",
+                         origExpressionId.c_str(), expressionChanged ? overrideExpressionId.c_str() : origExpressionId.c_str(),
+                         actorsChanged ? 1 : 0, posesChanged ? 1 : 0, positionsChanged ? 1 : 0,
+                         plannedPoses.size(), Get<int>(clone, "CalculateSize"));
         }
         return candidate;
     }
@@ -1271,6 +1338,189 @@ namespace {
                          chosen->id.c_str(), chosen->actionType, chars.size(), Get<int>(clone, "CalculateSize"));
         }
         return candidate;
+    }
+
+    std::vector<ServerPhotoExpressionInfo> RankExpressionFallbacks(const std::string& reqExprId,
+                                                                   int charCount,
+                                                                   const std::set<int>& requiredPoseTypes) {
+        std::vector<ServerPhotoExpressionInfo> candidates;
+        {
+            std::lock_guard lock(photoActivityMutex);
+            candidates = serverUnlockedPhotoExpressions;
+        }
+        void* reqMaster = Find("get_PhotoExpressionMaster", reqExprId);
+        const auto reqStageId = reqMaster ? Text(reqMaster, "get_StageId") : "";
+        const auto reqForceCostumeTypeId = reqMaster ? Text(reqMaster, "get_ForceCostumeTypeId") : "";
+        std::set<std::string> reqCostumeTypeIds;
+        if (reqMaster) {
+            for (const auto& ct : Strings(Get(reqMaster, "get_CostumeTypeIds"))) {
+                if (!ct.empty()) reqCostumeTypeIds.insert(ct);
+            }
+        }
+        const int reqOrder = reqMaster ? Get<int>(reqMaster, "get_Order") : 0;
+        const auto reqStageFamily = StageFamily(reqStageId);
+
+        std::stable_sort(candidates.begin(), candidates.end(), [&](const ServerPhotoExpressionInfo& a, const ServerPhotoExpressionInfo& b) {
+            const auto supportsAllPoseTypes = [&](const ServerPhotoExpressionInfo& info) {
+                for (int needed : requiredPoseTypes) {
+                    if (needed == 0) continue;
+                    bool found = false;
+                    for (const auto& pos : info.stagePositions) {
+                        if (pos.second == needed) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) return 0;
+                }
+                return 1;
+            };
+            const auto rank = [&](const ServerPhotoExpressionInfo& info) {
+                const int orderDiff = info.order >= reqOrder ? (info.order - reqOrder) : (reqOrder - info.order);
+                const bool sameNonGenericStageFamily =
+                    !reqStageFamily.empty() && reqStageFamily != "studio" &&
+                    StageFamily(info.stageId) == reqStageFamily;
+                return std::make_tuple(
+                    info.characterAmounts.contains(charCount) ? 1 : 0,
+                    supportsAllPoseTypes(info),
+                    (!reqStageId.empty() && info.stageId == reqStageId) ? 1 : 0,
+                    sameNonGenericStageFamily ? 1 : 0,
+                    (!reqForceCostumeTypeId.empty() && info.forceCostumeTypeId == reqForceCostumeTypeId) ? 1 : 0,
+                    info.isPermanent ? 1 : 0,
+                    static_cast<int>(info.stagePositions.size()),
+                    CountSetOverlap(reqCostumeTypeIds, info.costumeTypeIds),
+                    CommonPrefixLen(reqStageId, info.stageId) + CommonPrefixLen(reqExprId, info.id),
+                    -orderDiff);
+            };
+            return rank(a) > rank(b);
+        });
+        return candidates;
+    }
+
+    PreparedRequest PrepareCheckExpressionFallback(void* request, const Inventory& owned) {
+        const auto reqExprId = Text(request, "get_PhotoExpressionId");
+        const auto chars = Strings(Get(request, "get_CharacterIds"));
+        const auto costumes = Strings(Get(request, "get_CostumeIds"));
+        const auto hairs = Strings(Get(request, "get_HairIds"));
+        const auto singleChar = Text(request, "get_CharacterId");
+        const auto singleCostume = Text(request, "get_CostumeId");
+        const auto singleHair = Text(request, "get_HairId");
+        const bool hasRoster = !chars.empty();
+        const bool hasSingle = !singleChar.empty();
+        if ((!hasRoster && !hasSingle) || (hasRoster && !Aligned(chars, costumes, hairs))) {
+            Log::ErrorFmt("PhotoRequests: PhotoCheckExpressionShootingRequest hidden expr=%s unchanged, invalid actors",
+                          reqExprId.c_str());
+            return PreparedRequest(request);
+        }
+
+        const int charCount = hasRoster ? static_cast<int>(chars.size()) : 1;
+        const auto candidates = RankExpressionFallbacks(reqExprId, charCount, {});
+        for (const auto& cand : candidates) {
+            if (cand.id == reqExprId) continue;
+            void* specifier = Find("get_PhotoExpressionMaster", cand.id);
+            if (!specifier) continue;
+            const auto preferredPoseTypes = CollectExpressionPoseTypes(specifier);
+
+            const auto resolveOne = [&](const std::string& cid, const std::string& rc, const std::string& rh,
+                                        std::string& oc, std::string& oh) -> bool {
+                if (IsActorOutfitValid(owned, cid, rc, rh, specifier, nullptr)) {
+                    oc = rc;
+                    oh = rh;
+                    return true;
+                }
+                if (FindOwnedOutfitPair(owned, cid, rc, rh, specifier, oc, oh, nullptr, preferredPoseTypes, false)) {
+                    return true;
+                }
+                if (auto forceActor = BuildForceActorCostume(cid, specifier)) {
+                    oc = Text(forceActor, "get_CostumeId");
+                    oh = Text(forceActor, "get_HairId");
+                    if (!oc.empty() && !oh.empty()) return true;
+                }
+                return false;
+            };
+
+            std::vector<std::string> outCostumes = costumes;
+            std::vector<std::string> outHairs = hairs;
+            bool ok = true;
+            if (hasRoster) {
+                for (size_t i = 0; i < chars.size(); ++i) {
+                    if (!resolveOne(chars[i], costumes[i], hairs[i], outCostumes[i], outHairs[i])) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            std::string outSingleCostume = singleCostume;
+            std::string outSingleHair = singleHair;
+            if (ok && hasSingle && !resolveOne(singleChar, singleCostume, singleHair, outSingleCostume, outSingleHair)) {
+                ok = false;
+            }
+            if (!ok) continue;
+
+            const auto originalFingerprint = RequestFingerprint(request);
+            auto candidate = CloneRequest(request);
+            auto clone = candidate.get();
+            if (clone == request) return PreparedRequest(request);
+            if (!SetText(clone, "set_PhotoExpressionId", cand.id)) {
+                return PreparedRequest(request);
+            }
+            if (hasRoster && (outCostumes != costumes || outHairs != hairs) &&
+                (!Replace(Get(clone, "get_CostumeIds"), outCostumes) ||
+                 !Replace(Get(clone, "get_HairIds"), outHairs))) {
+                return PreparedRequest(request);
+            }
+            if (hasSingle && (outSingleCostume != singleCostume || outSingleHair != singleHair) &&
+                (!SetText(clone, "set_CostumeId", outSingleCostume) ||
+                 !SetText(clone, "set_HairId", outSingleHair))) {
+                return PreparedRequest(request);
+            }
+            if (RequestFingerprint(request) != originalFingerprint) {
+                Log::Error("PhotoRequests: PhotoCheckExpressionShootingRequest hidden expr clone integrity failed");
+                return PreparedRequest(request);
+            }
+            if (Config::dbgMode) {
+                Log::InfoFmt("PhotoRequests: PhotoCheckExpressionShootingRequest substituted hidden expr=%s -> fallback=%s chars=%d bytes=%d",
+                             reqExprId.c_str(), cand.id.c_str(), charCount, Get<int>(clone, "CalculateSize"));
+            }
+            return candidate;
+        }
+        Log::ErrorFmt("PhotoRequests: PhotoCheckExpressionShootingRequest hidden expr=%s unchanged, no compatible fallback",
+                      reqExprId.c_str());
+        return PreparedRequest(request);
+    }
+
+    PreparedRequest PrepareCreateExpressionFallback(void* request, const Inventory& owned) {
+        const auto reqExprId = Text(request, "get_PhotoExpressionId");
+        const auto chars = Strings(Get(request, "get_CharacterIds"));
+        const int charCount = !chars.empty() ? static_cast<int>(chars.size())
+                                             : (!Text(request, "get_CharacterId").empty() ? 1 : 0);
+        if (charCount <= 0) return PreparedRequest(request);
+
+        void* origMaster = Find("get_PhotoExpressionMaster", reqExprId);
+        std::set<int> requiredPoseTypes;
+        if (origMaster) {
+            for (auto param : Items(Get(request, "get_CreateExpressionShootingParams"))) {
+                int poseType = 0;
+                if (ResolveExpressionStagePoseType(origMaster, Get<int>(param, "get_StagePositionNumber"), poseType) &&
+                    poseType != 0) {
+                    requiredPoseTypes.insert(poseType);
+                }
+            }
+        }
+
+        const auto candidates = RankExpressionFallbacks(reqExprId, charCount, requiredPoseTypes);
+        for (const auto& cand : candidates) {
+            if (cand.id == reqExprId || cand.stagePositions.empty()) continue;
+            void* fallbackMaster = Find("get_PhotoExpressionMaster", cand.id);
+            if (!fallbackMaster) continue;
+            auto prepared = PrepareExpressionPoseRequest(request, owned, fallbackMaster, cand.id, &cand.stagePositions);
+            if (prepared.get() != request) {
+                return prepared;
+            }
+        }
+        Log::ErrorFmt("PhotoRequests: PhotoCreateExpressionShootingsRequest hidden expr=%s unchanged, no compatible fallback",
+                      reqExprId.c_str());
+        return PreparedRequest(request);
     }
 
     void* ResolveActivityStartSpecifier(void* request, const std::string& name,
@@ -1967,15 +2217,102 @@ namespace {
             }
         }
 
+        std::vector<ServerPhotoExpressionInfo> realUnlockedExprs;
+        std::set<std::string> serverPresentExprIds;
+        std::set<std::string> hiddenExprIds;
+        int unlockedExistingExprCount = 0;
+        int injectedExprCount = 0;
+
+        if (auto expressionsList = Get(response, "get_Expressions")) {
+            for (auto item : Items(expressionsList)) {
+                if (!item) continue;
+                const auto id = Text(item, "get_PhotoExpressionId");
+                if (id.empty()) continue;
+                serverPresentExprIds.insert(id);
+                const bool unlocked = Get<bool>(item, "get_IsUnlocked");
+                if (unlocked) {
+                    auto master = Find("get_PhotoExpressionMaster", id);
+                    if (master && Get(master, "get_Stage")) {
+                        ServerPhotoExpressionInfo info;
+                        info.id = id;
+                        info.stageId = Text(master, "get_StageId");
+                        info.forceCostumeTypeId = Text(master, "get_ForceCostumeTypeId");
+                        for (const auto& ct : Strings(Get(master, "get_CostumeTypeIds"))) {
+                            if (!ct.empty()) info.costumeTypeIds.insert(ct);
+                        }
+                        for (int amt : Items<int>(Field(master, "characterAmountArray_"))) {
+                            if (amt > 0) info.characterAmounts.insert(amt);
+                        }
+                        if (MethodOf(master, "GetStagePositionList")) {
+                            for (auto pos : Items(Get(master, "GetStagePositionList"))) {
+                                if (!pos) continue;
+                                info.stagePositions.emplace_back(
+                                    Get<int>(pos, "get_Number"),
+                                    Get<int>(pos, "get_PossiblePhotoPoseType"));
+                            }
+                        }
+                        info.order = Get<int>(master, "get_Order");
+                        info.isPermanent = Text(master, "get_ViewConditionId").empty();
+                        if (!info.stagePositions.empty()) {
+                            realUnlockedExprs.push_back(std::move(info));
+                        }
+                    }
+                } else if (Config::unlockAllPhotoActivity) {
+                    if (Set<bool>(item, "set_IsUnlocked", true)) {
+                        hiddenExprIds.insert(id);
+                        ++unlockedExistingExprCount;
+                    }
+                }
+            }
+
+            if (Config::unlockAllPhotoActivity) {
+                auto exprMaster = Master("get_PhotoExpressionMaster");
+                auto getAllExprMethod = MethodOf(exprMaster, "GetAllWithSortByKey", 1);
+                static auto apiPhotoExprClass = Il2cppUtils::GetClass(
+                    "Assembly-CSharp.dll", "Solis.Common.Proto.Api", "PhotoExpression");
+                if (exprMaster && getAllExprMethod && apiPhotoExprClass) {
+                    auto allList = reinterpret_cast<void* (*)(void*, int, const Method*)>(
+                        getAllExprMethod->methodPointer)(exprMaster, 0, getAllExprMethod);
+                    Il2cppUtils::Tools::CSListEditor<void*> editor(expressionsList);
+                    for (auto masterExpr : Items(allList)) {
+                        if (!masterExpr) continue;
+                        const auto id = Text(masterExpr, "get_Id");
+                        if (id.empty() || serverPresentExprIds.contains(id)) continue;
+                        if (!Get(masterExpr, "get_Stage")) continue;
+                        if (!MethodOf(masterExpr, "GetStagePositionList") ||
+                            Items(Get(masterExpr, "GetStagePositionList")).empty()) {
+                            continue;
+                        }
+                        auto entry = apiPhotoExprClass->New<void*>();
+                        if (!entry) continue;
+                        if (auto ctor = MethodOf(entry, ".ctor", 0)) {
+                            reinterpret_cast<void (*)(void*, const Method*)>(ctor->methodPointer)(entry, ctor);
+                        }
+                        if (!SetText(entry, "set_PhotoExpressionId", id) ||
+                            !Set<bool>(entry, "set_IsUnlocked", true)) {
+                            continue;
+                        }
+                        editor.Add(entry);
+                        serverPresentExprIds.insert(id);
+                        hiddenExprIds.insert(id);
+                        ++injectedExprCount;
+                    }
+                }
+            }
+        }
+
         {
             std::lock_guard lock(photoActivityMutex);
             serverUnlockedPhotoActivities = std::move(realUnlocked);
             unlockedHiddenPhotoActivityIds = std::move(hiddenIds);
+            serverUnlockedPhotoExpressions = std::move(realUnlockedExprs);
+            unlockedHiddenPhotoExpressionIds = std::move(hiddenExprIds);
         }
 
         if (Config::dbgMode) {
-            Log::InfoFmt("PhotoRequests: PhotoListShooting captured realUnlocked=%zu forceUnlocked=%d injected=%d",
-                         serverUnlockedPhotoActivities.size(), unlockedExistingCount, injectedCount);
+            Log::InfoFmt("PhotoRequests: PhotoListShooting captured activities(real=%zu force=%d inj=%d) expressions(real=%zu force=%d inj=%d)",
+                         serverUnlockedPhotoActivities.size(), unlockedExistingCount, injectedCount,
+                         serverUnlockedPhotoExpressions.size(), unlockedExistingExprCount, injectedExprCount);
         }
     }
 
@@ -1983,6 +2320,12 @@ namespace {
         if (!Config::unlockAllPhotoActivity || activityId.empty()) return false;
         std::lock_guard lock(photoActivityMutex);
         return unlockedHiddenPhotoActivityIds.contains(activityId);
+    }
+
+    bool IsUnlockedHiddenPhotoExpression(const std::string& expressionId) {
+        if (!Config::unlockAllPhotoActivity || expressionId.empty()) return false;
+        std::lock_guard lock(photoActivityMutex);
+        return unlockedHiddenPhotoExpressionIds.contains(expressionId);
     }
 
     void SetValidators(CostumeValidator costume, HairValidator hair) {
@@ -2096,7 +2439,16 @@ namespace {
             Config::unlockAllPhotoActivity && isSchedulePhotoReq && !reqActivityId.empty() &&
             (IsUnlockedHiddenPhotoActivity(reqActivityId) ||
              HasNgCharacterForPhotoActivity(reqActivityId, Strings(Get(request, "get_CharacterIds"))));
-        if (!needsHiddenActivityFallback && !Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose) {
+
+        const bool isExpressionPhotoReq =
+            name == "PhotoCheckExpressionShootingRequest" || name == "PhotoCreateExpressionShootingsRequest";
+        const auto reqExpressionId = isExpressionPhotoReq ? Text(request, "get_PhotoExpressionId") : "";
+        const bool needsHiddenExpressionFallback =
+            Config::unlockAllPhotoActivity && isExpressionPhotoReq && !reqExpressionId.empty() &&
+            IsUnlockedHiddenPhotoExpression(reqExpressionId);
+
+        if (!needsHiddenActivityFallback && !needsHiddenExpressionFallback &&
+            !Config::unlockAllLiveCostume && !Config::unlockAllPhotoPose) {
             return PreparedRequest(request);
         }
 
@@ -2117,6 +2469,12 @@ namespace {
         }
         if (needsHiddenActivityFallback) {
             return PreparePhotoActivityFallback(request, name, owned);
+        }
+        if (needsHiddenExpressionFallback) {
+            if (name == "PhotoCheckExpressionShootingRequest") {
+                return PrepareCheckExpressionFallback(request, owned);
+            }
+            return PrepareCreateExpressionFallback(request, owned);
         }
         if (name == "PhotoCreateExpressionShootingsRequest") {
             return PrepareExpressionPoseRequest(request, owned);

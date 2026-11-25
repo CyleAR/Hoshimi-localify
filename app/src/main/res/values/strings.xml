@@ -21,7 +21,7 @@
     <string name="unlockCrossCharacterCostume">Unlock Cross-Character Costumes</string>
     <string name="unlockCrossCharacterHair">Unlock Cross-Character Hairs</string>
     <string name="unlockAllPhotoPose">Unlock All Poses</string>
-    <string name="unlockAllPhotoActivity">Unlock All Schedule Photography Limits</string>
+    <string name="unlockAllPhotoActivity">Unlock All Schedule &amp; Pose Photography Limits</string>
     <string name="liveUseCustomeDress">Live Custom Character</string>
     <string name="live_costume_head_id">Live Custom Head ID (eg. costume_head_hski-cstm-0002)</string>
     <string name="live_custome_dress_id">Live Custom Dress ID (eg. hski-cstm-0002)</string>

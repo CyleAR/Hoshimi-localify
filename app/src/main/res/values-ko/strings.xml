@@ -21,7 +21,7 @@
     <string name="unlockCrossCharacterCostume">타 캐릭터 의상 해금</string>
     <string name="unlockCrossCharacterHair">타 캐릭터 헤어 해금</string>
     <string name="unlockAllPhotoPose">모든 포즈 해금</string>
-    <string name="unlockAllPhotoActivity">모든 스케줄 촬영 제한 해금</string>
+    <string name="unlockAllPhotoActivity">모든 스케줄 · 포즈 촬영 제한 해금</string>
     <string name="liveUseCustomeDress">라이브 캐릭터 커스텀</string>
     <string name="live_costume_head_id">라이브 커스텀 머리 ID (예: costume_head_hski-cstm-0002)</string>
     <string name="live_custome_dress_id">라이브 커스텀 의상 ID (예: hski-cstm-0002)</string>
